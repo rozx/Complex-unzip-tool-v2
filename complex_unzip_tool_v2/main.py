@@ -2,13 +2,28 @@
 Complex Unzip Tool v2 - Advanced zip file management
 复杂解压工具 v2 - 高级压缩文件管理工具
 
-A sophisticated bilingual tool for analyzing and grouping archive files.
+A sop        if rename_errors:
+            for error in rename_errors:
+                safe_print(error)
+    else:
+        safe_print("🔍 No cloaked files detected | 未检测到伪装文件")       safe_print("🔍 No cloaked files detected | 未检测到伪装文件") else:
+        safe_print("🔍 No cloaked files detected | 未检测到伪装文件")       safe_print("🔍 No cloaked files detected | 未检测到伪装文件")       safe_print("� No cloaked files detected | 未检测到伪装文件")       safe_print("� No cloaked files detected | 未检测到伪装文件")icated bilingual tool for analyzing and grouping archive files.
 """
 
 import argparse
 import shutil
+import sys
+import os
 from pathlib import Path
 from typing import List
+
+# Fix Windows console encoding for Unicode characters
+if sys.platform.startswith('win'):
+    try:
+        # Set UTF-8 code page for Windows console
+        os.system('chcp 65001 >nul 2>&1')
+    except Exception:
+        pass
 
 from .file_collector import collect_all_files
 from .file_grouper import group_files_by_subfolder, group_files_by_priority
@@ -16,6 +31,7 @@ from .display_utils import display_file_groups
 from .path_validator import validate_paths
 from .password_manager import load_password_book, display_password_info, save_new_passwords
 from .file_renamer import detect_cloaked_files, rename_cloaked_files, display_rename_suggestions
+from .console_utils import safe_print
 from .archive_extractor import (
     ExtractionResult, find_main_archive_in_group, extract_with_7z, 
     extract_nested_archives, create_completed_structure, clean_up_original_files,
@@ -34,18 +50,18 @@ def process_paths(paths: List[Path], recursive: bool = False, verbose: bool = Fa
         dry_run: Whether to simulate renaming without actually doing it
         no_extract: Whether to skip archive extraction (extraction is default)
     """
-    print(f"Complex Unzip Tool v2 - Processing {len(paths)} path(s)")
-    print(f"复杂解压工具 v2 - 正在处理 {len(paths)} 个路径")
-    print("-" * 50)
+    safe_print(f"Complex Unzip Tool v2 - Processing {len(paths)} path(s)")
+    safe_print(f"复杂解压工具 v2 - 正在处理 {len(paths)} 个路径")
+    safe_print("-" * 50)
     
     # Collect all files from the given paths
     all_files = collect_all_files(paths, recursive)
     
     if not all_files:
-        print("❌ No files found | 未找到文件")
+        safe_print("❌ No files found | 未找到文件")
         return
     
-    print(f"📁 Found {len(all_files)} total files | 总共找到 {len(all_files)} 个文件")
+    safe_print(f"📁 Found {len(all_files)} total files | 总共找到 {len(all_files)} 个文件")
     
     # Determine root path for grouping logic
     root_path = paths[0] if len(paths) == 1 and paths[0].is_dir() else Path.cwd()
@@ -74,18 +90,18 @@ def process_paths(paths: List[Path], recursive: bool = False, verbose: bool = Fa
                     updated_files.append(file_path)
             
             all_files = updated_files
-            print(f"📁 Updated file list after renaming | 重命名后更新文件列表")
+            safe_print(f"📁 Updated file list after renaming | 重命名后更新文件列表")
         
         if rename_errors:
             for error in rename_errors:
-                print(error)
+                safe_print(error)
     else:
         print("� No cloaked files detected | 未检测到伪装文件")
     
     if verbose:
-        print("\n📋 All files found | 找到的所有文件:")
+        safe_print("\n📋 All files found | 找到的所有文件:")
         for file_path in sorted(all_files):
-            print(f"   📄 {file_path}")
+            safe_print(f"   📄 {file_path}")
         
         # Display password information if verbose
         display_password_info(passwords, verbose=True)
@@ -101,9 +117,9 @@ def process_paths(paths: List[Path], recursive: bool = False, verbose: bool = Fa
     
     # Perform extraction by default (unless disabled or dry-run)
     if not no_extract and not dry_run:
-        print("\n" + "=" * 60)
-        print("🚀 STARTING ARCHIVE EXTRACTION | 开始压缩文件解压")
-        print("=" * 60)
+        safe_print("\n" + "=" * 60)
+        safe_print("🚀 STARTING ARCHIVE EXTRACTION | 开始压缩文件解压")
+        safe_print("=" * 60)
         
         extraction_result = ExtractionResult()
         completed_dir = root_path / "completed"
@@ -111,18 +127,18 @@ def process_paths(paths: List[Path], recursive: bool = False, verbose: bool = Fa
         
         # Process each group in priority_groups
         for group_name, group_files in priority_groups.items():
-            print(f"\n📦 Processing group: {group_name} | 处理组: {group_name}")
-            print("-" * 40)
+            safe_print(f"\n📦 Processing group: {group_name} | 处理组: {group_name}")
+            safe_print("-" * 40)
             
             # Find the main archive to extract
             main_archive = find_main_archive_in_group(group_files)
             
             if not main_archive:
-                print(f"  ❌ No main archive found in group | 组中未找到主压缩文件")
+                safe_print(f"  ❌ No main archive found in group | 组中未找到主压缩文件")
                 extraction_result.failed_extractions.append((group_name, "No main archive found"))
                 continue
             
-            print(f"  🎯 Main archive: {main_archive.name}")
+            safe_print(f"  🎯 Main archive: {main_archive.name}")
             
             # Create temporary extraction directory
             temp_extract_dir = main_archive.parent / f"temp_extract_{group_name}"
@@ -141,10 +157,10 @@ def process_paths(paths: List[Path], recursive: bool = False, verbose: bool = Fa
                             extraction_result.new_passwords.append(user_password)
                 
                 if success:
-                    print(f"  ✅ Extracted main archive successfully")
+                    safe_print(f"  ✅ Extracted main archive successfully")
                     
                     # Extract nested archives recursively
-                    print(f"  🔄 Checking for nested archives...")
+                    safe_print(f"  🔄 Checking for nested archives...")
                     final_files, new_passwords = extract_nested_archives(temp_extract_dir, passwords)
                     extraction_result.new_passwords.extend(new_passwords)
                     
@@ -154,7 +170,7 @@ def process_paths(paths: List[Path], recursive: bool = False, verbose: bool = Fa
                     
                     # Clean up original files
                     deleted, failed = clean_up_original_files(group_files)
-                    print(f"  🗑️  Cleaned up: {deleted} files deleted, {failed} failed")
+                    safe_print(f"  🗑️  Cleaned up: {deleted} files deleted, {failed} failed")
                     
                     # Clean up temporary directory
                     if temp_extract_dir.exists():
@@ -163,7 +179,7 @@ def process_paths(paths: List[Path], recursive: bool = False, verbose: bool = Fa
                     extraction_result.successful_extractions.append((group_name, len(final_files)))
                     
                 else:
-                    print(f"  ❌ Extraction failed: {message}")
+                    safe_print(f"  ❌ Extraction failed: {message}")
                     extraction_result.failed_extractions.append((group_name, message))
                     
                     # Clean up failed extraction directory
@@ -171,7 +187,7 @@ def process_paths(paths: List[Path], recursive: bool = False, verbose: bool = Fa
                         shutil.rmtree(temp_extract_dir, ignore_errors=True)
                 
             except Exception as e:
-                print(f"  ❌ Error processing group: {e}")
+                safe_print(f"  ❌ Error processing group: {e}")
                 extraction_result.failed_extractions.append((group_name, str(e)))
                 
                 # Clean up on error
@@ -186,17 +202,17 @@ def process_paths(paths: List[Path], recursive: bool = False, verbose: bool = Fa
         display_extraction_results(extraction_result)
         
     elif not no_extract and dry_run:
-        print("\n💡 Extraction not performed in dry-run mode | 预演模式下不执行解压")
-        print("💡 Use without --dry-run to perform actual extraction | 不使用 --dry-run 执行实际解压")
+        safe_print("\n💡 Extraction not performed in dry-run mode | 预演模式下不执行解压")
+        safe_print("💡 Use without --dry-run to perform actual extraction | 不使用 --dry-run 执行实际解压")
     elif no_extract:
-        print("\n💡 Extraction skipped (--no-extract specified) | 跳过解压（指定了 --no-extract）")
+        safe_print("\n💡 Extraction skipped (--no-extract specified) | 跳过解压（指定了 --no-extract）")
     
     # Display password book summary (non-verbose)
     if not verbose and passwords:
         display_password_info(passwords, verbose=False)
     
-    print("\n" + "-" * 50)
-    print("Processing complete! | 处理完成！")
+    safe_print("\n" + "-" * 50)
+    safe_print("Processing complete! | 处理完成！")
 
 
 def main():
@@ -207,15 +223,15 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Features | 功能:
-  • Automatic archive extraction with 7z.exe (default) | 使用7z.exe自动解压（默认）
-  • Recursive directory processing (default) | 递归目录处理（默认）
-  • Automatic cloaked file renaming (*.001删 → *.001) | 自动伪装文件重命名
-  • Password book loading from passwords.txt | 从passwords.txt加载密码本
-  • Intelligent multi-part archive detection | 智能多部分压缩文件检测
-  • Recursive nested archive extraction | 递归嵌套压缩文件解压
-  • Interactive password prompting | 交互式密码提示
-  • Automatic file organization to 'completed' folder | 自动文件整理到'completed'文件夹
-  • Bilingual interface (English/Chinese) | 双语界面（英文/中文）
+  * Automatic archive extraction with 7z.exe (default) | 使用7z.exe自动解压（默认）
+  * Recursive directory processing (default) | 递归目录处理（默认）
+  * Automatic cloaked file renaming (*.001删 → *.001) | 自动伪装文件重命名
+  * Password book loading from passwords.txt | 从passwords.txt加载密码本
+  * Intelligent multi-part archive detection | 智能多部分压缩文件检测
+  * Recursive nested archive extraction | 递归嵌套压缩文件解压
+  * Interactive password prompting | 交互式密码提示
+  * Automatic file organization to 'completed' folder | 自动文件整理到'completed'文件夹
+  * Bilingual interface (English/Chinese) | 双语界面（英文/中文）
 
 Examples | 示例:
   complex-unzip /path/to/archives                    # Extract all archives recursively (default) | 递归解压所有压缩文件（默认）
@@ -270,20 +286,55 @@ Examples | 示例:
     
     args = parser.parse_args()
     
-    # Show help if no paths provided
+    # Handle drag and drop scenario (when used as compiled EXE)
+    # If no paths provided, show help but also check for interactive mode
     if not args.paths:
-        parser.print_help()
+        # Check if running as compiled EXE and suggest drag and drop
+        import sys
+        if getattr(sys, 'frozen', False):
+            # Running as compiled EXE
+            safe_print("🖱️  Drag and Drop Mode | 拖拽模式")
+            safe_print("=" * 50)
+            safe_print("This tool supports drag and drop!")
+            safe_print("此工具支持拖拽操作！")
+            safe_print("")
+            safe_print("To use:")
+            safe_print("使用方法：")
+            safe_print("1. Drag files or folders onto this EXE file")
+            safe_print("   将文件或文件夹拖拽到此 EXE 文件上")
+            safe_print("2. Or run from command line with paths as arguments")
+            safe_print("   或从命令行运行并提供路径参数")
+            safe_print("")
+            safe_print("For command line usage:")
+            safe_print("命令行用法：")
+            parser.print_help()
+            safe_print("")
+            input("Press Enter to exit | 按回车键退出...")
+        else:
+            # Running in development mode
+            parser.print_help()
         return
     
+    # Show drag and drop confirmation for EXE mode
+    import sys
+    if getattr(sys, 'frozen', False) and len(args.paths) > 0:
+        safe_print("🖱️  Files/folders received via drag and drop!")
+        safe_print("🖱️  通过拖拽接收到文件/文件夹！")
+        safe_print("=" * 50)
+        for i, path in enumerate(args.paths, 1):
+            safe_print(f"{i}. {path}")
+        safe_print("=" * 50)
+        safe_print("")
+    
     if args.verbose:
-        print("Verbose mode enabled | 详细模式已启用")
-        print(f"Arguments | 参数: {vars(args)}")
+        safe_print("Verbose mode enabled | 详细模式已启用")
+        safe_print(f"Arguments | 参数: {vars(args)}")
     
     # Validate paths
     try:
         validated_paths = validate_paths(args.paths)
     except FileNotFoundError as e:
-        print(f"❌ Error: {e}")
+        safe_print(f"❌ Error: {e}")
         exit(1)
     
     # Determine recursive behavior (default is True, disabled by --no-recursive or -r)
@@ -291,6 +342,13 @@ Examples | 示例:
     
     # Process the paths
     process_paths(validated_paths, recursive, args.verbose, args.dry_run, args.no_extract)
+    
+    # Pause for EXE mode so users can see results
+    import sys
+    if getattr(sys, 'frozen', False):
+        safe_print("")
+        safe_print("=" * 50)
+        input("Press Enter to exit | 按回车键退出...")
 
 
 if __name__ == "__main__":

@@ -2,6 +2,7 @@
 
 from pathlib import Path
 from typing import List, Optional
+from .console_utils import safe_print
 
 
 def load_password_book(root_path: Path) -> List[str]:
@@ -25,14 +26,14 @@ def load_password_book(root_path: Path) -> List[str]:
                         passwords.append(password)
             
             if passwords:
-                print(f"📖 Loaded {len(passwords)} passwords from password book | 从密码本加载了 {len(passwords)} 个密码")
+                safe_print(f"📖 Loaded {len(passwords)} passwords from password book | 从密码本加载了 {len(passwords)} 个密码")
             else:
-                print("📖 Password book found but no passwords loaded | 找到密码本但未加载密码")
+                safe_print("📖 Password book found but no passwords loaded | 找到密码本但未加载密码")
                 
         except Exception as e:
-            print(f"⚠️  Error reading password book: {e} | 读取密码本时出错: {e}")
+            safe_print(f"⚠️  Error reading password book: {e} | 读取密码本时出错: {e}")
     else:
-        print("📖 No password book found (passwords.txt) | 未找到密码本 (passwords.txt)")
+        safe_print("📖 No password book found (passwords.txt) | 未找到密码本 (passwords.txt)")
     
     return passwords
 
@@ -65,8 +66,8 @@ def display_password_info(passwords: List[str], verbose: bool = False) -> None:
     if not passwords:
         return
     
-    print(f"\n📖 Password Book Summary | 密码本摘要:")
-    print(f"   📊 Total passwords: {len(passwords)} | 总密码数: {len(passwords)}")
+    safe_print(f"\n📖 Password Book Summary | 密码本摘要:")
+    safe_print(f"   📊 Total passwords: {len(passwords)} | 总密码数: {len(passwords)}")
     
     if verbose and passwords:
         print(f"   📋 First few passwords | 前几个密码:")
@@ -100,7 +101,7 @@ def save_new_passwords(passwords_file: Path, new_passwords: List[str]) -> None:
                     if password:
                         existing_passwords.add(password)
         except Exception as e:
-            print(f"⚠️  Error reading password file: {e}")
+            safe_print(f"⚠️  Error reading password file: {e}")
     
     # Add new passwords
     passwords_to_add = []
@@ -114,6 +115,6 @@ def save_new_passwords(passwords_file: Path, new_passwords: List[str]) -> None:
             with open(passwords_file, 'a', encoding='utf-8') as f:
                 for password in passwords_to_add:
                     f.write(f"{password}\n")
-            print(f"🔐 Added {len(passwords_to_add)} new passwords to password book | 向密码本添加了 {len(passwords_to_add)} 个新密码")
+            safe_print(f"🔐 Added {len(passwords_to_add)} new passwords to password book | 向密码本添加了 {len(passwords_to_add)} 个新密码")
         except Exception as e:
-            print(f"⚠️  Error saving passwords: {e} | 保存密码时出错: {e}")
+            safe_print(f"⚠️  Error saving passwords: {e} | 保存密码时出错: {e}")
