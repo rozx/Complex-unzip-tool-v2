@@ -7,7 +7,7 @@ from pathlib import Path
 from unittest.mock import patch
 from complex_unzip_tool_v2.main import main, process_paths
 from complex_unzip_tool_v2.path_validator import validate_paths
-from complex_unzip_tool_v2.file_collector import collect_all_files
+from complex_unzip_tool_v2.file_collector import collect_all_files, is_system_file
 from complex_unzip_tool_v2.file_grouper import group_files_by_subfolder, group_files_by_similarity, group_files_by_priority
 from complex_unzip_tool_v2.filename_utils import normalize_filename, calculate_similarity, extract_base_name
 
@@ -25,7 +25,8 @@ def test_main_shows_help_with_no_args(capsys):
         except SystemExit:
             pass  # Expected behavior when no args provided
     captured = capsys.readouterr()
-    assert "usage:" in captured.err.lower() or "required" in captured.err.lower()
+    # Help text should now be in stdout (normal help), not stderr (error)
+    assert "usage:" in captured.out.lower() or "Complex Unzip Tool v2" in captured.out
 
 
 def test_validate_paths_with_existing_file():
@@ -129,6 +130,118 @@ def test_collect_all_files():
         assert file1 in files_recursive
         assert file2 in files_recursive
         assert file3 in files_recursive
+
+
+def test_collect_all_files_excludes_passwords_txt():
+    """Test that passwords.txt files are excluded from file collection."""
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp_path = Path(tmp_dir)
+        
+        # Create test files including passwords.txt
+        file1 = tmp_path / "test1.txt"
+        file2 = tmp_path / "archive.zip"
+        passwords_file = tmp_path / "passwords.txt"
+        passwords_file_upper = tmp_path / "PASSWORDS.TXT"  # Test case insensitivity
+        
+        file1.write_text("content1")
+        file2.write_text("archive content")
+        passwords_file.write_text("password1\npassword2")
+        passwords_file_upper.write_text("password3\npassword4")
+        
+        # Test that passwords.txt files are excluded
+        files = collect_all_files([tmp_path], recursive=False)
+        assert len(files) == 2  # Should exclude both passwords.txt files
+        assert file1 in files
+        assert file2 in files
+        assert passwords_file not in files
+        assert passwords_file_upper not in files
+        
+        # Test with explicit passwords.txt path
+        files_explicit = collect_all_files([passwords_file], recursive=False)
+        assert len(files_explicit) == 0  # Should be empty as passwords.txt is filtered out
+
+
+def test_collect_all_files_excludes_system_files():
+    """Test that system files are excluded from file collection."""
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp_path = Path(tmp_dir)
+        
+        # Create regular files
+        file1 = tmp_path / "document.txt"
+        file2 = tmp_path / "archive.zip"
+        file1.write_text("content1")
+        file2.write_text("archive content")
+        
+        # Create Windows system files
+        thumbs_db = tmp_path / "Thumbs.db"
+        desktop_ini = tmp_path / "desktop.ini"
+        system_file = tmp_path / "config.sys"
+        thumbs_db.write_text("thumbnail cache")
+        desktop_ini.write_text("[.ShellClassInfo]")
+        system_file.write_text("system config")
+        
+        # Create macOS system files
+        ds_store = tmp_path / ".DS_Store"
+        spotlight = tmp_path / ".Spotlight-V100"
+        ds_store.write_text("macos metadata")
+        spotlight.write_text("spotlight index")
+        
+        # Create Linux system files
+        directory_file = tmp_path / ".directory"
+        trash_file = tmp_path / ".Trash-1000"
+        directory_file.write_text("kde directory config")
+        trash_file.write_text("trash metadata")
+        
+        # Test that system files are excluded
+        files = collect_all_files([tmp_path], recursive=False)
+        assert len(files) == 2  # Should only include regular files
+        assert file1 in files
+        assert file2 in files
+        
+        # Verify system files are excluded
+        assert thumbs_db not in files
+        assert desktop_ini not in files
+        assert system_file not in files
+        assert ds_store not in files
+        assert spotlight not in files
+        assert directory_file not in files
+        assert trash_file not in files
+
+
+def test_is_system_file():
+    """Test the is_system_file function with various file types."""
+    # Regular files should not be system files
+    assert not is_system_file(Path("document.txt"))
+    assert not is_system_file(Path("archive.zip"))
+    assert not is_system_file(Path("program.exe"))
+    
+    # Windows system files
+    assert is_system_file(Path("Thumbs.db"))
+    assert is_system_file(Path("THUMBS.DB"))  # Case insensitive
+    assert is_system_file(Path("desktop.ini"))
+    assert is_system_file(Path("DESKTOP.INI"))
+    assert is_system_file(Path("config.sys"))
+    assert is_system_file(Path("autorun.inf"))
+    
+    # macOS system files
+    assert is_system_file(Path(".DS_Store"))
+    assert is_system_file(Path(".ds_store"))  # Case insensitive
+    assert is_system_file(Path(".Spotlight-V100"))
+    assert is_system_file(Path(".Trash"))
+    
+    # Linux system files
+    assert is_system_file(Path(".directory"))
+    assert is_system_file(Path(".Trash-1000"))
+    assert is_system_file(Path("lost+found"))
+    
+    # Hidden files (should be system files, except archives)
+    assert is_system_file(Path(".hidden_file"))
+    assert is_system_file(Path(".config"))
+    
+    # Hidden archive files should NOT be system files
+    assert not is_system_file(Path(".secret.zip"))
+    assert not is_system_file(Path(".backup.7z"))
+    assert not is_system_file(Path(".archive.rar"))
 
 
 def test_group_files_by_subfolder():
