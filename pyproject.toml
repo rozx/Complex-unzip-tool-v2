@@ -7,7 +7,7 @@ readme = "README.md"
 packages = [{include = "complex_unzip_tool_v2"}]
 
 [tool.poetry.scripts]
-complex-unzip = "complex_unzip_tool_v2.main:main"
+unzip = "complex_unzip_tool_v2.main:main"
 
 [tool.poetry.dependencies]
 python = "^3.13"

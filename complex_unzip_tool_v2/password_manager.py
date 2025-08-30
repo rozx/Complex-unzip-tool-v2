@@ -6,7 +6,7 @@ from .console_utils import safe_print
 
 
 def load_password_book(root_path: Path) -> List[str]:
-    """Load passwords from passwords.txt file in the root directory.
+    """Load passwords from passwords.txt file, checking multiple locations.
     
     Args:
         root_path: The root directory path to look for passwords.txt
@@ -15,9 +15,21 @@ def load_password_book(root_path: Path) -> List[str]:
         List of passwords, one per line from the file
     """
     passwords = []
-    passwords_file = root_path / "passwords.txt"
     
-    if passwords_file.exists() and passwords_file.is_file():
+    # Check multiple locations for passwords.txt
+    possible_locations = [
+        root_path / "passwords.txt",  # Target directory
+        Path.cwd() / "passwords.txt",  # Current working directory (project dir)
+        Path(__file__).parent.parent / "passwords.txt"  # Tool's directory
+    ]
+    
+    passwords_file = None
+    for location in possible_locations:
+        if location.exists() and location.is_file():
+            passwords_file = location
+            break
+    
+    if passwords_file:
         try:
             with open(passwords_file, 'r', encoding='utf-8') as f:
                 for line in f:
@@ -27,6 +39,7 @@ def load_password_book(root_path: Path) -> List[str]:
             
             if passwords:
                 safe_print(f"📖 Loaded {len(passwords)} passwords from password book | 从密码本加载了 {len(passwords)} 个密码")
+                safe_print(f"📂 Password file: {passwords_file}")
             else:
                 safe_print("📖 Password book found but no passwords loaded | 找到密码本但未加载密码")
                 
