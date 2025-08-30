@@ -4,33 +4,14 @@ from pathlib import Path
 from typing import Dict, List
 
 
-def display_file_groups(subfolder_groups: Dict[Path, List[Path]], 
-                       priority_groups: Dict[str, List[Path]], 
+def display_file_groups(priority_groups: Dict[str, List[Path]], 
                        verbose: bool = False) -> None:
-    """Display the grouped files in a simplified single-layer format.
+    """Display the grouped files in a unified format.
     
     Args:
-        subfolder_groups: Files grouped by subfolder (for reference)
         priority_groups: Files grouped by priority (main display)
         verbose: Whether to show detailed information
     """
-    print("\n" + "=" * 60)
-    print("📁 GROUPING BY SUBFOLDER | 按子文件夹分组")
-    print("=" * 60)
-    
-    for folder, files in subfolder_groups.items():
-        print(f"\n📂 {folder} ({len(files)} files | {len(files)} 个文件)")
-        if verbose:
-            for file_path in sorted(files):
-                print(f"   📄 {file_path.name}")
-        else:
-            # Show first few files and count if there are more
-            displayed_files = sorted(files)[:3]
-            for file_path in displayed_files:
-                print(f"   📄 {file_path.name}")
-            if len(files) > 3:
-                print(f"   ... and {len(files) - 3} more files | 还有 {len(files) - 3} 个文件")
-    
     print("\n" + "=" * 60)
     print("🎯 ARCHIVE GROUPS | 归档分组")
     print("=" * 60)
@@ -48,6 +29,13 @@ def display_file_groups(subfolder_groups: Dict[Path, List[Path]],
             archive_name = group_name.replace("root_multipart_", "")
             icon = "📦"
             display_name = f"{archive_name} (multi-part | 多部分)"
+        elif "_multipart_" in group_name:
+            # Multi-part archive in subfolder (e.g., "森系_multipart_森系.7z")
+            parts = group_name.split("_multipart_")
+            folder_name = parts[0]
+            archive_name = parts[1] if len(parts) > 1 else "archive"
+            icon = "📦"
+            display_name = f"{archive_name} (multi-part | 多部分)"
         elif group_name.startswith("root_similar_"):
             # Similar files in root
             base_name = group_name.replace("root_similar_", "")
@@ -56,6 +44,13 @@ def display_file_groups(subfolder_groups: Dict[Path, List[Path]],
         elif group_name.startswith("root_single_"):
             # Single file in root
             file_name = group_name.replace("root_single_", "")
+            icon = "📄"
+            display_name = f"{file_name} (single file | 单个文件)"
+        elif "_single_" in group_name:
+            # Single file in subfolder (e.g., "森系_single_11111")
+            parts = group_name.split("_single_")
+            folder_name = parts[0]
+            file_name = parts[1] if len(parts) > 1 else "file"
             icon = "📄"
             display_name = f"{file_name} (single file | 单个文件)"
         else:

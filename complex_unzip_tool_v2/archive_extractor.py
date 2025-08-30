@@ -40,41 +40,17 @@ def get_7z_executable() -> Path:
     return seven_z_path
 
 
-def is_archive_file(file_path: Path, strict: bool = True) -> bool:
+def is_archive_file(file_path: Path) -> bool:
     """Check if a file is likely an archive file.
     
     Args:
         file_path: Path to the file to check
-        strict: If True, only check known archive extensions. If False, treat all files as potential archives.
         
     Returns:
-        True if the file appears to be an archive
+        Always True - treat all files as potential archives for maximum detection
     """
-    if not strict:
-        # In non-strict mode, treat any file as a potential archive
-        # This is useful for cloaked files with disguised extensions
-        return True
-    
-    archive_extensions = {
-        '.7z', '.zip', '.rar', '.tar', '.gz', '.bz2', '.xz',
-        '.001', '.002', '.003', '.004', '.005', '.006', '.007', '.008', '.009',
-        '.part1', '.part2', '.part3', '.part4', '.part5',
-        '.z01', '.z02', '.z03', '.z04', '.z05'
-    }
-    
-    # Check file extension
-    if file_path.suffix.lower() in archive_extensions:
-        return True
-    
-    # Check for numbered extensions like .001, .002, etc.
-    if re.match(r'\.\d{3}$', file_path.suffix):
-        return True
-    
-    # Check for part extensions
-    if re.match(r'\.part\d+$', file_path.suffix):
-        return True
-    
-    return False
+    # Always treat any file as a potential archive to catch all cloaked files
+    return True
 
 
 def is_partial_archive(archive_path: Path) -> Tuple[bool, Optional[str]]:
@@ -141,7 +117,7 @@ def is_partial_archive(archive_path: Path) -> Tuple[bool, Optional[str]]:
         return False, None
 
 
-def run_with_timeout(cmd, timeout_seconds=30):
+def run_with_timeout(cmd, timeout_seconds=300):
     """Run a command with a robust timeout mechanism that can handle hanging processes."""
     import subprocess
     import threading
@@ -173,6 +149,92 @@ def run_with_timeout(cmd, timeout_seconds=30):
     thread.daemon = True
     thread.start()
     thread.join(timeout_seconds)
+    
+    if thread.is_alive():
+        # Thread is still running, process timed out
+        result['timed_out'] = True
+        if result['process']:
+            try:
+                # Try to terminate the process gracefully
+                result['process'].terminate()
+                time.sleep(2)
+                if result['process'].poll() is None:
+                    # Force kill if still running
+                    result['process'].kill()
+                    time.sleep(1)
+            except Exception:
+                pass
+        
+        # Wait a bit more for thread to finish
+        thread.join(5)
+    
+    return result
+
+
+def run_with_progress(cmd, timeout_seconds=300, progress_callback=None):
+    """Run a command with simple progress indication.
+    
+    Args:
+        cmd: Command to run
+        timeout_seconds: Maximum time to wait
+        progress_callback: Function to call with progress updates
+        
+    Returns:
+        Same format as run_with_timeout but with progress indication
+    """
+    import subprocess
+    import threading
+    import time
+    import sys
+    
+    result = {'process': None, 'stdout': '', 'stderr': '', 'returncode': None, 'timed_out': False}
+    progress_active = True
+    
+    def progress_indicator():
+        """Show a simple progress indicator while extraction is running."""
+        if not progress_callback:
+            return
+            
+        dots = 0
+        while progress_active:
+            progress_callback(f"{'.' * (dots % 4):<3}")
+            dots += 1
+            time.sleep(1)
+    
+    def target():
+        try:
+            process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                encoding='utf-8',
+                errors='replace',
+                creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if os.name == 'nt' else 0
+            )
+            result['process'] = process
+            stdout, stderr = process.communicate()
+            result['stdout'] = stdout
+            result['stderr'] = stderr
+            result['returncode'] = process.returncode
+        except Exception as e:
+            result['stderr'] = str(e)
+            result['returncode'] = -1
+    
+    # Start progress indicator thread
+    if progress_callback:
+        progress_thread = threading.Thread(target=progress_indicator)
+        progress_thread.daemon = True
+        progress_thread.start()
+    
+    # Start main process thread
+    thread = threading.Thread(target=target)
+    thread.daemon = True
+    thread.start()
+    thread.join(timeout_seconds)
+    
+    # Stop progress indicator
+    progress_active = False
     
     if thread.is_alive():
         # Thread is still running, process timed out
@@ -332,26 +394,26 @@ def extract_partial_archive_and_reassemble(archive_path: Path, output_dir: Path,
                     # Try with available passwords
                     for password in passwords:
                         cmd = [str(seven_z), 'x', str(archive_temp), f'-o{str(temp_extract_dir)}', f'-p{password}', '-y']
-                        result = run_with_timeout(cmd, timeout_seconds=30)  # 30 second timeout for password attempts
+                        result = run_with_timeout(cmd, timeout_seconds=1800)  # 30 minute timeout for password attempts
                         
                         if result['timed_out']:
                             continue
                             
                         if result['returncode'] == 0:
-                            safe_print(f"  📦 Extracted partial archive container with password")
+                            safe_print(f"  📦 Extracted partial archive container with password | 使用密码解压部分压缩文件容器")
                             break
                     else:
                         # None of the available passwords worked, ask user
-                        safe_print(f"  🔐 Archive requires password. Available passwords failed.")
-                        safe_print(f"  💡 Please add the correct password to passwords.txt file")
+                        safe_print(f"  🔐 Archive requires password. Available passwords failed. | 压缩文件需要密码。可用密码失败。")
+                        safe_print(f"  💡 Please add the correct password to passwords.txt file | 请将正确的密码添加到 passwords.txt 文件")
                         return False, f"Archive is password-protected and requires manual password entry", None
                 else:
                     return False, f"Failed to extract partial archive: {stderr_text}", None
             
             if result['timed_out']:
-                return False, f"Partial archive container extraction timed out (30s). Archive may be corrupted: {archive_path.name}", None
+                return False, f"Partial archive container extraction timed out (5 minutes). Archive may be corrupted: {archive_path.name}", None
             else:
-                safe_print(f"  📦 Extracted partial archive container successfully")
+                safe_print(f"  📦 Extracted partial archive container successfully | 部分压缩文件容器解压成功")
         
         finally:
             # Clean up temp archive copy
@@ -377,15 +439,15 @@ def extract_partial_archive_and_reassemble(archive_path: Path, output_dir: Path,
         
         if not partial_files:
             # Maybe the archive itself is the partial file, not a container
-            safe_print(f"  ⚠️ No partial files found in container. Treating as direct partial archive.")
+            safe_print(f"  ⚠️ No partial files found in container. Treating as direct partial archive. | 容器中未找到部分文件。视为直接部分压缩文件。")
             return False, f"Archive {archive_path.name} appears to be a partial file itself, not a container. Look for other parts (.001, .002, etc.) in the same directory.", None
         
-        safe_print(f"  🧩 Found {len(partial_files)} partial files for {len(base_names)} archive(s)")
+        safe_print(f"  🧩 Found {len(partial_files)} partial files for {len(base_names)} archive(s) | 找到 {len(partial_files)} 个部分文件，共 {len(base_names)} 个压缩文件")
         
         # Check if we have the first part (.001) - we need this to extract multi-part archives
         first_parts = [f for f in partial_files if f.name.endswith('.001')]
         if not first_parts:
-            safe_print(f"  ⚠️ Missing .001 (first part) file. Cannot extract multi-part archive without first part.")
+            safe_print(f"  ⚠️ Missing .001 (first part) file. Cannot extract multi-part archive without first part. | 缺少 .001（第一部分）文件。没有第一部分无法解压多部分压缩文件。")
             return False, f"Missing first part (.001) for multi-part archive extraction", None
         
         # For each first part, try to extract the complete multi-part archive
@@ -394,22 +456,28 @@ def extract_partial_archive_and_reassemble(archive_path: Path, output_dir: Path,
         
         for first_part in first_parts:
             base_name = re.sub(r'\.001$', '', first_part.name)
-            safe_print(f"  🔗 Extracting multi-part archive: {base_name}")
+            safe_print(f"  🔗 Extracting multi-part archive: {base_name} | 解压多部分压缩文件: {base_name}")
             
             # Create output directory for this archive
             part_output_dir = output_dir / base_name
             part_output_dir.mkdir(exist_ok=True)
             
-            # Use shorter timeout for multi-part extraction
+            # Progress callback for multi-part extraction
+            def show_multipart_progress(dots):
+                """Display multi-part extraction progress to user."""
+                safe_print(f"  ⏳ Extracting {base_name}{dots} | 正在解压 {base_name}{dots}", end='\r')
+            
+            # Use progress-enabled extraction for multi-part archives
             cmd = [str(seven_z), 'x', str(first_part), f'-o{str(part_output_dir)}', '-y']
-            result = run_with_timeout(cmd, timeout_seconds=60)  # 1 minute timeout
+            result = run_with_progress(cmd, timeout_seconds=1800, progress_callback=show_multipart_progress)  # 30 minute timeout
             
             if result['timed_out']:
-                safe_print(f"  ⏰ Extraction of {base_name} timed out")
+                safe_print(f"  ⏰ Extraction of {base_name} timed out (30 minutes) | {base_name} 解压超时 (30分钟)")
                 continue
                 
             if result['returncode'] == 0:
-                safe_print(f"  ✅ Successfully extracted complete {base_name} archive")
+                safe_print()  # Clear progress line
+                safe_print(f"  ✅ Successfully extracted complete {base_name} archive | 成功解压完整的 {base_name} 压缩文件")
                 total_extracted += 1
             else:
                 stderr_text = result.get('stderr', '')
@@ -417,20 +485,21 @@ def extract_partial_archive_and_reassemble(archive_path: Path, output_dir: Path,
                     # Try with passwords
                     for password in passwords:
                         cmd = [str(seven_z), 'x', str(first_part), f'-o{str(part_output_dir)}', f'-p{password}', '-y']
-                        result = run_with_timeout(cmd, timeout_seconds=60)
+                        result = run_with_progress(cmd, timeout_seconds=1800, progress_callback=show_multipart_progress)
                         
                         if result['timed_out']:
                             continue
                             
                         if result['returncode'] == 0:
-                            safe_print(f"  ✅ Successfully extracted {base_name} with password")
+                            safe_print()  # Clear progress line
+                            safe_print(f"  ✅ Successfully extracted {base_name} with password | 使用密码成功解压 {base_name}")
                             total_extracted += 1
                             password_used = password
                             break
                     else:
-                        safe_print(f"  ❌ Failed to extract {base_name} with any password")
+                        safe_print(f"  ❌ Failed to extract {base_name} with any password | 使用任何密码解压 {base_name} 失败")
                 else:
-                    safe_print(f"  ❌ Failed to extract {base_name}: {stderr_text}")
+                    safe_print(f"  ❌ Failed to extract {base_name}: {stderr_text} | 解压失败 {base_name}: {stderr_text}")
         
         if total_extracted > 0:
             return True, f"Successfully extracted {total_extracted} complete archives from partial files", password_used
@@ -598,51 +667,51 @@ def find_missing_parts_in_other_archives(missing_parts: List[int], base_name: st
     
     for group_name, group_files in all_groups.items():
         for file_path in group_files:
-            if is_archive_file(file_path, strict=False):  # Use non-strict mode to catch cloaked archives
-                # Quick check if this archive might contain the missing parts
-                try:
-                    is_partial, detected_base = is_partial_archive(file_path)
-                    if is_partial:
-                        # Try to determine which parts this archive contains
-                        seven_z = get_7z_executable()
-                        archive_temp, needs_cleanup = get_ascii_temp_path(file_path)
+            # All files are treated as potential archives
+            # Quick check if this archive might contain the missing parts
+            try:
+                is_partial, detected_base = is_partial_archive(file_path)
+                if is_partial:
+                    # Try to determine which parts this archive contains
+                    seven_z = get_7z_executable()
+                    archive_temp, needs_cleanup = get_ascii_temp_path(file_path)
+                    
+                    try:
+                        cmd = [str(seven_z), 'l', str(archive_temp)]
+                        result = subprocess.run(
+                            cmd, 
+                            capture_output=True, 
+                            text=True, 
+                            timeout=30,  # Increased timeout for larger archives
+                            encoding='utf-8',
+                            errors='replace'
+                        )
                         
-                        try:
-                            cmd = [str(seven_z), 'l', str(archive_temp)]
-                            result = subprocess.run(
-                                cmd, 
-                                capture_output=True, 
-                                text=True, 
-                                timeout=30,  # Increased timeout for larger archives
-                                encoding='utf-8',
-                                errors='replace'
-                            )
-                            
-                            if result.returncode == 0:
-                                output = result.stdout.lower()
-                                # Check if this archive contains any of our missing parts
-                                for part_num in missing_parts:
-                                    # Try multiple pattern matching approaches due to encoding issues
-                                    part_pattern = f'{base_name.lower()}.{part_num:03d}'
-                                    extension_pattern = f'.7z.{part_num:03d}'  # More flexible pattern
+                        if result.returncode == 0:
+                            output = result.stdout.lower()
+                            # Check if this archive contains any of our missing parts
+                            for part_num in missing_parts:
+                                # Try multiple pattern matching approaches due to encoding issues
+                                part_pattern = f'{base_name.lower()}.{part_num:03d}'
+                                extension_pattern = f'.7z.{part_num:03d}'  # More flexible pattern
+                                
+                                # Check for exact match first
+                                if part_pattern in output:
+                                    part_locations[part_num] = file_path
+                                # Check for extension pattern (more robust for encoding issues)
+                                elif extension_pattern in output:
+                                    part_locations[part_num] = file_path
                                     
-                                    # Check for exact match first
-                                    if part_pattern in output:
-                                        part_locations[part_num] = file_path
-                                    # Check for extension pattern (more robust for encoding issues)
-                                    elif extension_pattern in output:
-                                        part_locations[part_num] = file_path
-                                        
-                        except Exception as e:
-                            pass
-                        finally:
-                            if needs_cleanup and archive_temp.exists():
-                                try:
-                                    archive_temp.unlink()
-                                except Exception:
-                                    pass
-                except Exception:
-                    pass
+                    except Exception as e:
+                        pass
+                    finally:
+                        if needs_cleanup and archive_temp.exists():
+                            try:
+                                archive_temp.unlink()
+                            except Exception:
+                                pass
+            except Exception:
+                pass
     
     return part_locations
 
@@ -710,11 +779,17 @@ def extract_with_7z(archive_path: Path, output_dir: Path, passwords: List[str]) 
         # Try without password first (use -p to avoid interactive prompts)
         cmd = [str(seven_z), 'x', archive_str, f'-o{output_str}', '-p', '-y']
         
-        # Use robust timeout mechanism
-        result = run_with_timeout(cmd, timeout_seconds=30)  # 30 second timeout
+        # Progress callback to show extraction progress
+        def show_progress(dots):
+            """Display extraction progress to user."""
+            from .console_utils import safe_print
+            safe_print(f"  ⏳ Extracting {archive_path.name}{dots} | 正在解压 {archive_path.name}{dots}", end='\r')
+        
+        # Use progress-enabled extraction
+        result = run_with_progress(cmd, timeout_seconds=1800, progress_callback=show_progress)  # 30 minute timeout for main extraction
         
         if result['timed_out']:
-            return False, f"Extraction timed out after 60 seconds. Archive may be corrupted or very large: {archive_path}", None
+            return False, f"Extraction timed out after 30 minutes. Archive may be corrupted or very large: {archive_path}", None
         
         # Check if we got password errors (especially for multi-part archives)
         stderr_text = result.get('stderr', '')
@@ -737,6 +812,9 @@ def extract_with_7z(archive_path: Path, output_dir: Path, passwords: List[str]) 
                         shutil.copytree(item, dest, dirs_exist_ok=True)
                     else:
                         shutil.copy2(item, dest)
+            # Clear progress line and show completion
+            from .console_utils import safe_print
+            safe_print()  # New line to clear progress
             return True, "Extracted successfully without password", None
         else:
             # Check if it's a password issue or other errors
@@ -770,7 +848,7 @@ def extract_with_7z(archive_path: Path, output_dir: Path, passwords: List[str]) 
         # Try with each password
         for password in passwords:
             cmd = [str(seven_z), 'x', archive_str, f'-o{output_str}', f'-p{password}', '-y']
-            result = run_with_timeout(cmd, timeout_seconds=30)  # 30 second timeout per password
+            result = run_with_progress(cmd, timeout_seconds=1800, progress_callback=show_progress)  # 30 minute timeout per password
             
             if result['timed_out']:
                 continue  # Try next password
@@ -798,6 +876,9 @@ def extract_with_7z(archive_path: Path, output_dir: Path, passwords: List[str]) 
                                 shutil.copytree(item, dest, dirs_exist_ok=True)
                             else:
                                 shutil.copy2(item, dest)
+                    # Clear progress line and show completion
+                    from .console_utils import safe_print
+                    safe_print()  # New line to clear progress
                     return True, f"Extracted successfully with password", password
                 else:
                     # Even with return code 0, there were errors - continue to next password
@@ -854,10 +935,9 @@ def find_main_archive_in_group(group_files: List[Path]) -> Optional[Path]:
     """
     # First, check for archives containing partial files - these should be extracted first
     for file_path in group_files:
-        if is_archive_file(file_path, strict=True):
-            is_partial, base_name = is_partial_archive(file_path)
-            if is_partial:
-                return file_path
+        is_partial, base_name = is_partial_archive(file_path)
+        if is_partial:
+            return file_path
     
     # Look for files with different extensions from others
     extensions = [f.suffix.lower() for f in group_files]
@@ -872,34 +952,18 @@ def find_main_archive_in_group(group_files: List[Path]) -> Optional[Path]:
         if extension_counts[file_path.suffix.lower()] == 1:
             unique_files.append(file_path)
     
-    # If we found unique files, prefer known archive-like ones first, then try any file
+    # If we found unique files, since all files are treated as archives, just return the first one
     if unique_files:
-        # First try files that look like archives with strict checking
-        strict_archive_files = [f for f in unique_files if is_archive_file(f, strict=True)]
-        if strict_archive_files:
-            return strict_archive_files[0]
-        
-        # If no strict archives found, try any unique file (could be cloaked)
-        # But exclude common non-archive files
-        non_excluded_unique = [f for f in unique_files if f.suffix.lower() not in ['.txt', '.exe', '.dll', '.sys', '.log']]
-        if non_excluded_unique:
-            return non_excluded_unique[0]
+        return unique_files[0]
     
     # If no unique files, look for .001 files (first part of split archives)
     first_parts = [f for f in group_files if f.suffix.lower() in ['.001', '.part1', '.z01']]
     if first_parts:
         return first_parts[0]
     
-    # Fallback: try any file that looks like an archive (strict mode first)
-    strict_archive_files = [f for f in group_files if is_archive_file(f, strict=True)]
-    if strict_archive_files:
-        return sorted(strict_archive_files)[0]
-    
-    # Last resort: try any file (non-strict mode for cloaked archives)
-    # Skip common non-archive files like .txt, .exe, etc.
-    non_executable_files = [f for f in group_files if f.suffix.lower() not in ['.txt', '.exe', '.dll', '.sys', '.log']]
-    if non_executable_files:
-        return sorted(non_executable_files)[0]
+    # Fallback: since all files are treated as archives, just return the first file
+    if group_files:
+        return sorted(group_files)[0]
     
     return None
 
@@ -920,12 +984,12 @@ def extract_nested_archives(extract_dir: Path, passwords: List[str], max_depth: 
     
     new_passwords = []
     
-    # Find potential archive files in the extraction directory (use non-strict mode for cloaked files)
+    # Find potential archive files in the extraction directory (all files treated as potential archives)
     archive_files = []
     for file_path in extract_dir.rglob('*'):
         if file_path.is_file():
-            # First try strict checking for known archive formats
-            if is_archive_file(file_path, strict=True):
+            # All files are treated as potential archives
+            if is_archive_file(file_path):
                 archive_files.append(file_path)
             # Also try files that might be cloaked archives (avoid common non-archive files)
             elif file_path.suffix.lower() not in ['.txt', '.exe', '.dll', '.sys', '.log', '.ini', '.cfg']:
@@ -943,7 +1007,7 @@ def extract_nested_archives(extract_dir: Path, passwords: List[str], max_depth: 
         success, message, password_used = extract_with_7z(archive_file, nested_extract_dir, passwords)
         
         if success:
-            print(f"  📦 Extracted nested archive: {archive_file.name}")
+            print(f"  📦 Extracted nested archive: {archive_file.name} | 解压嵌套压缩文件: {archive_file.name}")
             
             if password_used and password_used not in passwords:
                 new_passwords.append(password_used)
@@ -959,25 +1023,25 @@ def extract_nested_archives(extract_dir: Path, passwords: List[str], max_depth: 
             new_passwords.extend(more_passwords)
         else:
             # If extraction failed, check why it failed
-            if is_archive_file(archive_file, strict=True):
+            if is_archive_file(archive_file):
                 # Check if it's a "Cannot open the file as archive" error
                 if "Cannot open the file as archive" in message:
-                    print(f"  ⚠️ File {archive_file.name} has archive signature but cannot be opened - keeping as final content")
-                    # Keep the file as final content rather than trying to extract it
+                    # Keep the file as final content rather than trying to extract it (silently)
+                    pass
                 else:
-                    print(f"  ❌ Failed to extract nested archive: {archive_file.name} - {message}")
-            # For non-strict matches, silently skip if extraction fails
+                    print(f"  ❌ Failed to extract nested archive: {archive_file.name} - {message} | 解压嵌套压缩文件失败: {archive_file.name} - {message}")
+            # Silently skip if extraction fails
     
     return [f for f in extract_dir.rglob('*') if f.is_file()], new_passwords
 
 
 def create_completed_structure(completed_dir: Path, group_name: str, files: List[Path]) -> Path:
-    """Create the completed folder structure and copy files.
+    """Create the completed folder structure and copy files while preserving directory structure.
     
     Args:
         completed_dir: Base completed directory
         group_name: Name of the group (subfolder name)
-        files: List of files to copy
+        files: List of files to copy (should be from the same temp extraction directory)
         
     Returns:
         Path to the created group directory
@@ -985,25 +1049,83 @@ def create_completed_structure(completed_dir: Path, group_name: str, files: List
     group_dir = completed_dir / group_name
     group_dir.mkdir(parents=True, exist_ok=True)
     
+    copied_count = 0
+    failed_count = 0
+    
+    # Find the common extraction directory to preserve relative paths
+    if not files:
+        return group_dir
+    
+    # Get the common parent directory of all files (the temp extraction directory)
+    extraction_root = None
     for file_path in files:
         if file_path.is_file():
-            # If the file has a temp name, give it a more meaningful name
-            file_name = file_path.name
-            if file_name.startswith('temp_archive_'):
-                # Extract the base name from the group name for better naming
-                base_name = group_name.replace('root_multipart_', '').replace('root_single_', '')
-                # Determine appropriate extension based on file size and content
-                if file_path.stat().st_size > 100 * 1024 * 1024:  # Files larger than 100MB
-                    file_name = f"{base_name}_extracted_content"
-                else:
-                    file_name = f"{base_name}_content"
-            
-            dest_path = group_dir / file_name
+            # Find the deepest common parent that contains "temp_extract" or similar
+            for parent in file_path.parents:
+                if "temp_extract" in parent.name or "extract" in parent.name:
+                    extraction_root = parent
+                    break
+            if extraction_root:
+                break
+    
+    # If we couldn't find the extraction root, use the first file's parent as fallback
+    if not extraction_root and files:
+        extraction_root = files[0].parent
+        # Try to find a better root by looking for a common parent
+        for file_path in files[1:]:
+            if file_path.is_file():
+                # Find common parent
+                common_parts = []
+                file_parts = file_path.parts
+                root_parts = extraction_root.parts
+                for i, (a, b) in enumerate(zip(root_parts, file_parts)):
+                    if a == b:
+                        common_parts.append(a)
+                    else:
+                        break
+                if common_parts:
+                    extraction_root = Path(*common_parts)
+    
+    for file_path in files:
+        if file_path.is_file():
             try:
+                # Calculate relative path from extraction root
+                if extraction_root and extraction_root in file_path.parents:
+                    relative_path = file_path.relative_to(extraction_root)
+                else:
+                    # Fallback to just the filename
+                    relative_path = Path(file_path.name)
+                
+                # Handle temp archive files with better naming
+                if file_path.name.startswith('temp_archive_'):
+                    # Extract the base name from the group name for better naming
+                    base_name = group_name.replace('root_multipart_', '').replace('root_single_', '')
+                    # Determine appropriate extension based on file size and content
+                    if file_path.stat().st_size > 100 * 1024 * 1024:  # Files larger than 100MB
+                        file_name = f"{base_name}_extracted_content"
+                    else:
+                        file_name = f"{base_name}_content"
+                    relative_path = Path(file_name)
+                
+                # Create destination path preserving directory structure
+                dest_path = group_dir / relative_path
+                
+                # Create parent directories if they don't exist
+                dest_path.parent.mkdir(parents=True, exist_ok=True)
+                
+                # Copy file
                 shutil.copy2(file_path, dest_path)
-                print(f"  📄 Copied: {file_name}")
+                copied_count += 1
+                
             except Exception as e:
-                print(f"  ❌ Failed to copy {file_name}: {e}")
+                print(f"  ❌ Failed to copy {file_path.name}: {e} | 复制失败 {file_path.name}: {e}")
+                failed_count += 1
+    
+    # Show total copied files instead of individual file names
+    if copied_count > 0:
+        print(f"  📄 Total files copied: {copied_count} | 总计复制文件: {copied_count}")
+    if failed_count > 0:
+        print(f"  ❌ Failed to copy: {failed_count} | 复制失败: {failed_count}")
     
     return group_dir
 
@@ -1026,7 +1148,7 @@ def clean_up_original_files(files_to_delete: List[Path]) -> Tuple[int, int]:
                 file_path.unlink()
                 deleted_count += 1
         except Exception as e:
-            print(f"  ⚠️  Failed to delete {file_path.name}: {e}")
+            print(f"  ⚠️  Failed to delete {file_path.name}: {e} | 删除失败 {file_path.name}: {e}")
             failed_count += 1
     
     return deleted_count, failed_count
@@ -1053,7 +1175,7 @@ def save_new_passwords(passwords_file: Path, new_passwords: List[str]) -> None:
                     if password:
                         existing_passwords.add(password)
         except Exception as e:
-            print(f"  ⚠️  Error reading password file: {e}")
+            print(f"  ⚠️  Error reading password file: {e} | 读取密码文件错误: {e}")
     
     # Add new passwords
     passwords_to_add = []
@@ -1067,9 +1189,9 @@ def save_new_passwords(passwords_file: Path, new_passwords: List[str]) -> None:
             with open(passwords_file, 'a', encoding='utf-8') as f:
                 for password in passwords_to_add:
                     f.write(f"{password}\n")
-            print(f"  🔐 Added {len(passwords_to_add)} new passwords to password book")
+            print(f"  🔐 Added {len(passwords_to_add)} new passwords to password book | 向密码本添加了 {len(passwords_to_add)} 个新密码")
         except Exception as e:
-            print(f"  ⚠️  Error saving passwords: {e}")
+            print(f"  ⚠️  Error saving passwords: {e} | 保存密码错误: {e}")
 
 
 def display_extraction_results(result: ExtractionResult) -> None:
@@ -1083,23 +1205,23 @@ def display_extraction_results(result: ExtractionResult) -> None:
     print("=" * 60)
     
     if result.successful_extractions:
-        print(f"\n✅ Successfully processed {len(result.successful_extractions)} groups:")
+        print(f"\n✅ Successfully processed {len(result.successful_extractions)} groups: | 成功处理 {len(result.successful_extractions)} 个组:")
         for group_name, files_count in result.successful_extractions:
-            print(f"  📁 {group_name}: {files_count} files extracted")
+            print(f"  📁 {group_name}: {files_count} files extracted | {files_count} 个文件已解压")
     
     if result.failed_extractions:
-        print(f"\n❌ Failed to process {len(result.failed_extractions)} groups:")
+        print(f"\n❌ Failed to process {len(result.failed_extractions)} groups: | 处理失败 {len(result.failed_extractions)} 个组:")
         for group_name, reason in result.failed_extractions:
             print(f"  📁 {group_name}: {reason}")
     
     if result.new_passwords:
-        print(f"\n🔐 Added {len(result.new_passwords)} new passwords to password book")
+        print(f"\n🔐 Added {len(result.new_passwords)} new passwords to password book | 向密码本添加了 {len(result.new_passwords)} 个新密码")
     
     if result.completed_files:
-        print(f"\n📦 Files copied to 'completed' folder: {len(result.completed_files)}")
+        print(f"\n📦 Files copied to 'completed' folder: {len(result.completed_files)} | 文件已复制到'完成'文件夹: {len(result.completed_files)}")
     
     total_processed = len(result.successful_extractions) + len(result.failed_extractions)
     success_rate = (len(result.successful_extractions) / total_processed * 100) if total_processed > 0 else 0
     
-    print(f"\n📊 Overall success rate: {success_rate:.1f}% ({len(result.successful_extractions)}/{total_processed})")
+    print(f"\n📊 Overall success rate: {success_rate:.1f}% ({len(result.successful_extractions)}/{total_processed}) | 总体成功率: {success_rate:.1f}% ({len(result.successful_extractions)}/{total_processed})")
     print("=" * 60)

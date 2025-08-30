@@ -118,7 +118,7 @@ def rename_cloaked_files(rename_suggestions: Dict[Path, Path], dry_run: bool = T
                 successful_renames.append(current_path)  # For dry run, keep original path
                 
         except Exception as e:
-            error_msg = f"❌ Failed to rename {current_path.name}: {e}"
+            error_msg = f"❌ Failed to rename {current_path.name}: {e} | 重命名失败 {current_path.name}: {e}"
             error_messages.append(error_msg)
             print(error_msg)
     

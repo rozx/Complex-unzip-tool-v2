@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "complex-unzip-tool-v2"
-version = "0.1.0"
+version = "1.0.0"
 description = "A complex tool for unzipping files"
 authors = ["Rozx <lisida900710@gmail.com>"]
 readme = "README.md"

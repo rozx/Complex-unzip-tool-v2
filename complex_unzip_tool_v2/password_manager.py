@@ -114,7 +114,7 @@ def save_new_passwords(passwords_file: Path, new_passwords: List[str]) -> None:
                     if password:
                         existing_passwords.add(password)
         except Exception as e:
-            safe_print(f"⚠️  Error reading password file: {e}")
+            safe_print(f"⚠️  Error reading password file: {e} | 读取密码文件错误: {e}")
     
     # Add new passwords
     passwords_to_add = []

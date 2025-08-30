@@ -141,3 +141,4 @@ poetry.lock
 # OS
 .DS_Store
 Thumbs.db
+/passwords.txt

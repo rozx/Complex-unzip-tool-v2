@@ -34,6 +34,7 @@ def safe_print(*args, **kwargs):
                     .replace('🔍', '[SEARCH]')
                     .replace('⏰', '[TIME]')
                     .replace('🎊', '[DONE]')
+                    .replace('✓', '[OK]')
                     .replace('•', '*')
                     .replace('→', '->')
                 )
