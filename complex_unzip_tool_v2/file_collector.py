@@ -38,10 +38,9 @@ def is_system_file(file_path: Path) -> bool:
     
     # General hidden files patterns (start with .)
     if filename.startswith('.'):
-        # Allow some common non-system hidden files that might be archives
-        allowed_hidden = {'.7z', '.rar', '.zip', '.tar', '.gz', '.bz2', '.xz'}
-        if not any(filename.endswith(ext) for ext in allowed_hidden):
-            return True
+        # Since archives can be cloaked, allow all hidden files except known system files
+        # Only skip if it's in the system file lists below
+        pass
     
     # Check against system file lists
     if filename in windows_system_files or filename in macos_system_files or filename in linux_system_files:

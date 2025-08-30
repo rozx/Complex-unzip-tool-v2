@@ -95,22 +95,21 @@ def detect_multipart_patterns(files: List[Path]) -> List[MultiPartArchive]:
         found_parts = {part_num: file_path for part_num, file_path in parts_list}
         part_numbers = set(found_parts.keys())
         
-        # Determine expected range based on the pattern
+        # Determine expected range based on the pattern and actual content analysis
         min_part = min(part_numbers)
         max_part = max(part_numbers)
         
-        # For most patterns, we expect consecutive numbering
-        # If we have consecutive parts, assume the sequence is complete
+        # Don't assume consecutive parts are complete - we need to verify
+        # For now, assume consecutive parts form the expected set
         expected_parts = set(range(min_part, max_part + 1))
         
-        # Check if the parts are consecutive
-        actual_consecutive = set(range(min_part, max_part + 1))
-        if part_numbers == actual_consecutive:
-            # We have consecutive parts, consider this complete
+        # However, for single-part or two-part archives, we should be more conservative
+        # and check if there might be additional parts in container files
+        if len(part_numbers) <= 2:
+            # This might be incomplete - will be verified by finding missing parts
+            # For now, just use what we have as expected, but the missing part detection
+            # will look for additional parts in container files
             expected_parts = part_numbers
-        else:
-            # We have gaps in the sequence, expected parts should fill the gaps
-            expected_parts = actual_consecutive
         
         # Create MultiPartArchive object
         multipart_archive = MultiPartArchive(
@@ -134,8 +133,8 @@ def find_missing_parts_in_group(multipart_archive: MultiPartArchive, all_files: 
     Returns:
         List of file paths that might contain the missing parts
     """
-    if multipart_archive.is_complete:
-        return []
+    # Always look for potential container files, even if archive appears "complete"
+    # because consecutive parts don't guarantee completeness
     
     missing_parts = []
     base_name = multipart_archive.base_name
@@ -153,14 +152,35 @@ def find_missing_parts_in_group(multipart_archive: MultiPartArchive, all_files: 
             
         file_name = file_path.name
         
+        # Skip if this file is already identified as a part of this archive
+        if file_path in multipart_archive.found_parts.values():
+            continue
+        
         # Check if this file might contain the missing parts
         # Look for patterns that suggest archive content
+        potential_container = False
+        
+        # Pattern 1: Files with common container names
         if any(keyword in file_name.lower() for keyword in [
-            'part', 'vol', 'disc', 'archive', 'backup', 'data'
+            '11111', 'part', 'vol', 'disc', 'archive', 'backup', 'data', 'container'
         ]):
-            # Skip if this file is already identified as a part of this archive
-            if file_path not in multipart_archive.found_parts.values():
-                missing_parts.append(file_path)
+            potential_container = True
+        
+        # Pattern 2: Since archives can be cloaked with any extension, consider all files as potential containers
+        # We'll let the extraction process determine if they're actually archives
+        potential_container = True
+        
+        # Pattern 3: Files that might contain the next sequential parts
+        # Check if filename suggests it might contain parts for this base name
+        if base_name.lower() in file_name.lower():
+            potential_container = True
+        
+        # Pattern 4: Files with numeric patterns that might indicate parts
+        if re.search(r'\d+', file_name):
+            potential_container = True
+        
+        if potential_container:
+            missing_parts.append(file_path)
     
     return missing_parts
 
@@ -195,32 +215,39 @@ def check_archive_completeness(files: List[Path], verbose: bool = False) -> Tupl
             safe_print(f"   Found parts: {sorted(archive.found_parts.keys())}")
             safe_print(f"   Expected parts: {sorted(archive.expected_parts)}")
         
-        if archive.is_complete:
-            complete_count += 1
+        # Always look for potential containers, even for "complete" archives
+        # because having consecutive parts doesn't guarantee true completeness
+        potential_containers = find_missing_parts_in_group(archive, files)
+        
+        if potential_containers:
             if verbose:
-                safe_print(f"   ✅ Complete | 完整")
-        else:
-            incomplete_count += 1
-            missing_parts = archive.get_missing_part_numbers()
-            if verbose:
-                safe_print(f"   ❌ Incomplete - Missing parts: {missing_parts} | 不完整 - 缺少部分: {missing_parts}")
+                safe_print(f"   🔍 Potential containers that might contain additional parts:")
+                for container in potential_containers:
+                    safe_print(f"      📁 {container.name}")
+            potential_missing_containers.extend(potential_containers)
             
-            # Look for potential containers that might have the missing parts
-            potential_containers = find_missing_parts_in_group(archive, files)
-            if potential_containers:
+            # If we have potential containers, mark as incomplete for investigation
+            incomplete_count += 1
+            if verbose:
+                safe_print(f"   ⚠️  Potentially incomplete - found potential containers | 可能不完整 - 发现潜在容器")
+        else:
+            if archive.is_complete:
+                complete_count += 1
                 if verbose:
-                    safe_print(f"   🔍 Potential containers for missing parts:")
-                    for container in potential_containers:
-                        safe_print(f"      📁 {container.name}")
-                potential_missing_containers.extend(potential_containers)
+                    safe_print(f"   ✅ Complete | 完整")
+            else:
+                incomplete_count += 1
+                missing_parts = archive.get_missing_part_numbers()
+                if verbose:
+                    safe_print(f"   ❌ Incomplete - Missing parts: {missing_parts} | 不完整 - 缺少部分: {missing_parts}")
     
     # Summary
     safe_print(f"\n📊 Multi-part archive summary | 多部分压缩文件摘要:")
-    safe_print(f"   ✅ Complete archives: {complete_count} | 完整的压缩文件: {complete_count}")
-    safe_print(f"   ❌ Incomplete archives: {incomplete_count} | 不完整的压缩文件: {incomplete_count}")
+    safe_print(f"   ✅ Verified complete archives: {complete_count} | 已验证完整的压缩文件: {complete_count}")
+    safe_print(f"   ⚠️  Archives needing investigation: {incomplete_count} | 需要调查的压缩文件: {incomplete_count}")
     
     if potential_missing_containers:
-        safe_print(f"   🔍 Potential missing part containers: {len(potential_missing_containers)} | 潜在的缺失部分容器: {len(potential_missing_containers)}")
+        safe_print(f"   🔍 Potential part containers found: {len(potential_missing_containers)} | 发现潜在的部分容器: {len(potential_missing_containers)}")
     
     return multipart_archives, potential_missing_containers
 
@@ -237,11 +264,12 @@ def prioritize_extraction_order(multipart_archives: List[MultiPartArchive], othe
     """
     extraction_order = []
     
-    # 1. First extract potential missing part containers
+    # 1. First extract potential missing part containers (always prioritize these)
     potential_containers = []
     for archive in multipart_archives:
-        if not archive.is_complete:
-            potential_containers.extend(find_missing_parts_in_group(archive, other_files))
+        # For ALL archives, check for potential containers
+        containers = find_missing_parts_in_group(archive, other_files)
+        potential_containers.extend(containers)
     
     # Remove duplicates while preserving order
     seen = set()
@@ -253,15 +281,15 @@ def prioritize_extraction_order(multipart_archives: List[MultiPartArchive], othe
     
     extraction_order.extend(unique_containers)
     
-    # 2. Then extract complete multi-part archives (first parts only, as 7z will handle the rest)
+    # 2. Then extract multi-part archives (first parts only, as 7z will handle the rest)
     for archive in multipart_archives:
-        if archive.is_complete and archive.found_parts:
+        if archive.found_parts:
             first_part = min(archive.found_parts.keys())
             first_part_file = archive.found_parts[first_part]
             if first_part_file not in extraction_order:
                 extraction_order.append(first_part_file)
     
-    # 3. Finally, other files
+    # 3. Finally, other files not already included
     for file_path in other_files:
         if file_path not in extraction_order:
             # Skip individual parts of multi-part archives (except first parts already added)

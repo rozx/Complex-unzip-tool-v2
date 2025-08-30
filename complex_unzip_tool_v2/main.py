@@ -361,131 +361,9 @@ def process_subfolder_group(group_name: str, group_files: List[Path], completed_
         extraction_result.successful_extractions.append((group_name, f"{total_extracted} files extracted from {len(successful_extractions)} archives"))
         safe_print(f"  ✅ Subfolder group completed: {total_extracted} extractions | 子文件夹组完成: {total_extracted} 个解压")
         
-        # Clean up original files after successful extraction
-        safe_print(f"  🗑️ Cleaning up original files | 清理原始文件")
-        cleaned_count = 0
-        failed_count = 0
+        # Don't clean up immediately - let the main organization system handle it
+        safe_print(f"  ⏸️  Skipping immediate cleanup - will be handled by main organization system | 跳过立即清理 - 将由主要组织系统处理")
         
-        for file_path in group_files:
-            if file_path in processed_archives:
-                try:
-                    if file_path.exists():
-                        file_path.unlink()
-                        cleaned_count += 1
-                        safe_print(f"    🗑️ Deleted: {file_path.name}")
-                except Exception as e:
-                    failed_count += 1
-                    safe_print(f"    ❌ Failed to delete {file_path.name}: {e}")
-        
-        # Debug: Show what we're tracking for cleanup
-        if containers_to_cleanup or extracted_parts_to_cleanup:
-            safe_print(f"  🔍 Debug: Containers to cleanup: {len(containers_to_cleanup)} | 容器清理追踪: {len(containers_to_cleanup)}")
-            safe_print(f"  🔍 Debug: Extracted parts to cleanup: {len(extracted_parts_to_cleanup)} | 解压部分清理追踪: {len(extracted_parts_to_cleanup)}")
-        
-        # Clean up container archives that were used for this group
-        containers_deleted = 0
-        containers_failed = 0
-        for container_archive in containers_to_cleanup:
-            try:
-                if container_archive.exists():
-                    container_archive.unlink()
-                    containers_deleted += 1
-                    safe_print(f"    🗑️ Cleaned up container: {container_archive.name} | 清理容器: {container_archive.name}")
-            except Exception as e:
-                containers_failed += 1
-                safe_print(f"    ❌ Failed to clean up container {container_archive.name}: {e} | 清理容器失败 {container_archive.name}: {e}")
-        
-        # Clean up extracted parts that were found in containers
-        extracted_parts_deleted = 0
-        extracted_parts_failed = 0
-        for extracted_part in extracted_parts_to_cleanup:
-            try:
-                if extracted_part.exists():
-                    extracted_part.unlink()
-                    extracted_parts_deleted += 1
-                    safe_print(f"    🗑️ Cleaned up extracted part: {extracted_part.name} | 清理解压的部分: {extracted_part.name}")
-            except Exception as e:
-                extracted_parts_failed += 1
-                safe_print(f"    ❌ Failed to clean up extracted part {extracted_part.name}: {e} | 清理解压部分失败 {extracted_part.name}: {e}")
-        
-        # Clean up extracted content folders and temp files in the subfolder
-        subfolder_cleanup_deleted = 0
-        subfolder_cleanup_failed = 0
-        
-        # Get the subfolder path
-        subfolder_path = group_files[0].parent if group_files else None
-        if subfolder_path and subfolder_path.exists():
-            # Clean up temp multipart files
-            for temp_file in subfolder_path.glob("temp_multipart_*"):
-                try:
-                    if temp_file.is_file():
-                        temp_file.unlink()
-                        subfolder_cleanup_deleted += 1
-                        safe_print(f"    🗑️ Cleaned up temp file: {temp_file.name} | 清理临时文件: {temp_file.name}")
-                except Exception as e:
-                    subfolder_cleanup_failed += 1
-                    safe_print(f"    ❌ Failed to clean up temp file {temp_file.name}: {e} | 清理临时文件失败 {temp_file.name}: {e}")
-            
-            # Clean up remaining archive parts that weren't processed
-            for archive_file in subfolder_path.glob("*.7z.*"):
-                try:
-                    if archive_file.is_file() and re.search(r'\.\d{3}$', archive_file.suffix):
-                        archive_file.unlink()
-                        subfolder_cleanup_deleted += 1
-                        safe_print(f"    🗑️ Cleaned up unused archive part: {archive_file.name} | 清理未使用的压缩文件部分: {archive_file.name}")
-                except Exception as e:
-                    subfolder_cleanup_failed += 1
-                    safe_print(f"    ❌ Failed to clean up archive part {archive_file.name}: {e} | 清理压缩文件部分失败 {archive_file.name}: {e}")
-            
-            # Clean up extracted content folders (folders that were created by extraction)
-            for item in subfolder_path.iterdir():
-                if item.is_dir() and not item.name.startswith('.'):
-                    # Check if this is likely an extracted content folder
-                    # Since we've already moved content to _Unzipped, we can remove extracted folders
-                    try:
-                        # Remove any folder that looks like extracted content or is empty
-                        item_files = list(item.rglob('*'))
-                        item_files = [f for f in item_files if f.is_file()]
-                        
-                        # Remove if it's an extracted content folder (has many files) or is empty
-                        should_remove = (
-                            len(item_files) == 0 or  # Empty folder
-                            len(item_files) > 5 or   # Likely extracted content
-                            any(keyword in item.name.lower() for keyword in ['xiuren', '秀人', '鱼子酱', 'p+', 'g]', '【', '】'])  # Content folder patterns
-                        )
-                        
-                        if should_remove:
-                            shutil.rmtree(item, ignore_errors=True)
-                            if not item.exists():
-                                subfolder_cleanup_deleted += 1
-                                safe_print(f"    🗑️ Cleaned up extracted folder: {item.name} | 清理解压文件夹: {item.name}")
-                            else:
-                                subfolder_cleanup_failed += 1
-                                safe_print(f"    ⚠️ Failed to fully clean up folder: {item.name} | 无法完全清理文件夹: {item.name}")
-                    except Exception as e:
-                        subfolder_cleanup_failed += 1
-                        safe_print(f"    ❌ Failed to clean up folder {item.name}: {e} | 清理文件夹失败 {item.name}: {e}")
-        
-        # Update totals
-        cleaned_count += containers_deleted + extracted_parts_deleted + subfolder_cleanup_deleted
-        failed_count += containers_failed + extracted_parts_failed + subfolder_cleanup_failed
-        
-        # Try to remove the subfolder if it's empty
-        subfolder_path = group_files[0].parent if group_files else None
-        if subfolder_path and subfolder_path.exists():
-            try:
-                remaining_files = list(subfolder_path.rglob('*'))
-                remaining_files = [f for f in remaining_files if f.is_file()]
-                
-                if not remaining_files:
-                    subfolder_path.rmdir()
-                    safe_print(f"  🗑️ Deleted empty subfolder: {subfolder_path.name} | 删除空子文件夹: {subfolder_path.name}")
-                else:
-                    safe_print(f"  ⚠️ Subfolder {subfolder_path.name} still contains {len(remaining_files)} files - keeping | 子文件夹 {subfolder_path.name} 仍包含 {len(remaining_files)} 个文件 - 保留")
-            except Exception as e:
-                safe_print(f"  ❌ Failed to delete subfolder {subfolder_path.name}: {e}")
-        
-        safe_print(f"  🗑️ Cleanup completed: {cleaned_count} files deleted, {failed_count} failed | 清理完成: {cleaned_count} 个文件已删除，{failed_count} 个失败")
         return True
     else:
         safe_print(f"  ❌ No successful extractions in subfolder group | 子文件夹组中无成功解压")
@@ -628,45 +506,56 @@ def process_paths(paths: List[Path], recursive: bool = False, verbose: bool = Fa
         
         safe_print(f"\n🔍 Analyzing groups for partial archive priority... | 分析组以确定部分压缩文件优先级...")
         
-        # Sort groups to prioritize those containing partial archives
+        # Sort groups: container candidates (hold missing parts) first, then main .001 groups, then regular
         def group_priority(group_item):
             group_name, group_files = group_item
-            # Check if any file in this group might contain partial archive content
+            has_container_candidate = False
+            has_multipart_first_part = False
+            detected_partial_container = False
+
             for file_path in group_files:
-                if is_archive_file(file_path):
-                    # Quick heuristic checks first
-                    file_name = file_path.name.lower()
-                    
-                    # If filename suggests it might be a single part of something, prioritize it
-                    if any(indicator in file_name for indicator in ['11111', 'part', 'vol', 'disc']):
-                        safe_print(f"  🧩 Priority: {group_name} might contain partial content: {file_path.name} | 优先级: {group_name} 可能包含部分内容: {file_path.name}")
-                        return 0
-                    
-                    # Try actual detection with very short timeout
+                if not is_archive_file(file_path):
+                    continue
+
+                file_name = file_path.name.lower()
+                is_first_part = bool(re.search(r"\.001$", file_name, re.IGNORECASE))
+                if is_first_part:
+                    has_multipart_first_part = True
+
+                # Heuristic: likely container that could hold missing parts (not a .001 file)
+                if (not is_first_part) and any(ind in file_name for ind in [
+                    '11111', 'container', 'archive', 'backup', 'data', 'part', 'vol', 'disc'
+                ]):
+                    has_container_candidate = True
+
+                # Detection-based signal (quick)
+                try:
+                    temp_file, needs_cleanup = get_ascii_temp_path(file_path)
                     try:
-                        # Use ASCII temp path for the detection to avoid encoding issues
-                        temp_file, needs_cleanup = get_ascii_temp_path(file_path)
-                        try:
-                            is_partial, base_name = is_partial_archive(temp_file)
-                            if is_partial:
-                                safe_print(f"  🧩 Priority: {group_name} contains partial archive: {file_path.name} | 优先级: {group_name} 包含部分压缩文件: {file_path.name}")
-                                return 0  # High priority for partial archives
-                        finally:
-                            if needs_cleanup and temp_file.exists():
-                                try:
-                                    temp_file.unlink()
-                                except Exception:
-                                    pass
-                    except Exception as e:
-                        safe_print(f"  ⚠️ Error checking {file_path.name}: {e} | 检查时出错 {file_path.name}: {e}")
-                        # If we can't check, but the name suggests partial content, prioritize anyway
-                        if any(indicator in file_name for indicator in ['11111', 'part', 'vol']):
-                            return 0
-                        continue
-            return 1  # Lower priority for regular archives
-        
+                        is_partial, _ = is_partial_archive(temp_file)
+                        if is_partial and not is_first_part:
+                            detected_partial_container = True
+                    finally:
+                        if needs_cleanup and temp_file.exists():
+                            try:
+                                temp_file.unlink()
+                            except Exception:
+                                pass
+                except Exception:
+                    # Ignore detection errors; rely on heuristics
+                    pass
+
+            if has_container_candidate or detected_partial_container:
+                safe_print(f"  🧩 Priority (container-first): {group_name} | 优先级（容器优先）: {group_name}")
+                return (0, group_name)
+            if has_multipart_first_part:
+                safe_print(f"  🧩 Priority (main .001): {group_name} | 优先级（主 .001）: {group_name}")
+                return (1, group_name)
+            return (2, group_name)
+
+        # Apply prioritization
         groups_to_process.sort(key=group_priority)
-        
+
         for group_name, group_files in groups_to_process:
             safe_print(f"\n📦 Processing group: {group_name} | 处理组: {group_name}")
             safe_print("-" * 40)
@@ -920,45 +809,34 @@ def process_paths(paths: List[Path], recursive: bool = False, verbose: bool = Fa
                         extraction_result.completed_files.extend([current_extract_dir / f.relative_to(temp_extract_dir) 
                                                                 for f in final_files if f.is_file()])
                     else:
-                        # Regular extraction to _Unzipped directory
-                        safe_print(f"  📁 Moving final extracted content to _Unzipped folder | 将最终解压内容移动到 _Unzipped 文件夹")
+                        # Regular extraction - keep files in extraction directory for organization system to handle
+                        safe_print(f"  📁 Keeping extracted content for organization system | 保留解压内容供组织系统处理")
                         
-                        # For subfolder groups, move content directly to _Unzipped without group name nesting
-                        moved_count = 0
+                        # Don't move files during extraction - let the organization system handle final placement
+                        moved_count = len([f for f in final_files if f.is_file()])
                         
-                        # Find the actual content and move it directly to _Unzipped
-                        for file_path in final_files:
-                            if file_path.is_file():
+                        safe_print(f"  ✅ Extracted {moved_count} files for organization | 解压了 {moved_count} 个文件待组织")
+                        # Move files to the archive directory so they persist after temp cleanup
+                        persistent_files = []
+                        archive_dir = main_archive.parent
+                        for f in final_files:
+                            if f.is_file():
+                                # Move from temp directory to archive directory
+                                dest_path = archive_dir / f.name
+                                counter = 1
+                                while dest_path.exists():
+                                    stem = f.stem
+                                    suffix = f.suffix
+                                    dest_path = archive_dir / f"{stem}_{counter}{suffix}"
+                                    counter += 1
                                 try:
-                                    # Get the relative path from temp extraction directory
-                                    rel_path = file_path.relative_to(temp_extract_dir)
-                                    
-                                    # For nested structure like: archive_name/content_folder/files
-                                    # We want to extract: content_folder/files directly to _Unzipped
-                                    # Skip the archive name part if it exists
-                                    if len(rel_path.parts) > 1:
-                                        # Check if the first part is the archive name (common pattern)
-                                        first_part = rel_path.parts[0]
-                                        # If the first part looks like an archive name, skip it
-                                        if any(ext in first_part.lower() for ext in ['.7z', '.zip', '.rar']) or first_part.endswith('.7z'):
-                                            dest_rel_path = Path(*rel_path.parts[1:]) if len(rel_path.parts) > 1 else Path(rel_path.name)
-                                        else:
-                                            dest_rel_path = rel_path
-                                    else:
-                                        # Direct file
-                                        dest_rel_path = rel_path
-                                    
-                                    dest_path = completed_dir / dest_rel_path
-                                    dest_path.parent.mkdir(parents=True, exist_ok=True)
-                                    shutil.copy2(file_path, dest_path)
-                                    moved_count += 1
+                                    shutil.move(str(f), str(dest_path))
+                                    persistent_files.append(dest_path)
                                 except Exception as e:
-                                    safe_print(f"  ⚠️ Failed to move {file_path.name}: {e}")
+                                    safe_print(f"  ⚠️ Failed to move {f.name}: {e}")
                         
-                        safe_print(f"  ✅ Moved {moved_count} files to _Unzipped | 移动了 {moved_count} 个文件到 _Unzipped")
-                        # Update the tracking to reflect the new locations
-                        extraction_result.completed_files.extend([completed_dir / f.relative_to(temp_extract_dir) 
-                                                                for f in final_files if f.is_file()])
+                        # Track the files in their persistent locations
+                        extraction_result.completed_files.extend(persistent_files)
                     
                     # Clean up temporary directory
                     if temp_extract_dir.exists():
@@ -1038,6 +916,10 @@ def process_paths(paths: List[Path], recursive: bool = False, verbose: bool = Fa
                             # Clean up extracted content folders (folders that were created by extraction)
                             for item in subfolder_path.iterdir():
                                 if item.is_dir() and not item.name.startswith('.'):
+                                    # Never delete the _Unzipped folder - it contains our final output
+                                    if item.name == '_Unzipped':
+                                        continue
+                                    
                                     # Check if this is likely an extracted content folder
                                     # (folders that contain many files and weren't there originally)
                                     try:
@@ -1059,9 +941,33 @@ def process_paths(paths: List[Path], recursive: bool = False, verbose: bool = Fa
                         
                         extraction_result.successful_extractions.append((group_name, extracted_file_count))
                     else:
-                        safe_print(f"  ❌ No valid files extracted (only temporary files found) | 未解压出有效文件（仅找到临时文件）")
-                        safe_print(f"  🔄 Preserving original files due to failed extraction | 由于解压失败保留原始文件")
-                        extraction_result.failed_extractions.append((group_name, "No valid files extracted (only temporary files)"))
+                        # If this looks like a container-only archive (used to surface missing parts),
+                        # skip counting it as a failure and defer outcome to the main archive group.
+                        container_candidate = False
+                        try:
+                            archive_name_lc = main_archive.name.lower()
+                            if not is_multipart:
+                                if 'is_partial' in locals() and is_partial:
+                                    container_candidate = True
+                                elif any(ind in archive_name_lc for ind in [
+                                    '11111', 'container', 'archive', 'backup', 'data', 'part', 'vol', 'disc'
+                                ]):
+                                    container_candidate = True
+                        except Exception:
+                            pass
+
+                        if container_candidate:
+                            safe_print(f"  ⏭️ Container-only group, deferring result until main archive is handled | 仅容器组，结果延后至主压缩文件处理")
+                            safe_print(f"  🔄 Preserving original files | 保留原始文件")
+                            # Mark as processed to avoid double work later
+                            try:
+                                processed_archives.add(main_archive)
+                            except Exception:
+                                pass
+                        else:
+                            safe_print(f"  ❌ No valid files extracted (only temporary files found) | 未解压出有效文件（仅找到临时文件）")
+                            safe_print(f"  🔄 Preserving original files due to failed extraction | 由于解压失败保留原始文件")
+                            extraction_result.failed_extractions.append((group_name, "No valid files extracted (only temporary files)"))
                         
                         # Only clean up temp files, but preserve original archive files
                         if group_files:

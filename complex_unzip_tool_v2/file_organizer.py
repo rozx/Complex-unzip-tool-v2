@@ -48,8 +48,23 @@ def move_extracted_files_to_unzipped(extracted_files: List[Path], root_path: Pat
                     safe_print(f"⚠️  Skipping non-existent path: {extracted_path.name}")
                 continue
             
-            # Determine destination path
-            destination = unzipped_dir / extracted_path.name
+            # Determine destination path, preserving original folder structure under root
+            # Final layout: _Unzipped/<root_folder_name>/<relative_path_from_root>
+            # Example: E:\Root\Sub\file.ext -> E:\Root\_Unzipped\Root\Sub\file.ext
+            try:
+                rel_parent = extracted_path.parent.relative_to(root_path)
+                # Always include the root folder name to ensure nesting
+                if str(rel_parent) == ".":
+                    nested_dir = Path(root_path.name)
+                else:
+                    nested_dir = Path(root_path.name) / rel_parent
+            except ValueError:
+                # If path is outside root (unexpected), fallback to using its immediate folder under root name
+                nested_dir = Path(root_path.name) / extracted_path.parent.name
+
+            destination_dir = unzipped_dir / nested_dir
+            destination_dir.mkdir(parents=True, exist_ok=True)
+            destination = destination_dir / extracted_path.name
             
             # Handle name conflicts
             counter = 1
@@ -69,6 +84,8 @@ def move_extracted_files_to_unzipped(extracted_files: List[Path], root_path: Pat
                 if verbose:
                     safe_print(f"  📄 Moved file: {extracted_path.name} → {destination.name}")
             elif extracted_path.is_dir():
+                # For a directory, place it under the preserved nested_dir
+                destination = destination_dir / extracted_path.name
                 shutil.move(str(extracted_path), str(destination))
                 if verbose:
                     safe_print(f"  📁 Moved folder: {extracted_path.name} → {destination.name}")
@@ -238,11 +255,18 @@ def create_extraction_summary(moved_files: List[Path], cleaned_archives: List[Pa
     safe_print(f"📄 Total extracted items | 解压项目总数: {len(moved_files)}")
     safe_print(f"🗑️  Cleaned archive files | 已清理压缩文件: {len(cleaned_archives)}")
     
+    # Show only a small preview to keep console output concise
     if moved_files:
-        safe_print(f"\n📋 Extracted items | 解压项目:")
-        for item in sorted(moved_files):
+        preview_count = 10
+        preview = sorted(moved_files)[:preview_count]
+        safe_print(f"\n📋 Extracted items (first {len(preview)} shown) | 解压项目（仅显示前 {len(preview)} 个）:")
+        for item in preview:
             item_type = "📁" if item.is_dir() else "📄"
             safe_print(f"   {item_type} {item.name}")
+        remaining = len(moved_files) - len(preview)
+        if remaining > 0:
+            safe_print(f"   … and {remaining} more | 以及另外 {remaining} 个 …")
+            safe_print(f"   ▶ Browse: {unzipped_dir}")
     
     safe_print(f"\n✅ All operations completed successfully! | 所有操作成功完成！")
     safe_print("=" * 60)

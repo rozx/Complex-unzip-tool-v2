@@ -971,28 +971,21 @@ def extract_nested_archives(extract_dir: Path, passwords: List[str], max_depth: 
     # Find potential archive files in the extraction directory (all files treated as potential archives)
     archive_files = []
     
-    # Define file extensions that are definitely not archives
-    non_archive_extensions = {
-        '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff', '.webp',  # Images
-        '.mp4', '.avi', '.mkv', '.mov', '.wmv', '.flv', '.mp3', '.wav', '.flac',  # Media
-        '.txt', '.log', '.ini', '.cfg', '.xml', '.json',  # Text files
-        '.exe', '.dll', '.sys', '.msi',  # System files
-        '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx'  # Documents
-    }
+    # Since files can be cloaked with any extension, treat all files as potential archives
+    # Only skip very small files that are unlikely to be archives
+    min_file_size = 100  # bytes
     
     for file_path in extract_dir.rglob('*'):
         if file_path.is_file():
-            # Skip files with extensions that are definitely not archives
-            if file_path.suffix.lower() in non_archive_extensions:
+            # Skip very small files that are unlikely to be archives
+            try:
+                if file_path.stat().st_size < min_file_size:
+                    continue
+            except (OSError, IOError):
                 continue
                 
-            # All other files are treated as potential archives
-            if is_archive_file(file_path):
-                archive_files.append(file_path)
-            # Also try files that might be cloaked archives
-            else:
-                # Try to extract any other file as it might be a cloaked archive
-                archive_files.append(file_path)
+            # Treat all files as potential archives (cloaked files can have any extension)
+            archive_files.append(file_path)
     
     if not archive_files:
         # No more archives to extract
