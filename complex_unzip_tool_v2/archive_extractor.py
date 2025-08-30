@@ -568,10 +568,16 @@ def check_multipart_completeness(group_files: List[Path], base_name: str) -> Tup
     
     found_parts.sort()
     
-    # Simple logic: if we have consecutive parts, assume complete
+    # Simple logic: be more conservative about completeness
     min_part = min(found_parts)
     max_part = max(found_parts)
     expected_parts = list(range(min_part, max_part + 1))
+    
+    # For single-part files (only .001), consider them potentially incomplete
+    # unless we can verify they're truly standalone
+    if len(found_parts) == 1 and found_parts[0] == 1:
+        # Single .001 file - could be incomplete, let container extraction verify
+        return False, found_parts, [2]  # Assume missing .002 to trigger container check
     
     if found_parts == expected_parts:
         return True, found_parts, []

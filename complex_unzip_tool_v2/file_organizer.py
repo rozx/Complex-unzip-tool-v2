@@ -48,21 +48,27 @@ def move_extracted_files_to_unzipped(extracted_files: List[Path], root_path: Pat
                     safe_print(f"⚠️  Skipping non-existent path: {extracted_path.name}")
                 continue
             
-            # Determine destination path, preserving original folder structure under root
-            # Final layout: _Unzipped/<root_folder_name>/<relative_path_from_root>
-            # Example: E:\Root\Sub\file.ext -> E:\Root\_Unzipped\Root\Sub\file.ext
+            # Skip container files (like 11111.7z) from being moved to destination
+            if extracted_path.name.lower() in ['11111.7z', 'container.7z'] or 'container' in extracted_path.name.lower():
+                if verbose:
+                    safe_print(f"  ⏭️ Skipping container file: {extracted_path.name}")
+                continue
+            
+            # Determine destination path, preserving original folder structure
+            # Final layout: _Unzipped/<relative_path_from_root>
+            # Example: E:\Root\Sub\file.ext -> E:\Root\_Unzipped\Sub\file.ext (no root folder name duplication)
             try:
                 rel_parent = extracted_path.parent.relative_to(root_path)
-                # Always include the root folder name to ensure nesting
+                # Use the relative path directly without adding root folder name
                 if str(rel_parent) == ".":
-                    nested_dir = Path(root_path.name)
+                    nested_dir = Path(".")  # Root level files go directly in _Unzipped
                 else:
-                    nested_dir = Path(root_path.name) / rel_parent
+                    nested_dir = rel_parent
             except ValueError:
-                # If path is outside root (unexpected), fallback to using its immediate folder under root name
-                nested_dir = Path(root_path.name) / extracted_path.parent.name
+                # If path is outside root (unexpected), use just the immediate folder name
+                nested_dir = Path(extracted_path.parent.name)
 
-            destination_dir = unzipped_dir / nested_dir
+            destination_dir = unzipped_dir / nested_dir if str(nested_dir) != "." else unzipped_dir
             destination_dir.mkdir(parents=True, exist_ok=True)
             destination = destination_dir / extracted_path.name
             
@@ -81,6 +87,7 @@ def move_extracted_files_to_unzipped(extracted_files: List[Path], root_path: Pat
             # Move the file or directory
             if extracted_path.is_file():
                 shutil.move(str(extracted_path), str(destination))
+                # Only show verbose output, don't show each file moved
                 if verbose:
                     safe_print(f"  📄 Moved file: {extracted_path.name} → {destination.name}")
             elif extracted_path.is_dir():

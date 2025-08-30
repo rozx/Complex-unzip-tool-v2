@@ -19,11 +19,11 @@ def display_file_groups(priority_groups: Dict[str, List[Path]],
     # Display all groups in a single layer
     for group_name, files in priority_groups.items():
         # Determine the display name and icon based on group type
-        if group_name.endswith("_subfolder"):
-            # Subfolder group (all files from one subfolder)
-            folder_name = group_name.replace("_subfolder", "")
+        if group_name.endswith("_subfolder_all"):
+            # Subfolder group (all files from one folder)
+            folder_name = group_name.replace("_subfolder_all", "")
             icon = "📁"
-            display_name = f"{folder_name} (subfolder | 子文件夹)"
+            display_name = f"{folder_name} (folder | 文件夹)"
         elif group_name.startswith("root_multipart_"):
             # Multi-part archive in root
             archive_name = group_name.replace("root_multipart_", "")
@@ -42,12 +42,12 @@ def display_file_groups(priority_groups: Dict[str, List[Path]],
             icon = "📋"
             display_name = f"{base_name} (similar files | 相似文件)"
         elif group_name.startswith("root_single_"):
-            # Single file in root
+            # Single file in root (legacy path; should be rare after folder grouping)
             file_name = group_name.replace("root_single_", "")
             icon = "📄"
             display_name = f"{file_name} (single file | 单个文件)"
         elif "_single_" in group_name:
-            # Single file in subfolder (e.g., "森系_single_11111")
+            # Single file in subfolder (legacy)
             parts = group_name.split("_single_")
             folder_name = parts[0]
             file_name = parts[1] if len(parts) > 1 else "file"

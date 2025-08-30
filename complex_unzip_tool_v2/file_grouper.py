@@ -68,11 +68,10 @@ def group_files_by_priority(files: List[Path], root_path: Path) -> Dict[str, Lis
         group_name = f"{folder_name}_subfolder_all"
         groups[group_name] = sorted(subfolder_file_list, key=lambda x: x.name)
     
-    # Group root files by filename similarity
+    # Treat root as a folder: group all root-level files into one folder group
     if root_files:
-        root_groups = group_files_by_similarity(root_files)
-        for group_name, file_list in root_groups.items():
-            groups[f"root_{group_name}"] = file_list
+        root_group_name = f"{root_path.name}_subfolder_all"
+        groups[root_group_name] = sorted(root_files, key=lambda x: x.name)
     
     return groups
 

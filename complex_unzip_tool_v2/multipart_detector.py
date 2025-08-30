@@ -1,10 +1,19 @@
 """Multi-part archive completeness detection utilities."""
 
 import re
+import os
 from pathlib import Path
 from typing import List, Dict, Set, Tuple, Optional
 from collections import defaultdict
 from .console_utils import safe_print
+
+# Heuristics for detecting container candidates (tunable)
+CONTAINER_KEYWORDS = (
+    "11111", "container", "archive", "backup", "data", "part", "vol", "disc"
+)
+CONTAINER_MIN_SIZE_BYTES = 100 * 1024  # 100KB
+CONTAINER_CANDIDATE_MIN_SCORE = 2
+TOP_N_CONTAINER_CANDIDATES = 5
 
 
 class MultiPartArchive:
@@ -124,65 +133,70 @@ def detect_multipart_patterns(files: List[Path]) -> List[MultiPartArchive]:
 
 
 def find_missing_parts_in_group(multipart_archive: MultiPartArchive, all_files: List[Path]) -> List[Path]:
-    """Find missing parts of a multi-part archive within the same file group/directory.
+    """Find likely container files for a multi-part archive within the same directory.
+    
+    Strategy:
+    - Consider only files in the same directory as the archive parts (same path/group)
+    - Score candidates by name heuristics and size to reduce false positives
+    - Keep support for cloaked files by not restricting extensions
+    - Return top-N candidates by score
     
     Args:
         multipart_archive: The multi-part archive to find missing parts for
         all_files: All available files in the current processing group
         
     Returns:
-        List of file paths that might contain the missing parts
+        List of candidate file paths that might contain missing parts
     """
-    # Always look for potential container files, even if archive appears "complete"
-    # because consecutive parts don't guarantee completeness
-    
-    missing_parts = []
-    base_name = multipart_archive.base_name
-    
-    # Get the directory of existing parts
-    if multipart_archive.found_parts:
-        reference_dir = next(iter(multipart_archive.found_parts.values())).parent
-    else:
+    # If we don't have any parts, we can't determine the reference directory
+    if not multipart_archive.found_parts:
         return []
-    
-    # Look for files in the same directory that might contain missing parts
+
+    reference_dir = next(iter(multipart_archive.found_parts.values())).parent
+    base_name = multipart_archive.base_name
+
+    # Helper: quick noise/system skip
+    def is_noise(p: Path) -> bool:
+        n = p.name.lower()
+        return n in {"desktop.ini", "thumbs.db", ".ds_store"} or n.startswith("~$")
+
+    # Helper: score a candidate by heuristics
+    def score_candidate(p: Path, base: str) -> int:
+        name = p.name.lower()
+        s = 0
+        if base.lower() in name:
+            s += 3
+        if any(k in name for k in CONTAINER_KEYWORDS):
+            s += 2
+        if re.search(r"\d+", name):
+            s += 1
+        try:
+            if p.stat().st_size >= CONTAINER_MIN_SIZE_BYTES:  # tends to be meaningful; cloaked small files are unlikely containers
+                s += 1
+        except Exception:
+            pass
+        return s
+
+    candidates: List[Tuple[int, Path]] = []
     for file_path in all_files:
+        # Only consider same directory
         if file_path.parent != reference_dir:
             continue
-            
-        file_name = file_path.name
-        
-        # Skip if this file is already identified as a part of this archive
+
+        if is_noise(file_path):
+            continue
+
+        # Skip if already part of this archive
         if file_path in multipart_archive.found_parts.values():
             continue
-        
-        # Check if this file might contain the missing parts
-        # Look for patterns that suggest archive content
-        potential_container = False
-        
-        # Pattern 1: Files with common container names
-        if any(keyword in file_name.lower() for keyword in [
-            '11111', 'part', 'vol', 'disc', 'archive', 'backup', 'data', 'container'
-        ]):
-            potential_container = True
-        
-        # Pattern 2: Since archives can be cloaked with any extension, consider all files as potential containers
-        # We'll let the extraction process determine if they're actually archives
-        potential_container = True
-        
-        # Pattern 3: Files that might contain the next sequential parts
-        # Check if filename suggests it might contain parts for this base name
-        if base_name.lower() in file_name.lower():
-            potential_container = True
-        
-        # Pattern 4: Files with numeric patterns that might indicate parts
-        if re.search(r'\d+', file_name):
-            potential_container = True
-        
-        if potential_container:
-            missing_parts.append(file_path)
-    
-    return missing_parts
+
+        sc = score_candidate(file_path, base_name)
+        if sc >= CONTAINER_CANDIDATE_MIN_SCORE:  # minimal confidence
+            candidates.append((sc, file_path))
+
+    # Sort by score desc, then by name for stability; cap to top-N
+    candidates.sort(key=lambda x: (-x[0], x[1].name.lower()))
+    return [p for _, p in candidates[:TOP_N_CONTAINER_CANDIDATES]]
 
 
 def check_archive_completeness(files: List[Path], verbose: bool = False) -> Tuple[List[MultiPartArchive], List[Path]]:
