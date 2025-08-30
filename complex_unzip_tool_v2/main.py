@@ -31,7 +31,7 @@ import sys
 import os
 import re
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 # Fix Windows console encoding for Unicode characters
 if sys.platform.startswith('win'):
@@ -56,6 +56,440 @@ from .archive_extractor import (
     check_multipart_completeness, find_missing_parts_in_other_archives,
     extract_multipart_with_7z
 )
+from .multipart_detector import check_archive_completeness, prioritize_extraction_order
+from .file_organizer import organize_and_cleanup, create_extraction_summary
+
+
+import re
+import shutil
+
+
+def process_subfolder_group(group_name: str, group_files: List[Path], completed_dir: Path, 
+                           extraction_result: ExtractionResult, processed_archives: set, 
+                           passwords: List[str], root_path: Path, 
+                           containers_to_cleanup: Optional[set] = None, extracted_parts_to_cleanup: Optional[set] = None) -> bool:
+    """Process all files in a subfolder as a coordinated group.
+    
+    This function handles all files in a subfolder together, looking for multi-part archives
+    and container files that may contain missing parts.
+    
+    Args:
+        group_name: Name of the group
+        group_files: List of files in the subfolder
+        completed_dir: Directory for completed extractions (not used for subfolder groups)
+        extraction_result: Result tracking object
+        processed_archives: Set of already processed archives
+        passwords: List of passwords to try
+        root_path: Root path being processed
+        
+    Returns:
+        True if any extraction was successful
+    """
+    # Initialize tracking sets if not provided
+    if containers_to_cleanup is None:
+        containers_to_cleanup = set()
+    if extracted_parts_to_cleanup is None:
+        extracted_parts_to_cleanup = set()
+        
+    safe_print(f"  📁 Processing subfolder group with {len(group_files)} files | 处理包含 {len(group_files)} 个文件的子文件夹组")
+    
+    # Analyze files in the subfolder to identify multi-part archives and containers
+    multipart_archives = {}  # base_name -> list of part files
+    container_files = []  # potential container files like 11111.7z
+    other_files = []
+    
+    # Group by archive patterns
+    for file_path in group_files:
+        file_name = file_path.name
+        
+        # Check for multi-part archive pattern (*.001, *.002, etc.)
+        multipart_match = re.match(r'^(.+?)\.(\d{3})$', file_name, re.IGNORECASE)
+        if multipart_match:
+            base_name = multipart_match.group(1)
+            part_num = int(multipart_match.group(2))
+            
+            if base_name not in multipart_archives:
+                multipart_archives[base_name] = []
+            multipart_archives[base_name].append((part_num, file_path))
+        else:
+            # Check if it might be a container file (common name patterns)
+            if any(pattern in file_name.lower() for pattern in ['11111', 'container', 'parts']):
+                container_files.append(file_path)
+            else:
+                other_files.append(file_path)
+    
+    total_extracted = 0
+    successful_extractions = []
+    
+    # Process multi-part archives first
+    for base_name, parts_list in multipart_archives.items():
+        parts_list.sort()  # Sort by part number
+        part_files = [path for _, path in parts_list]
+        part_numbers = [num for num, _ in parts_list]
+        
+        safe_print(f"  🧩 Found multi-part archive: {base_name} with parts {part_numbers} | 发现多部分压缩文件: {base_name}，部分 {part_numbers}")
+        
+        # Helper function for part number extraction
+        def extract_part_number(path):
+            match = re.search(r'\.(\d{3})$', path.name)
+            return int(match.group(1)) if match else 999
+        
+        # Use proper completeness checking function
+        is_complete, found_parts, missing_parts = check_multipart_completeness(part_files, base_name)
+        
+        if not is_complete:
+            safe_print(f"  ⚠️ Multi-part archive incomplete! Found parts: {found_parts}, Missing: {missing_parts} | 多部分压缩文件不完整！找到部分: {found_parts}，缺少: {missing_parts}")
+            
+            # First, search for missing parts in the same group (same subfolder)
+            safe_print(f"  🔍 Searching for missing parts in same subfolder | 在同一子文件夹中搜索缺少的部分")
+            
+            # Look for missing parts in container files within the same subfolder
+            for missing_part in missing_parts[:]:  # Use slice to allow modification during iteration
+                missing_file_name = f"{base_name}.{missing_part:03d}"
+                
+                # Check if the missing part might be in a container file
+                for container_file in container_files:
+                    if container_file in processed_archives:
+                        continue
+                        
+                    safe_print(f"  📦 Checking container file for missing part {missing_part:03d}: {container_file.name}")
+                    
+                    # Extract container to current path (same directory as the container)
+                    container_extract_dir = container_file.parent
+                    
+                    try:
+                        success, message, password_used = extract_with_7z(container_file, container_extract_dir, passwords)
+                        
+                        if success:
+                            # Track successfully processed archive
+                            extraction_result.successfully_processed_archives.append(container_file)
+                            processed_archives.add(container_file)
+                            
+                            safe_print(f"  ✅ Extracted container successfully | 容器解压成功")
+                            
+                            # Look for the missing part in the extracted content
+                            potential_part_path = container_extract_dir / missing_file_name
+                            if potential_part_path.exists():
+                                safe_print(f"  📄 Found missing part: {missing_file_name} | 找到缺少的部分: {missing_file_name}")
+                                part_files.append(potential_part_path)
+                                part_numbers.append(missing_part)
+                                # Track this extracted part for cleanup
+                                extracted_parts_to_cleanup.add(potential_part_path)
+                                missing_parts.remove(missing_part)
+                                break
+                            else:
+                                # Search in any subdirectories that might have been created
+                                for extracted_file in container_extract_dir.rglob(missing_file_name):
+                                    if extracted_file.is_file():
+                                        # Move the file to the correct location
+                                        dest_path = container_extract_dir / missing_file_name
+                                        if extracted_file != dest_path:
+                                            shutil.move(str(extracted_file), str(dest_path))
+                                        safe_print(f"  📄 Found and moved missing part: {missing_file_name}")
+                                        part_files.append(dest_path)
+                                        part_numbers.append(missing_part)
+                                        # Track this extracted part for cleanup
+                                        extracted_parts_to_cleanup.add(dest_path)
+                                        missing_parts.remove(missing_part)
+                                        break
+                            
+                            # Mark container as processed
+                            processed_archives.add(container_file)
+                            
+                            if password_used:
+                                extraction_result.passwords_used.append(password_used)
+                        else:
+                            safe_print(f"  ❌ Failed to extract container: {message}")
+                            
+                    except Exception as e:
+                        safe_print(f"  ❌ Error extracting container: {e}")
+            
+            # Re-check completeness after searching in containers
+            # Create a list of all files (original + found parts) to check completeness
+            all_available_files = part_files.copy()
+            
+            # Scan the directory for any new parts that might have been extracted
+            if part_files:
+                current_dir = part_files[0].parent
+                for file_path in current_dir.iterdir():
+                    if file_path.is_file() and base_name.lower() in file_path.name.lower() and re.search(r'\.\d{3}$', file_path.suffix):
+                        if file_path not in all_available_files:
+                            all_available_files.append(file_path)
+            
+            is_complete, found_parts, missing_parts = check_multipart_completeness(all_available_files, base_name)
+            
+            if is_complete:
+                safe_print(f"  ✅ Multi-part archive is now complete with parts: {found_parts} | 多部分压缩文件现在完整，包含部分: {found_parts}")
+                part_files = all_available_files  # Update part_files with all found parts
+        else:
+            safe_print(f"  ✅ Multi-part archive is complete with parts: {found_parts} | 多部分压缩文件完整，包含部分: {found_parts}")
+        
+        # Now try to extract the multi-part archive only if complete
+        # Now try to extract the multi-part archive only if complete
+        if not is_complete:
+            safe_print(f"  ⚠️ Still missing parts: {missing_parts}, cannot extract | 仍缺少部分: {missing_parts}，无法解压")
+            extraction_result.failed_extractions.append((f"{group_name}_{base_name}", f"Missing parts: {missing_parts}"))
+        else:
+            # We have all parts, try extraction
+            part_files.sort(key=extract_part_number)
+            if part_files and part_files[0].name.endswith('.001'):
+                try:
+                    # Extract to current path (same directory as the parts)
+                    current_extract_dir = part_files[0].parent
+                    success, message, password_used = extract_multipart_with_7z(part_files, current_extract_dir, passwords)
+                    
+                    if success:
+                        safe_print(f"  ✅ Successfully extracted multi-part archive: {base_name} | 成功解压多部分压缩文件: {base_name}")
+                        total_extracted += 1
+                        successful_extractions.append(f"{base_name}: multi-part archive")
+                        
+                        # Check if extracted content contains partial archive files
+                        extracted_files = list(current_extract_dir.rglob('*'))
+                        extracted_files = [f for f in extracted_files if f.is_file() and f.parent != current_extract_dir]  # Exclude original archive files
+                        
+                        contains_partial_archives = any(
+                            re.search(r'\.\d{3}$', f.name) or 'part' in f.name.lower() 
+                            for f in extracted_files
+                        )
+                        
+                        if not contains_partial_archives and extracted_files:
+                            # Move extracted content to _Unzipped folder
+                            safe_print(f"  📁 Moving final extracted content to _Unzipped folder | 将最终解压内容移动到 _Unzipped 文件夹")
+                            unzipped_dir = root_path / "_Unzipped"
+                            unzipped_dir.mkdir(parents=True, exist_ok=True)
+                            
+                            moved_count = 0
+                            for extracted_file in extracted_files:
+                                try:
+                                    # Calculate relative path from extraction directory, skipping intermediate folders
+                                    rel_path = extracted_file.relative_to(current_extract_dir)
+                                    
+                                    # Skip the first part if it looks like an archive name
+                                    if len(rel_path.parts) > 1:
+                                        first_part = rel_path.parts[0]
+                                        # If the first part looks like an archive name, skip it
+                                        if any(ext in first_part.lower() for ext in ['.7z', '.zip', '.rar']) or first_part.endswith('.7z'):
+                                            dest_rel_path = Path(*rel_path.parts[1:]) if len(rel_path.parts) > 1 else Path(rel_path.name)
+                                        else:
+                                            dest_rel_path = rel_path
+                                    else:
+                                        dest_rel_path = rel_path
+                                    
+                                    dest_path = unzipped_dir / dest_rel_path
+                                    dest_path.parent.mkdir(parents=True, exist_ok=True)
+                                    shutil.move(str(extracted_file), str(dest_path))
+                                    moved_count += 1
+                                except Exception as e:
+                                    safe_print(f"  ⚠️ Failed to move {extracted_file.name}: {e}")
+                            
+                            safe_print(f"  ✅ Moved {moved_count} files to _Unzipped | 移动了 {moved_count} 个文件到 _Unzipped")
+                        
+                        # Mark all parts as processed
+                        for part_file in part_files:
+                            processed_archives.add(part_file)
+                            
+                        if password_used:
+                            extraction_result.passwords_used.append(password_used)
+                    else:
+                        safe_print(f"  ❌ Failed to extract multi-part archive: {message}")
+                        extraction_result.failed_extractions.append((f"{group_name}_{base_name}", message))
+                        
+                except Exception as e:
+                    safe_print(f"  ❌ Error extracting multi-part archive: {e}")
+                    extraction_result.failed_extractions.append((f"{group_name}_{base_name}", str(e)))
+    
+    # Process remaining individual files (excluding already processed containers)
+    for file_path in other_files + container_files:
+        if file_path in processed_archives:
+            continue
+            
+        if is_archive_file(file_path):
+            try:
+                # Extract to current path (same directory as the archive)
+                current_extract_dir = file_path.parent
+                success, message, password_used = extract_with_7z(file_path, current_extract_dir, passwords)
+                
+                if success:
+                    # Track successfully processed archive
+                    extraction_result.successfully_processed_archives.append(file_path)
+                    
+                    safe_print(f"  ✅ Successfully extracted individual archive: {file_path.name}")
+                    total_extracted += 1
+                    successful_extractions.append(f"{file_path.name}: individual archive")
+                    processed_archives.add(file_path)
+                    
+                    # Check if extracted content contains partial archive files
+                    extracted_files = list(current_extract_dir.rglob('*'))
+                    extracted_files = [f for f in extracted_files if f.is_file() and f.parent != current_extract_dir]  # Exclude original archive files
+                    
+                    contains_partial_archives = any(
+                        re.search(r'\.\d{3}$', f.name) or 'part' in f.name.lower() 
+                        for f in extracted_files
+                    )
+                    
+                    if not contains_partial_archives and extracted_files:
+                        # Move extracted content to _Unzipped folder
+                        safe_print(f"  📁 Moving final extracted content to _Unzipped folder | 将最终解压内容移动到 _Unzipped 文件夹")
+                        unzipped_dir = root_path / "_Unzipped" / group_name / file_path.stem
+                        unzipped_dir.mkdir(parents=True, exist_ok=True)
+                        
+                        moved_count = 0
+                        for extracted_file in extracted_files:
+                            try:
+                                # Calculate relative path from extraction directory
+                                rel_path = extracted_file.relative_to(current_extract_dir)
+                                dest_path = unzipped_dir / rel_path
+                                dest_path.parent.mkdir(parents=True, exist_ok=True)
+                                shutil.move(str(extracted_file), str(dest_path))
+                                moved_count += 1
+                            except Exception as e:
+                                safe_print(f"  ⚠️ Failed to move {extracted_file.name}: {e}")
+                        
+                        safe_print(f"  ✅ Moved {moved_count} files to _Unzipped | 移动了 {moved_count} 个文件到 _Unzipped")
+                    
+                    if password_used:
+                        extraction_result.passwords_used.append(password_used)
+                else:
+                    safe_print(f"  ❌ Failed to extract individual archive: {message}")
+                    extraction_result.failed_extractions.append((f"{group_name}_{file_path.name}", message))
+                    
+            except Exception as e:
+                safe_print(f"  ❌ Error extracting individual archive: {e}")
+                extraction_result.failed_extractions.append((f"{group_name}_{file_path.name}", str(e)))
+    
+    if successful_extractions:
+        extraction_result.successful_extractions.append((group_name, f"{total_extracted} files extracted from {len(successful_extractions)} archives"))
+        safe_print(f"  ✅ Subfolder group completed: {total_extracted} extractions | 子文件夹组完成: {total_extracted} 个解压")
+        
+        # Clean up original files after successful extraction
+        safe_print(f"  🗑️ Cleaning up original files | 清理原始文件")
+        cleaned_count = 0
+        failed_count = 0
+        
+        for file_path in group_files:
+            if file_path in processed_archives:
+                try:
+                    if file_path.exists():
+                        file_path.unlink()
+                        cleaned_count += 1
+                        safe_print(f"    🗑️ Deleted: {file_path.name}")
+                except Exception as e:
+                    failed_count += 1
+                    safe_print(f"    ❌ Failed to delete {file_path.name}: {e}")
+        
+        # Debug: Show what we're tracking for cleanup
+        if containers_to_cleanup or extracted_parts_to_cleanup:
+            safe_print(f"  🔍 Debug: Containers to cleanup: {len(containers_to_cleanup)} | 容器清理追踪: {len(containers_to_cleanup)}")
+            safe_print(f"  🔍 Debug: Extracted parts to cleanup: {len(extracted_parts_to_cleanup)} | 解压部分清理追踪: {len(extracted_parts_to_cleanup)}")
+        
+        # Clean up container archives that were used for this group
+        containers_deleted = 0
+        containers_failed = 0
+        for container_archive in containers_to_cleanup:
+            try:
+                if container_archive.exists():
+                    container_archive.unlink()
+                    containers_deleted += 1
+                    safe_print(f"    🗑️ Cleaned up container: {container_archive.name} | 清理容器: {container_archive.name}")
+            except Exception as e:
+                containers_failed += 1
+                safe_print(f"    ❌ Failed to clean up container {container_archive.name}: {e} | 清理容器失败 {container_archive.name}: {e}")
+        
+        # Clean up extracted parts that were found in containers
+        extracted_parts_deleted = 0
+        extracted_parts_failed = 0
+        for extracted_part in extracted_parts_to_cleanup:
+            try:
+                if extracted_part.exists():
+                    extracted_part.unlink()
+                    extracted_parts_deleted += 1
+                    safe_print(f"    🗑️ Cleaned up extracted part: {extracted_part.name} | 清理解压的部分: {extracted_part.name}")
+            except Exception as e:
+                extracted_parts_failed += 1
+                safe_print(f"    ❌ Failed to clean up extracted part {extracted_part.name}: {e} | 清理解压部分失败 {extracted_part.name}: {e}")
+        
+        # Clean up extracted content folders and temp files in the subfolder
+        subfolder_cleanup_deleted = 0
+        subfolder_cleanup_failed = 0
+        
+        # Get the subfolder path
+        subfolder_path = group_files[0].parent if group_files else None
+        if subfolder_path and subfolder_path.exists():
+            # Clean up temp multipart files
+            for temp_file in subfolder_path.glob("temp_multipart_*"):
+                try:
+                    if temp_file.is_file():
+                        temp_file.unlink()
+                        subfolder_cleanup_deleted += 1
+                        safe_print(f"    🗑️ Cleaned up temp file: {temp_file.name} | 清理临时文件: {temp_file.name}")
+                except Exception as e:
+                    subfolder_cleanup_failed += 1
+                    safe_print(f"    ❌ Failed to clean up temp file {temp_file.name}: {e} | 清理临时文件失败 {temp_file.name}: {e}")
+            
+            # Clean up remaining archive parts that weren't processed
+            for archive_file in subfolder_path.glob("*.7z.*"):
+                try:
+                    if archive_file.is_file() and re.search(r'\.\d{3}$', archive_file.suffix):
+                        archive_file.unlink()
+                        subfolder_cleanup_deleted += 1
+                        safe_print(f"    🗑️ Cleaned up unused archive part: {archive_file.name} | 清理未使用的压缩文件部分: {archive_file.name}")
+                except Exception as e:
+                    subfolder_cleanup_failed += 1
+                    safe_print(f"    ❌ Failed to clean up archive part {archive_file.name}: {e} | 清理压缩文件部分失败 {archive_file.name}: {e}")
+            
+            # Clean up extracted content folders (folders that were created by extraction)
+            for item in subfolder_path.iterdir():
+                if item.is_dir() and not item.name.startswith('.'):
+                    # Check if this is likely an extracted content folder
+                    # Since we've already moved content to _Unzipped, we can remove extracted folders
+                    try:
+                        # Remove any folder that looks like extracted content or is empty
+                        item_files = list(item.rglob('*'))
+                        item_files = [f for f in item_files if f.is_file()]
+                        
+                        # Remove if it's an extracted content folder (has many files) or is empty
+                        should_remove = (
+                            len(item_files) == 0 or  # Empty folder
+                            len(item_files) > 5 or   # Likely extracted content
+                            any(keyword in item.name.lower() for keyword in ['xiuren', '秀人', '鱼子酱', 'p+', 'g]', '【', '】'])  # Content folder patterns
+                        )
+                        
+                        if should_remove:
+                            shutil.rmtree(item, ignore_errors=True)
+                            if not item.exists():
+                                subfolder_cleanup_deleted += 1
+                                safe_print(f"    🗑️ Cleaned up extracted folder: {item.name} | 清理解压文件夹: {item.name}")
+                            else:
+                                subfolder_cleanup_failed += 1
+                                safe_print(f"    ⚠️ Failed to fully clean up folder: {item.name} | 无法完全清理文件夹: {item.name}")
+                    except Exception as e:
+                        subfolder_cleanup_failed += 1
+                        safe_print(f"    ❌ Failed to clean up folder {item.name}: {e} | 清理文件夹失败 {item.name}: {e}")
+        
+        # Update totals
+        cleaned_count += containers_deleted + extracted_parts_deleted + subfolder_cleanup_deleted
+        failed_count += containers_failed + extracted_parts_failed + subfolder_cleanup_failed
+        
+        # Try to remove the subfolder if it's empty
+        subfolder_path = group_files[0].parent if group_files else None
+        if subfolder_path and subfolder_path.exists():
+            try:
+                remaining_files = list(subfolder_path.rglob('*'))
+                remaining_files = [f for f in remaining_files if f.is_file()]
+                
+                if not remaining_files:
+                    subfolder_path.rmdir()
+                    safe_print(f"  🗑️ Deleted empty subfolder: {subfolder_path.name} | 删除空子文件夹: {subfolder_path.name}")
+                else:
+                    safe_print(f"  ⚠️ Subfolder {subfolder_path.name} still contains {len(remaining_files)} files - keeping | 子文件夹 {subfolder_path.name} 仍包含 {len(remaining_files)} 个文件 - 保留")
+            except Exception as e:
+                safe_print(f"  ❌ Failed to delete subfolder {subfolder_path.name}: {e}")
+        
+        safe_print(f"  🗑️ Cleanup completed: {cleaned_count} files deleted, {failed_count} failed | 清理完成: {cleaned_count} 个文件已删除，{failed_count} 个失败")
+        return True
+    else:
+        safe_print(f"  ❌ No successful extractions in subfolder group | 子文件夹组中无成功解压")
+        return False
 
 
 def process_paths(paths: List[Path], recursive: bool = False, verbose: bool = False, 
@@ -141,9 +575,10 @@ def process_paths(paths: List[Path], recursive: bool = False, verbose: bool = Fa
         safe_print("🚀 STARTING ARCHIVE EXTRACTION | 开始压缩文件解压")
         safe_print("=" * 60)
         
+        # Step 1: Check multi-part archive completeness
+        multipart_archives, potential_missing_containers = check_archive_completeness(all_files, verbose)
+        
         extraction_result = ExtractionResult()
-        completed_dir = root_path / "_Unzipped"
-        passwords_file = root_path / "passwords.txt"
         
         # Track archives that have been processed to avoid duplicate processing
         processed_archives = set()
@@ -151,8 +586,42 @@ def process_paths(paths: List[Path], recursive: bool = False, verbose: bool = Fa
         # Track container archives that should be cleaned up after successful extraction
         containers_to_cleanup = set()
         
-        # Track subfolders that have been successfully processed for cleanup
+        # Track extracted parts that should be cleaned up after successful extraction
+        extracted_parts_to_cleanup = set()
+        
+        # Track successfully extracted files for organization
+        extracted_files = []
+        
+        # Track successfully processed archive files for cleanup
+        successfully_processed_archives = []
+        
+        # Add back variables needed by existing code
+        completed_dir = root_path / "_Unzipped"
+        passwords_file = root_path / "passwords.txt"
         processed_subfolders = set()
+        
+        # Step 2: Prioritize extraction order based on multi-part analysis
+        if multipart_archives or potential_missing_containers:
+            # Get files from all groups for prioritization
+            all_group_files = []
+            for group_files in priority_groups.values():
+                all_group_files.extend(group_files)
+            
+            # Prioritize extraction order
+            prioritized_files = prioritize_extraction_order(multipart_archives, all_group_files)
+            
+            safe_print(f"\n📋 Extraction order optimized based on multi-part analysis | 基于多部分分析优化解压顺序")
+            if verbose and prioritized_files:
+                safe_print("🔄 Optimized extraction order:")
+                for i, file_path in enumerate(prioritized_files[:10], 1):  # Show first 10
+                    safe_print(f"   {i}. {file_path.name}")
+                if len(prioritized_files) > 10:
+                    safe_print(f"   ... and {len(prioritized_files) - 10} more files")
+        else:
+            # Use original group-based processing
+            prioritized_files = []
+            for group_files in priority_groups.values():
+                prioritized_files.extend(group_files)
         
         # Process each group in priority_groups, but prioritize groups with partial archives first
         groups_to_process = list(priority_groups.items())
@@ -202,6 +671,16 @@ def process_paths(paths: List[Path], recursive: bool = False, verbose: bool = Fa
             safe_print(f"\n📦 Processing group: {group_name} | 处理组: {group_name}")
             safe_print("-" * 40)
             
+            # Check if this is a subfolder group (all files in same subfolder)
+            if "_subfolder_all" in group_name:
+                # This is a subfolder group - process all files together
+                if process_subfolder_group(group_name, group_files, completed_dir, extraction_result, processed_archives, passwords, root_path, containers_to_cleanup, extracted_parts_to_cleanup):
+                    # Subfolder group processed successfully
+                    continue
+                else:
+                    # Subfolder group processing failed, but continue with other groups
+                    continue
+            
             # Find the main archive to extract
             main_archive = find_main_archive_in_group(group_files)
             
@@ -227,79 +706,118 @@ def process_paths(paths: List[Path], recursive: bool = False, verbose: bool = Fa
                 
                 safe_print(f"  🧩 Detected multi-part archive: {base_name} | 检测到多部分压缩文件: {base_name}")
                 
-                # Check completeness
-                is_complete, found_parts, missing_parts = check_multipart_completeness(group_files, base_name)
+                # Check completeness by scanning the actual directory for all parts
+                # This is important because other groups might have extracted additional parts
+                archive_dir = main_archive.parent
+                all_parts_in_dir = []
+                for file_path in archive_dir.iterdir():
+                    if file_path.is_file() and base_name.lower() in file_path.name.lower() and re.search(r'\.\d{3}$', file_path.suffix):
+                        all_parts_in_dir.append(file_path)
+                
+                safe_print(f"  🔍 Scanning directory for all parts of {base_name} | 扫描目录中 {base_name} 的所有部分")
+                for part_file in all_parts_in_dir:
+                    safe_print(f"     Found part: {part_file.name} | 找到部分: {part_file.name}")
+                
+                # Check completeness using all parts found in directory
+                is_complete, found_parts, missing_parts = check_multipart_completeness(all_parts_in_dir, base_name)
                 
                 if not is_complete:
                     safe_print(f"  ⚠️ Multi-part archive incomplete! Found parts: {found_parts}, Missing: {missing_parts} | 多部分压缩文件不完整！找到部分: {found_parts}，缺少: {missing_parts}")
                     
-                    # Look for missing parts in other archives
-                    part_locations = find_missing_parts_in_other_archives(missing_parts, base_name, priority_groups)
+                    # First, look for missing parts in the same group/path
+                    safe_print(f"  🔍 Searching for missing parts in same group first | 首先在同组中搜索缺少的部分")
+                    found_in_group = {}
                     
-                    if part_locations:
-                        safe_print(f"  🔍 Found missing parts in other archives: | 在其他压缩文件中找到缺少的部分:")
-                        for part_num, container_archive in part_locations.items():
-                            safe_print(f"     Part {part_num:03d} found in: {container_archive.name} | 部分 {part_num:03d} 在此找到: {container_archive.name}")
+                    for missing_part in missing_parts:
+                        expected_name = f"{base_name}.{missing_part:03d}"
+                        # Look in the current group files first
+                        for group_file in group_files:
+                            if group_file.name.lower() == expected_name.lower():
+                                found_in_group[missing_part] = group_file
+                                safe_print(f"    📄 Found missing part {missing_part:03d} in same group: {group_file.name}")
+                                break
+                    
+                    # Remove parts found in the same group from missing list
+                    for found_part in found_in_group.keys():
+                        if found_part in missing_parts:
+                            missing_parts.remove(found_part)
+                    
+                    # Update found_parts list
+                    found_parts.extend(found_in_group.keys())
+                    
+                    # If still missing parts, look for them in other archives
+                    if missing_parts:
+                        safe_print(f"  🔍 Still missing parts: {missing_parts}, searching in other archives | 仍缺少部分: {missing_parts}，在其他压缩文件中搜索")
                         
-                        # Extract the containers first to get the missing parts
-                        extracted_any_parts = False
-                        for part_num, container_archive in part_locations.items():
-                            safe_print(f"  📦 Extracting container for part {part_num:03d}: {container_archive.name} | 为部分 {part_num:03d} 解压容器: {container_archive.name}")
+                        # Look for missing parts in other archives
+                        part_locations = find_missing_parts_in_other_archives(missing_parts, base_name, priority_groups)
+                        
+                        if part_locations:
+                            safe_print(f"  🔍 Found missing parts in other archives: | 在其他压缩文件中找到缺少的部分:")
+                            for part_num, container_archive in part_locations.items():
+                                safe_print(f"     Part {part_num:03d} found in: {container_archive.name} | 部分 {part_num:03d} 在此找到: {container_archive.name}")
                             
-                            # Create temp directory for the container extraction
-                            container_temp_dir = main_archive.parent / f"temp_container_{container_archive.stem}"
-                            
-                            try:
-                                # For container extraction, always use regular extraction to get individual files
-                                # Don't try to reassemble as multi-part archive - just extract contents
-                                success, message, password_used = extract_with_7z(
-                                    container_archive, container_temp_dir, passwords
-                                )
+                            # Extract the containers to current path to get the missing parts
+                            extracted_any_parts = False
+                            for part_num, container_archive in part_locations.items():
+                                safe_print(f"  📦 Extracting container for part {part_num:03d}: {container_archive.name} | 为部分 {part_num:03d} 解压容器: {container_archive.name}")
                                 
-                                if success:
-                                    safe_print(f"  ✅ Extracted container successfully | 容器解压成功")
-                                    extracted_any_parts = True
+                                # Extract container to current path (same directory as main archive)
+                                container_extract_dir = main_archive.parent
+                                
+                                try:
+                                    # For container extraction, extract to current path
+                                    success, message, password_used = extract_with_7z(
+                                        container_archive, container_extract_dir, passwords
+                                    )
                                     
-                                    # Mark this archive as processed to avoid processing it again later
-                                    processed_archives.add(container_archive)
-                                    
-                                    # Mark this container for cleanup when main extraction succeeds
-                                    containers_to_cleanup.add(container_archive)
-                                    
-                                    if password_used and password_used not in passwords:
-                                        passwords.append(password_used)
-                                        extraction_result.new_passwords.append(password_used)
-                                    
-                                    # Copy extracted missing parts to the main archive directory
-                                    expected_part_name = f"{base_name}.{part_num:03d}"
-                                    
-                                    for extracted_file in container_temp_dir.rglob("*"):
-                                        if extracted_file.is_file() and expected_part_name.lower() in extracted_file.name.lower():
-                                            target_path = main_archive.parent / expected_part_name
-                                            shutil.copy2(extracted_file, target_path)
-                                            safe_print(f"  📄 Copied missing part: {expected_part_name} | 复制缺少的部分: {expected_part_name}")
-                                            break
+                                    if success:
+                                        # Track successfully processed archive
+                                        extraction_result.successfully_processed_archives.append(container_archive)
+                                        
+                                        safe_print(f"  ✅ Extracted container successfully to current path | 容器成功解压到当前路径")
+                                        extracted_any_parts = True
+                                        
+                                        # Mark this archive as processed to avoid processing it again later
+                                        processed_archives.add(container_archive)
+                                        
+                                        # Mark this container for cleanup when main extraction succeeds
+                                        containers_to_cleanup.add(container_archive)
+                                        
+                                        if password_used and password_used not in passwords:
+                                            passwords.append(password_used)
+                                            extraction_result.new_passwords.append(password_used)
+                                        
+                                        # The missing parts should now be available in the current directory
+                                        expected_part_name = f"{base_name}.{part_num:03d}"
+                                        expected_part_path = main_archive.parent / expected_part_name
+                                        
+                                        if expected_part_path.exists():
+                                            safe_print(f"  📄 Found extracted missing part: {expected_part_name} | 找到解压的缺少部分: {expected_part_name}")
+                                            # Track this extracted part for cleanup
+                                            extracted_parts_to_cleanup.add(expected_part_path)
+                                        else:
+                                            safe_print(f"  ⚠️ Missing part {expected_part_name} not found after extraction | 解压后未找到缺少的部分 {expected_part_name}")
                                     else:
-                                        safe_print(f"  ⚠️ Missing part {expected_part_name} not found in container | 容器中未找到缺少的部分 {expected_part_name}")
-                                else:
-                                    safe_print(f"  ❌ Failed to extract container: {message} | 解压容器失败: {message}")
-                                    
-                            except Exception as e:
-                                safe_print(f"  ❌ Error extracting container: {e} | 解压容器时出错: {e}")
-                            finally:
-                                # Clean up container temp directory
-                                if container_temp_dir.exists():
-                                    shutil.rmtree(container_temp_dir, ignore_errors=True)
-                        
-                        if not extracted_any_parts:
-                            safe_print(f"  ❌ Failed to extract any missing parts from containers | 从容器中解压任何缺少部分失败")
-                            extraction_result.failed_extractions.append((group_name, "Failed to extract missing parts from containers"))
+                                        safe_print(f"  ❌ Failed to extract container: {message} | 解压容器失败: {message}")
+                                        
+                                except Exception as e:
+                                    safe_print(f"  ❌ Error extracting container: {e} | 解压容器时出错: {e}")
+                            
+                            if not extracted_any_parts:
+                                safe_print(f"  ❌ Failed to extract any missing parts from containers | 从容器中解压任何缺少部分失败")
+                                extraction_result.failed_extractions.append((group_name, "Failed to extract missing parts from containers"))
+                                continue
+                        else:
+                            safe_print(f"  ❌ Missing parts not found in any other archives | 在任何其他压缩文件中都未找到缺少的部分")
+                            extraction_result.failed_extractions.append((group_name, f"Multi-part archive incomplete. Missing parts: {missing_parts}"))
                             continue
+                    
+                    # Re-check completeness after finding parts in group or extracting from containers
+                    if found_in_group or (missing_parts and 'part_locations' in locals() and part_locations):
+                        safe_print(f"  🔄 Re-checking completeness after finding missing parts... | 找到缺少部分后重新检查完整性...")
                         
-                        # Now re-check if we have all parts after extraction
-                        safe_print(f"  🔄 Re-checking completeness after container extraction... | 容器解压后重新检查完整性...")
-                        
-                        # Rescan the directory to find all parts (including newly copied ones)
+                        # Rescan the directory to find all parts (including newly found ones)
                         archive_dir = main_archive.parent
                         all_parts_in_dir = []
                         for file_path in archive_dir.iterdir():
@@ -313,8 +831,8 @@ def process_paths(paths: List[Path], recursive: bool = False, verbose: bool = Fa
                             # Update the group files to include the newly found parts
                             group_files = all_parts_in_dir
                         else:
-                            safe_print(f"  ⚠️ Multi-part archive still incomplete after container extraction. Found parts: {found_parts}, Missing: {missing_parts} | 容器解压后多部分压缩文件仍不完整。找到部分: {found_parts}，缺少: {missing_parts}")
-                            extraction_result.failed_extractions.append((group_name, f"Multi-part archive incomplete after container extraction. Missing parts: {missing_parts}"))
+                            safe_print(f"  ⚠️ Multi-part archive still incomplete. Found parts: {found_parts}, Missing: {missing_parts} | 多部分压缩文件仍不完整。找到部分: {found_parts}，缺少: {missing_parts}")
+                            extraction_result.failed_extractions.append((group_name, f"Multi-part archive incomplete. Missing parts: {missing_parts}"))
                             continue
                         
                     else:
@@ -323,6 +841,8 @@ def process_paths(paths: List[Path], recursive: bool = False, verbose: bool = Fa
                         continue
                 else:
                     safe_print(f"  ✅ Multi-part archive is complete with parts: {found_parts} | 多部分压缩文件完整，包含部分: {found_parts}")
+                    # Update the group files to include all parts found in directory
+                    group_files = all_parts_in_dir
             
             # Create temporary extraction directory
             temp_extract_dir = main_archive.parent / f"temp_extract_{group_name}"
@@ -359,6 +879,9 @@ def process_paths(paths: List[Path], recursive: bool = False, verbose: bool = Fa
                             extraction_result.new_passwords.append(user_password)
                 
                 if success:
+                    # Track successfully processed archive
+                    extraction_result.successfully_processed_archives.append(main_archive)
+                    
                     safe_print(f"  ✅ Extracted main archive successfully | 主压缩文件解压成功")
                     
                     # Extract nested archives recursively
@@ -367,35 +890,196 @@ def process_paths(paths: List[Path], recursive: bool = False, verbose: bool = Fa
                     final_files, new_passwords = extract_nested_archives(temp_extract_dir, passwords)
                     extraction_result.new_passwords.extend(new_passwords)
                     
-                    # Copy files to completed directory
-                    group_completed_dir = create_completed_structure(completed_dir, group_name, final_files)
-                    extraction_result.completed_files.extend(final_files)
+                    # Determine extraction destination based on content
+                    # If the archive contains partial archive files, extract to current path
+                    contains_partial_archives = any(
+                        re.search(r'\.\d{3}$', f.name) or 'part' in f.name.lower() 
+                        for f in final_files if f.is_file()
+                    )
                     
-                    # Clean up original files
-                    deleted, failed = clean_up_original_files(group_files)
-                    
-                    # Also clean up container archives that were used for this group
-                    containers_deleted = 0
-                    containers_failed = 0
-                    for container_archive in containers_to_cleanup:
-                        try:
-                            if container_archive.exists():
-                                container_archive.unlink()
-                                containers_deleted += 1
-                                safe_print(f"  🗑️  Cleaned up container: {container_archive.name} | 清理容器: {container_archive.name}")
-                        except Exception as e:
-                            containers_failed += 1
-                            safe_print(f"  ❌ Failed to clean up container {container_archive.name}: {e} | 清理容器失败 {container_archive.name}: {e}")
-                    
-                    total_deleted = deleted + containers_deleted
-                    total_failed = failed + containers_failed
-                    safe_print(f"  🗑️  Cleaned up: {total_deleted} files deleted, {total_failed} failed | 清理完成: {total_deleted} 个文件已删除，{total_failed} 个失败")
+                    if contains_partial_archives:
+                        safe_print(f"  📦 Archive contains partial files, extracting to current path | 压缩文件包含部分文件，解压到当前路径")
+                        # Extract to current path (same directory as the archive)
+                        current_extract_dir = main_archive.parent
+                        
+                        # Copy files directly to the current directory, preserving structure
+                        copied_count = 0
+                        for file_path in final_files:
+                            if file_path.is_file():
+                                # Calculate relative path from temp extraction directory
+                                try:
+                                    rel_path = file_path.relative_to(temp_extract_dir)
+                                    dest_path = current_extract_dir / rel_path
+                                    dest_path.parent.mkdir(parents=True, exist_ok=True)
+                                    shutil.copy2(file_path, dest_path)
+                                    copied_count += 1
+                                except Exception as e:
+                                    safe_print(f"  ⚠️ Failed to copy {file_path.name}: {e}")
+                        
+                        safe_print(f"  ✅ Extracted {copied_count} files to current path | 解压 {copied_count} 个文件到当前路径")
+                        extraction_result.completed_files.extend([current_extract_dir / f.relative_to(temp_extract_dir) 
+                                                                for f in final_files if f.is_file()])
+                    else:
+                        # Regular extraction to _Unzipped directory
+                        safe_print(f"  📁 Moving final extracted content to _Unzipped folder | 将最终解压内容移动到 _Unzipped 文件夹")
+                        
+                        # For subfolder groups, move content directly to _Unzipped without group name nesting
+                        moved_count = 0
+                        
+                        # Find the actual content and move it directly to _Unzipped
+                        for file_path in final_files:
+                            if file_path.is_file():
+                                try:
+                                    # Get the relative path from temp extraction directory
+                                    rel_path = file_path.relative_to(temp_extract_dir)
+                                    
+                                    # For nested structure like: archive_name/content_folder/files
+                                    # We want to extract: content_folder/files directly to _Unzipped
+                                    # Skip the archive name part if it exists
+                                    if len(rel_path.parts) > 1:
+                                        # Check if the first part is the archive name (common pattern)
+                                        first_part = rel_path.parts[0]
+                                        # If the first part looks like an archive name, skip it
+                                        if any(ext in first_part.lower() for ext in ['.7z', '.zip', '.rar']) or first_part.endswith('.7z'):
+                                            dest_rel_path = Path(*rel_path.parts[1:]) if len(rel_path.parts) > 1 else Path(rel_path.name)
+                                        else:
+                                            dest_rel_path = rel_path
+                                    else:
+                                        # Direct file
+                                        dest_rel_path = rel_path
+                                    
+                                    dest_path = completed_dir / dest_rel_path
+                                    dest_path.parent.mkdir(parents=True, exist_ok=True)
+                                    shutil.copy2(file_path, dest_path)
+                                    moved_count += 1
+                                except Exception as e:
+                                    safe_print(f"  ⚠️ Failed to move {file_path.name}: {e}")
+                        
+                        safe_print(f"  ✅ Moved {moved_count} files to _Unzipped | 移动了 {moved_count} 个文件到 _Unzipped")
+                        # Update the tracking to reflect the new locations
+                        extraction_result.completed_files.extend([completed_dir / f.relative_to(temp_extract_dir) 
+                                                                for f in final_files if f.is_file()])
                     
                     # Clean up temporary directory
                     if temp_extract_dir.exists():
                         shutil.rmtree(temp_extract_dir, ignore_errors=True)
                     
-                    extraction_result.successful_extractions.append((group_name, len(final_files)))
+                    # Determine if extraction was successful based on whether files were moved/copied
+                    extraction_successful = False
+                    extracted_file_count = 0
+                    
+                    if contains_partial_archives:
+                        # For partial archives (extracted to current path), check copied_count
+                        if 'copied_count' in locals() and copied_count > 0:
+                            extraction_successful = True
+                            extracted_file_count = copied_count
+                    else:
+                        # For regular archives (moved to _Unzipped), check moved_count
+                        if 'moved_count' in locals() and moved_count > 0:
+                            extraction_successful = True
+                            extracted_file_count = moved_count
+                    
+                    if extraction_successful:
+                        # Only clean up original files if we have successfully extracted content
+                        safe_print(f"  ✅ Valid extraction completed, cleaning up original files | 有效解压完成，清理原始文件")
+                        
+                        # Clean up original files
+                        deleted, failed = clean_up_original_files(group_files)
+                        
+                        # Debug: Show what we're tracking for cleanup
+                        safe_print(f"  🔍 Debug: Containers to cleanup: {len(containers_to_cleanup)} | 容器清理追踪: {len(containers_to_cleanup)}")
+                        safe_print(f"  🔍 Debug: Extracted parts to cleanup: {len(extracted_parts_to_cleanup)} | 解压部分清理追踪: {len(extracted_parts_to_cleanup)}")
+                        
+                        # Also clean up container archives that were used for this group
+                        containers_deleted = 0
+                        containers_failed = 0
+                        for container_archive in containers_to_cleanup:
+                            try:
+                                if container_archive.exists():
+                                    container_archive.unlink()
+                                    containers_deleted += 1
+                                    safe_print(f"  🗑️  Cleaned up container: {container_archive.name} | 清理容器: {container_archive.name}")
+                            except Exception as e:
+                                containers_failed += 1
+                                safe_print(f"  ❌ Failed to clean up container {container_archive.name}: {e} | 清理容器失败 {container_archive.name}: {e}")
+                        
+                        # Also clean up extracted parts that were found in containers
+                        extracted_parts_deleted = 0
+                        extracted_parts_failed = 0
+                        for extracted_part in extracted_parts_to_cleanup:
+                            try:
+                                if extracted_part.exists():
+                                    extracted_part.unlink()
+                                    extracted_parts_deleted += 1
+                                    safe_print(f"  🗑️  Cleaned up extracted part: {extracted_part.name} | 清理解压的部分: {extracted_part.name}")
+                            except Exception as e:
+                                extracted_parts_failed += 1
+                                safe_print(f"  ❌ Failed to clean up extracted part {extracted_part.name}: {e} | 清理解压部分失败 {extracted_part.name}: {e}")
+                        
+                        # Clean up extracted content folders and temp files in the subfolder
+                        subfolder_cleanup_deleted = 0
+                        subfolder_cleanup_failed = 0
+                        
+                        # Get the subfolder path
+                        if group_files:
+                            subfolder_path = group_files[0].parent
+                            
+                            # Clean up temp multipart files
+                            for temp_file in subfolder_path.glob("temp_multipart_*"):
+                                try:
+                                    if temp_file.is_file():
+                                        temp_file.unlink()
+                                        subfolder_cleanup_deleted += 1
+                                        safe_print(f"  🗑️  Cleaned up temp file: {temp_file.name} | 清理临时文件: {temp_file.name}")
+                                except Exception as e:
+                                    subfolder_cleanup_failed += 1
+                                    safe_print(f"  ❌ Failed to clean up temp file {temp_file.name}: {e} | 清理临时文件失败 {temp_file.name}: {e}")
+                            
+                            # Clean up extracted content folders (folders that were created by extraction)
+                            for item in subfolder_path.iterdir():
+                                if item.is_dir() and not item.name.startswith('.'):
+                                    # Check if this is likely an extracted content folder
+                                    # (folders that contain many files and weren't there originally)
+                                    try:
+                                        item_files = list(item.rglob('*'))
+                                        if len(item_files) > 10:  # Likely extracted content
+                                            shutil.rmtree(item, ignore_errors=True)
+                                            if not item.exists():
+                                                subfolder_cleanup_deleted += 1
+                                                safe_print(f"  🗑️  Cleaned up extracted folder: {item.name} | 清理解压文件夹: {item.name}")
+                                            else:
+                                                subfolder_cleanup_failed += 1
+                                    except Exception as e:
+                                        subfolder_cleanup_failed += 1
+                                        safe_print(f"  ❌ Failed to clean up folder {item.name}: {e} | 清理文件夹失败 {item.name}: {e}")
+                        
+                        total_deleted = deleted + containers_deleted + extracted_parts_deleted + subfolder_cleanup_deleted
+                        total_failed = failed + containers_failed + extracted_parts_failed + subfolder_cleanup_failed
+                        safe_print(f"  🗑️  Cleaned up: {total_deleted} files deleted, {total_failed} failed | 清理完成: {total_deleted} 个文件已删除，{total_failed} 个失败")
+                        
+                        extraction_result.successful_extractions.append((group_name, extracted_file_count))
+                    else:
+                        safe_print(f"  ❌ No valid files extracted (only temporary files found) | 未解压出有效文件（仅找到临时文件）")
+                        safe_print(f"  🔄 Preserving original files due to failed extraction | 由于解压失败保留原始文件")
+                        extraction_result.failed_extractions.append((group_name, "No valid files extracted (only temporary files)"))
+                        
+                        # Only clean up temp files, but preserve original archive files
+                        if group_files:
+                            subfolder_path = group_files[0].parent
+                            temp_cleanup_count = 0
+                            
+                            # Clean up only temp multipart files
+                            for temp_file in subfolder_path.glob("temp_multipart_*"):
+                                try:
+                                    if temp_file.is_file():
+                                        temp_file.unlink()
+                                        temp_cleanup_count += 1
+                                        safe_print(f"  🗑️  Cleaned up temp file: {temp_file.name} | 清理临时文件: {temp_file.name}")
+                                except Exception as e:
+                                    safe_print(f"  ❌ Failed to clean up temp file {temp_file.name}: {e} | 清理临时文件失败 {temp_file.name}: {e}")
+                            
+                            if temp_cleanup_count > 0:
+                                safe_print(f"  🗑️  Cleaned up: {temp_cleanup_count} temp files, preserved original files | 清理完成: {temp_cleanup_count} 个临时文件，保留原始文件")
                     
                     # Track subfolder for cleanup if this group represents a subfolder
                     if not group_name.startswith("root_"):
@@ -405,23 +1089,9 @@ def process_paths(paths: List[Path], recursive: bool = False, verbose: bool = Fa
                             processed_subfolders.add(subfolder_name)
                     
                 else:
-                    # Clean up error message to remove verbose 7z output
-                    clean_message = message
-                    if "Cannot open the file as" in message and "archive" in message:
-                        # Extract just the essential error information
-                        clean_message = "File is not a valid archive or is corrupted | 文件不是有效的压缩文件或已损坏"
-                    elif "stdout:" in message and "stderr:" in message:
-                        # Try to extract a more concise error message
-                        lines = message.split('\n')
-                        error_lines = [line.strip() for line in lines if line.strip() and 
-                                     ('ERROR:' in line or 'ERRORS:' in line or 'Can\'t open' in line)]
-                        if error_lines:
-                            clean_message = error_lines[0].replace('ERROR: ', '').replace('ERRORS:', 'Errors:')
-                        else:
-                            clean_message = "Extraction failed | 解压失败"
-                    
-                    safe_print(f"  ❌ Extraction failed: {clean_message}")
-                    extraction_result.failed_extractions.append((group_name, clean_message))
+                    # Error message is already cleaned by the extraction function
+                    safe_print(f"  ❌ Extraction failed: {message}")
+                    extraction_result.failed_extractions.append((group_name, message))
                     
                     # Clean up failed extraction directory
                     if temp_extract_dir.exists():
@@ -470,11 +1140,67 @@ def process_paths(paths: List[Path], recursive: bool = False, verbose: bool = Fa
         # Display final results
         display_extraction_results(extraction_result)
         
+        # Step 3: Organize extracted files and cleanup archives
+        if extraction_result.successful_extractions:
+            safe_print("\n" + "=" * 60)
+            safe_print("📁 ORGANIZING AND CLEANING UP | 整理和清理")
+            safe_print("=" * 60)
+            
+            # Use the completed_files from extraction_result
+            all_extracted_files = extraction_result.completed_files
+            
+            # Get successfully processed archives for cleanup
+            archive_files_to_cleanup = extraction_result.successfully_processed_archives.copy()
+            
+            # Add archives from the containers and parts tracking
+            archive_files_to_cleanup.extend(containers_to_cleanup)
+            archive_files_to_cleanup.extend(extracted_parts_to_cleanup)
+            
+            # Also add archives from processed_archives set
+            archive_files_to_cleanup.extend(processed_archives)
+            
+            # Remove duplicates and ensure they exist
+            unique_archives = []
+            seen = set()
+            for archive_path in archive_files_to_cleanup:
+                archive_path = Path(archive_path)  # Ensure it's a Path object
+                if archive_path not in seen and archive_path.exists():
+                    seen.add(archive_path)
+                    unique_archives.append(archive_path)
+            
+            # Perform organization and cleanup
+            success = organize_and_cleanup(
+                extracted_files=all_extracted_files,
+                archive_files=unique_archives,
+                root_path=root_path,
+                verbose=verbose
+            )
+            
+            if success:
+                # Create extraction summary
+                unzipped_dir = root_path / "_Unzipped"
+                moved_files = list(unzipped_dir.rglob('*')) if unzipped_dir.exists() else []
+                moved_files = [f for f in moved_files if f.is_file()]
+                
+                create_extraction_summary(
+                    moved_files=moved_files,
+                    cleaned_archives=unique_archives,
+                    unzipped_dir=unzipped_dir
+                )
+        else:
+            safe_print("\n⚠️  No successful extractions to organize | 没有成功的解压文件需要整理")
+        
     elif not no_extract and dry_run:
         safe_print("\n💡 Extraction not performed in dry-run mode | 预演模式下不执行解压")
         safe_print("💡 Use without --dry-run to perform actual extraction | 不使用 --dry-run 执行实际解压")
     elif no_extract:
         safe_print("\n💡 Extraction skipped (--no-extract specified) | 跳过解压（指定了 --no-extract）")
+        
+        # Still perform multi-part analysis for informational purposes
+        safe_print("\n" + "=" * 60)
+        safe_print("📊 MULTI-PART ARCHIVE ANALYSIS | 多部分压缩文件分析")
+        safe_print("=" * 60)
+        multipart_archives, potential_missing_containers = check_archive_completeness(all_files, verbose)
     
     # Display password book summary (non-verbose)
     if not verbose and passwords:

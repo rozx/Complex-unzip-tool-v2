@@ -23,6 +23,7 @@ class ExtractionResult:
         self.new_passwords = []
         self.processed_files = set()
         self.completed_files = []
+        self.successfully_processed_archives = []  # Track archives that were successfully extracted
 
 
 def get_7z_executable() -> Path:
@@ -444,11 +445,29 @@ def extract_partial_archive_and_reassemble(archive_path: Path, output_dir: Path,
         
         safe_print(f"  🧩 Found {len(partial_files)} partial files for {len(base_names)} archive(s) | 找到 {len(partial_files)} 个部分文件，共 {len(base_names)} 个压缩文件")
         
-        # Check if we have the first part (.001) - we need this to extract multi-part archives
+        # Check if we have the first part (.001) - we need this to extract complete multi-part archives
         first_parts = [f for f in partial_files if f.name.endswith('.001')]
         if not first_parts:
-            safe_print(f"  ⚠️ Missing .001 (first part) file. Cannot extract multi-part archive without first part. | 缺少 .001（第一部分）文件。没有第一部分无法解压多部分压缩文件。")
-            return False, f"Missing first part (.001) for multi-part archive extraction", None
+            safe_print(f"  ⚠️ Missing .001 (first part) file. Cannot extract complete multi-part archive, but will extract individual parts to current directory. | 缺少 .001（第一部分）文件。无法解压完整的多部分压缩文件，但将提取各个部分到当前目录。")
+            
+            # Extract individual partial files to the current directory instead of failing
+            safe_print(f"  📦 Extracting individual partial files to current directory | 提取各个部分文件到当前目录")
+            extracted_parts = 0
+            
+            for partial_file in partial_files:
+                try:
+                    # Extract to current directory (same as container)
+                    dest_path = archive_path.parent / partial_file.name
+                    shutil.copy2(partial_file, dest_path)
+                    extracted_parts += 1
+                    safe_print(f"  📄 Extracted partial file: {partial_file.name} | 提取部分文件: {partial_file.name}")
+                except Exception as e:
+                    safe_print(f"  ❌ Failed to extract {partial_file.name}: {e} | 提取 {partial_file.name} 失败: {e}")
+            
+            if extracted_parts > 0:
+                return True, f"Extracted {extracted_parts} individual partial files to current directory", None
+            else:
+                return False, f"Failed to extract any partial files", None
         
         # For each first part, try to extract the complete multi-part archive
         total_extracted = 0
@@ -513,7 +532,7 @@ def extract_partial_archive_and_reassemble(archive_path: Path, output_dir: Path,
 
 
 def check_multipart_completeness(group_files: List[Path], base_name: str) -> Tuple[bool, List[int], List[int]]:
-    """Check if a multi-part archive is complete by attempting extraction test.
+    """Check if a multi-part archive is complete by analyzing available parts.
     
     Args:
         group_files: List of files in the group
@@ -522,9 +541,20 @@ def check_multipart_completeness(group_files: List[Path], base_name: str) -> Tup
     Returns:
         Tuple of (is_complete, found_parts, missing_parts)
     """
-    found_parts = []
+    from .multipart_detector import detect_multipart_patterns
     
-    # Look for parts in the current group
+    # Use the new multi-part detection logic
+    multipart_archives = detect_multipart_patterns(group_files)
+    
+    # Find the archive that matches our base name
+    for archive in multipart_archives:
+        if archive.base_name.lower() == base_name.lower():
+            found_parts = sorted(archive.found_parts.keys())
+            missing_parts = archive.get_missing_part_numbers()
+            return archive.is_complete, found_parts, missing_parts
+    
+    # Fallback to simple pattern matching if not detected as multi-part
+    found_parts = []
     for file_path in group_files:
         # Check for .001, .002, .003 pattern
         if re.match(rf'{re.escape(base_name)}\.(\d{{3}})$', file_path.name, re.IGNORECASE):
@@ -538,118 +568,16 @@ def check_multipart_completeness(group_files: List[Path], base_name: str) -> Tup
     
     found_parts.sort()
     
-    # Try to test extraction of the first part to see if 7z reports missing parts
-    first_part_file = None
-    for file_path in group_files:
-        if file_path.name.lower().endswith('.001'):
-            first_part_file = file_path
-            break
+    # Simple logic: if we have consecutive parts, assume complete
+    min_part = min(found_parts)
+    max_part = max(found_parts)
+    expected_parts = list(range(min_part, max_part + 1))
     
-    if first_part_file:
-        try:
-            seven_z = get_7z_executable()
-            archive_temp, needs_cleanup = get_ascii_temp_path(first_part_file)
-            
-            try:
-                # Test extraction (list files) to see if 7z reports missing volumes
-                cmd = [str(seven_z), 'l', str(archive_temp)]
-                result = subprocess.run(
-                    cmd, 
-                    capture_output=True, 
-                    text=True, 
-                    timeout=10,
-                    encoding='utf-8',
-                    errors='replace'
-                )
-                
-                # Check what 7z actually returns
-                output_all = (result.stdout + result.stderr).lower()
-                
-                if result.returncode == 0:
-                    # Check if 7z mentions missing volumes in the output
-                    if 'missing volume' in output_all or 'cannot find volume' in output_all:
-                        # Try to determine which volumes are missing
-                        missing_parts = []
-                        # Look for volume patterns in the error
-                        for i in range(1, 10):  # Check up to part 009
-                            volume_pattern = f'.{i:03d}'
-                            if volume_pattern in output_all and i not in found_parts:
-                                missing_parts.append(i)
-                        
-                        return False, found_parts, missing_parts
-                    else:
-                        # No missing volume error - but for Chinese character files, be more conservative
-                        try:
-                            str(first_part_file).encode('ascii')
-                            # ASCII path - assume complete if no errors
-                            return True, found_parts, []
-                        except UnicodeEncodeError:
-                            # Chinese character path - apply heuristic
-                            if len(found_parts) == 2 and found_parts == [1, 2]:
-                                # Likely incomplete - missing part 3+
-                                return False, found_parts, [3]
-                            else:
-                                # Other patterns - assume complete
-                                return True, found_parts, []
-                else:
-                    # Error in listing - check for various error patterns that indicate incomplete archive
-                    
-                    # Common patterns that indicate missing parts or incomplete archive
-                    error_patterns = [
-                        'missing volume',
-                        'cannot find volume', 
-                        'unexpected end of archive',
-                        'cannot open the file as',
-                        'data error',
-                        'headers error',
-                        'crc failed'
-                    ]
-                    
-                    has_incomplete_errors = any(pattern in output_all for pattern in error_patterns)
-                    
-                    if has_incomplete_errors:
-                        # Archive appears to be incomplete - assume missing next sequential part
-                        max_part = max(found_parts) if found_parts else 0
-                        missing_parts = [max_part + 1]
-                        return False, found_parts, missing_parts
-                    else:
-                        # Unrecognized error - assume incomplete anyway if exit code is non-zero
-                        max_part = max(found_parts) if found_parts else 0
-                        missing_parts = [max_part + 1]
-                        return False, found_parts, missing_parts
-                        
-            finally:
-                if needs_cleanup and archive_temp.exists():
-                    try:
-                        archive_temp.unlink()
-                    except Exception:
-                        pass
-                        
-        except Exception:
-            pass
-    
-    # Fallback: check for gaps in the sequence
-    missing_parts = []
-    if found_parts:
-        for i in range(1, max(found_parts) + 1):
-            if i not in found_parts:
-                missing_parts.append(i)
-    
-    is_complete = len(missing_parts) == 0 and 1 in found_parts
-    
-    # Special heuristic for Chinese character files: if we have parts [1,2] but no gaps,
-    # it's likely incomplete (missing part 3+)
-    if is_complete and len(found_parts) == 2 and found_parts == [1, 2]:
-        try:
-            # Check if path contains non-ASCII characters  
-            if first_part_file:
-                str(first_part_file).encode('ascii')
-        except (UnicodeEncodeError, NameError):
-            # Path contains Chinese characters or first_part_file not defined - be conservative
-            missing_parts = [3]
-            is_complete = False
-    
-    return is_complete, found_parts, missing_parts
+    if found_parts == expected_parts:
+        return True, found_parts, []
+    else:
+        missing_parts = [p for p in expected_parts if p not in found_parts]
+        return False, found_parts, missing_parts
 
 
 def find_missing_parts_in_other_archives(missing_parts: List[int], base_name: str, all_groups: Dict[str, List[Path]]) -> Dict[int, Path]:
@@ -751,6 +679,62 @@ def extract_multipart_with_7z(group_files: List[Path], output_dir: Path, passwor
                     pass
 
 
+def clean_7z_error_message(stdout_text: str, stderr_text: str) -> str:
+    """Extract clean error message from 7z output, removing verbose details.
+    
+    Args:
+        stdout_text: Standard output from 7z
+        stderr_text: Standard error from 7z
+        
+    Returns:
+        Clean, concise error message
+    """
+    # Look for specific error patterns and extract meaningful messages
+    combined_text = f"{stdout_text}\n{stderr_text}"
+    
+    # Common 7z error patterns to extract
+    error_patterns = [
+        r"ERROR: (.+)",
+        r"Can't open as archive: \d+",
+        r"Cannot open the file as \[.+\] archive",
+        r"Unexpected end of archive",
+        r"Wrong password",
+        r"Data Error in encrypted file",
+        r"CRC Failed",
+        r"Headers Error"
+    ]
+    
+    # Extract the first meaningful error
+    for pattern in error_patterns:
+        match = re.search(pattern, combined_text, re.IGNORECASE)
+        if match:
+            if match.groups():
+                return match.group(1).strip()
+            else:
+                return match.group(0).strip()
+    
+    # If no specific pattern found, look for lines with "ERROR" or "ERRORS"
+    lines = combined_text.split('\n')
+    for line in lines:
+        line = line.strip()
+        if 'ERROR' in line.upper() and line:
+            # Clean up the error line
+            clean_line = re.sub(r'^ERROR:\s*', '', line, flags=re.IGNORECASE)
+            clean_line = re.sub(r'^\w+:\s*', '', clean_line)  # Remove file paths
+            if clean_line and len(clean_line) > 5:  # Avoid too short messages
+                return clean_line
+    
+    # Fallback for generic errors
+    if "end of archive" in combined_text.lower():
+        return "Archive is incomplete or corrupted"
+    elif "password" in combined_text.lower():
+        return "Password required or incorrect password"
+    elif "can't open" in combined_text.lower():
+        return "Cannot open file as archive"
+    
+    return "Extraction failed"
+
+
 def extract_with_7z(archive_path: Path, output_dir: Path, passwords: List[str]) -> Tuple[bool, str, Optional[str]]:
     """Extract an archive using 7z.exe with robust timeout handling and Chinese character support.
     
@@ -820,7 +804,7 @@ def extract_with_7z(archive_path: Path, output_dir: Path, passwords: List[str]) 
             # Check if it's a password issue or other errors
             stderr_text = result.get('stderr', '')
             stdout_text = result.get('stdout', '')
-            error_msg = f"stdout: {stdout_text}\nstderr: {stderr_text}" if stdout_text or stderr_text else "No error details"
+            clean_error_msg = clean_7z_error_message(stdout_text, stderr_text)
             
             # Check for various error conditions that indicate password issues
             password_indicators = [
@@ -841,9 +825,9 @@ def extract_with_7z(archive_path: Path, output_dir: Path, passwords: List[str]) 
                 # Continue to try passwords
                 pass
             elif has_other_errors:
-                return False, f"Extraction failed with errors: {error_msg}", None
+                return False, clean_error_msg, None
             else:
-                return False, f"Extraction failed: {error_msg}", None
+                return False, clean_error_msg, None
         
         # Try with each password
         for password in passwords:
@@ -885,7 +869,7 @@ def extract_with_7z(archive_path: Path, output_dir: Path, passwords: List[str]) 
                     continue
         
         # If all passwords failed, return error
-        return False, f"Failed to extract: All passwords failed or corrupted archive", None
+        return False, "All passwords failed or archive is corrupted", None
         
     finally:
         # Clean up temporary files
@@ -986,13 +970,27 @@ def extract_nested_archives(extract_dir: Path, passwords: List[str], max_depth: 
     
     # Find potential archive files in the extraction directory (all files treated as potential archives)
     archive_files = []
+    
+    # Define file extensions that are definitely not archives
+    non_archive_extensions = {
+        '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff', '.webp',  # Images
+        '.mp4', '.avi', '.mkv', '.mov', '.wmv', '.flv', '.mp3', '.wav', '.flac',  # Media
+        '.txt', '.log', '.ini', '.cfg', '.xml', '.json',  # Text files
+        '.exe', '.dll', '.sys', '.msi',  # System files
+        '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx'  # Documents
+    }
+    
     for file_path in extract_dir.rglob('*'):
         if file_path.is_file():
-            # All files are treated as potential archives
+            # Skip files with extensions that are definitely not archives
+            if file_path.suffix.lower() in non_archive_extensions:
+                continue
+                
+            # All other files are treated as potential archives
             if is_archive_file(file_path):
                 archive_files.append(file_path)
-            # Also try files that might be cloaked archives (avoid common non-archive files)
-            elif file_path.suffix.lower() not in ['.txt', '.exe', '.dll', '.sys', '.log', '.ini', '.cfg']:
+            # Also try files that might be cloaked archives
+            else:
                 # Try to extract any other file as it might be a cloaked archive
                 archive_files.append(file_path)
     
@@ -1022,15 +1020,8 @@ def extract_nested_archives(extract_dir: Path, passwords: List[str], max_depth: 
             final_files, more_passwords = extract_nested_archives(nested_extract_dir, passwords + new_passwords, max_depth - 1)
             new_passwords.extend(more_passwords)
         else:
-            # If extraction failed, check why it failed
-            if is_archive_file(archive_file):
-                # Check if it's a "Cannot open the file as archive" error
-                if "Cannot open the file as archive" in message:
-                    # Keep the file as final content rather than trying to extract it (silently)
-                    pass
-                else:
-                    print(f"  ❌ Failed to extract nested archive: {archive_file.name} - {message} | 解压嵌套压缩文件失败: {archive_file.name} - {message}")
-            # Silently skip if extraction fails
+            # Silently skip files that can't be extracted as archives
+            pass
     
     return [f for f in extract_dir.rglob('*') if f.is_file()], new_passwords
 

@@ -60,18 +60,13 @@ def group_files_by_priority(files: List[Path], root_path: Path) -> Dict[str, Lis
             # File is not under root_path, treat as root file
             root_files.append(file_path)
     
-    # Group subfolder files - but analyze each subfolder's contents properly
+    # Group subfolder files - all files in the same subfolder go into one group
     for subfolder, subfolder_file_list in subfolder_files.items():
         folder_name = subfolder.name
         
-        # Instead of grouping all files in subfolder together,
-        # analyze the subfolder's files for proper archive grouping
-        subfolder_groups = group_files_by_similarity(subfolder_file_list)
-        
-        for subgroup_name, file_list in subfolder_groups.items():
-            # Prefix with subfolder name to avoid conflicts
-            group_name = f"{folder_name}_{subgroup_name}"
-            groups[group_name] = file_list
+        # Group all files in the subfolder together as one group
+        group_name = f"{folder_name}_subfolder_all"
+        groups[group_name] = sorted(subfolder_file_list, key=lambda x: x.name)
     
     # Group root files by filename similarity
     if root_files:
