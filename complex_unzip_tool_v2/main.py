@@ -49,51 +49,49 @@ def extract_files(paths: List[str]) -> None:
     """Shared extraction logic."""
 
     passwordBook = passwordUtil.loadAllPasswords(paths)
+    passwords = passwordBook.getPasswords()
 
-    typer.echo(f"Loaded {len(passwordBook.entries)} unique passwords.")
+    typer.echo(f"Loaded {len(passwords)} unique passwords.")
 
     typer.echo(f"Extracting files from: {paths}")
     contents = fileUtils.readDir(paths)
 
     typer.echo(f"Found {len(contents)} files.")
 
+
     # Create archive groups
     groups = fileUtils.createGroupsByName(contents)
+
+    typer.echo(f"Created {len(groups)} archive groups.")
+
+    typer.echo("Processing archive groups...")
+
+    # Rename archive files to have the correct extensions
+
+    typer.echo("Uncloaking file extensions...")
+    fileUtils.uncloakFileExtensionForGroups(groups)
+
     for group in groups:
         typer.echo(f"Group: {group.name}")
         for item in group.files:
             typer.echo(f" - {item}")
-            true_ext = archiveExtensionUtils.detectArchiveExtension(item)
-            if true_ext:
-                typer.echo(f"   (True archive type: {true_ext})")
-
-            # use password to check content of archives
-
-            for password in passwordBook.entries:
-                try:
-                    # typer.echo(f"   Trying password: '{password}'")
-                    file_list = archiveUtils.read_archive_content_with_7z(item, password)
-                    if file_list:
-                        typer.echo(f"   (Password found: {password})")
-                        for file_info in file_list:
-                            typer.echo(f"     - {file_info}")
-                        break  # Stop trying passwords after a successful extraction
-                except archiveUtils.ArchivePasswordError as e:
-                    # Log the error and continue trying other passwords
-                    # typer.echo(f"   (Failed with password '{password}')")
-                    pass
-                except archiveUtils.ArchiveCorruptedError as e:
-                    typer.echo(f"   (Archive corrupted)")
-                    break
-                except archiveUtils.ArchiveError as e:
-                    typer.echo(f"   (Archive error: can not open as archive)")
-                    break
 
         if group.mainArchiveFile:
             typer.echo(f"   (Main archive: {group.mainArchiveFile})")
 
         for container in group.containers:
             typer.echo(f"   (Container: {container})")
+
+
+    # Processing single archives first to find out containers for multi-part archives
+
+    typer.echo(f"Processing single archive to extract containers...")
+
+    for group in groups:
+        if not group.isMultiPart:
+            typer.echo(f"Extracting single archive: {group.name}")
+
+
 
 
 def cli() -> None:

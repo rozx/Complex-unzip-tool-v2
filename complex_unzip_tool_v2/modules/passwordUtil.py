@@ -13,9 +13,6 @@ def loadAllPasswords(paths: list[str]) -> PasswordBook:
         dir = os.path.dirname(path)
         password_book.loadPasswords(os.path.join(dir, "passwords.txt"))
 
-    # load password from local
-    password_book.loadPasswords("passwords.txt")
-
     return password_book
 
 def saveAllPasswords(password_book: PasswordBook) -> None:

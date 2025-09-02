@@ -1,9 +1,43 @@
 import os
 import re
 import struct
-from ..classes.ArchiveGroup import ArchiveGroup
-from .utils import string_similarity
 
+
+from ..classes.ArchiveGroup import ArchiveGroup
+from .utils import getStringSimilarity
+from .archiveExtensionUtils import detectArchiveExtension
+
+
+def getArchiveBaseName(file_path: str) -> tuple[str, str]:
+    """
+    Get the base name and archive extension from a file path,
+    handling multi-part archives like .7z.001, .rar.part1, etc.
+    Returns (base_name, archive_extension)
+    """
+    base_name = os.path.basename(file_path)
+    
+    # Common multi-part archive patterns
+    multi_part_patterns = [
+        r'\.7z\.\d+$',           # .7z.001, .7z.002, etc.
+        r'\.rar\.part\d+$',      # .rar.part1, .rar.part2, etc.
+        r'\.zip\.\d+$',          # .zip.001, .zip.002, etc.
+        r'\.tar\.gz\.\d+$',      # .tar.gz.001, etc.
+        r'\.tar\.bz2\.\d+$',     # .tar.bz2.001, etc.
+        r'\.tar\.xz\.\d+$',      # .tar.xz.001, etc.
+        r'\.\w+\.part\d+$',      # generic .ext.part1 format
+    ]
+    
+    for pattern in multi_part_patterns:
+        match = re.search(pattern, base_name, re.IGNORECASE)
+        if match:
+            # Remove the part number/suffix to get the base name
+            name_without_part = base_name[:match.start()]
+            archive_ext = base_name[match.start()+1:].split('.')[0]  # Get the archive extension
+            return name_without_part, archive_ext
+    
+    # Fallback to regular splitext if no multi-part pattern found
+    name, ext = os.path.splitext(base_name)
+    return name, ext.lstrip('.')
 
 def readDir(file_paths: list[str]) -> list[str]:
     """ Read directory contents """
@@ -34,10 +68,8 @@ def createGroupsByName(file_paths: list[str]) -> list[ArchiveGroup]:
     """ Create Archive Groups by name """
     groups: list[ArchiveGroup] = []
     for path in file_paths:
-        # get base name and directory name
-
-        base_name = os.path.basename(path)
-        name, ext = os.path.splitext(base_name)
+        # get base name and directory name using the new function
+        name, ext = getArchiveBaseName(path)
         dir_name = os.path.dirname(path).split(os.path.sep)[-1]
         group_name = f"{dir_name}-{name}"
 
@@ -45,7 +77,7 @@ def createGroupsByName(file_paths: list[str]) -> list[ArchiveGroup]:
         found_group = False
         for group in groups:
             # if group's name is similar to the file's base name and it is in the same directory
-            if string_similarity(group_name, group.name) >= 0.8:
+            if getStringSimilarity(group_name, group.name) >= 0.8:
                 group.addFile(path)
                 found_group = True
                 break
@@ -61,6 +93,22 @@ def createGroupsByName(file_paths: list[str]) -> list[ArchiveGroup]:
         group.files.sort()
 
     return groups
+
+def uncloakFileExtensionForGroups(groups: list[ArchiveGroup]) -> None:
+    """ Uncloak file extensions for groups """
+    
+    for group in groups:
+        for i, file in enumerate(group.files):
+            true_ext = detectArchiveExtension(file)
+            if true_ext:
+                # rename the file to have the true extension
+                name, current_ext = getArchiveBaseName(file)
+                new_name = f"{name}.{true_ext}"
+                new_path = os.path.join(os.path.dirname(file), new_name)
+
+                if new_path != file:
+                    renameFile(file, new_path)
+                    group.files[i] = new_path
 
 
 
