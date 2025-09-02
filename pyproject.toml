@@ -17,7 +17,7 @@ flake8 = "^6.0.0"
 mypy = "^1.5.0"
 
 [tool.poetry.scripts]
-complex-unzip = "complex_unzip_tool_v2.main:app"
+main = "complex_unzip_tool_v2.main:app"
 cuz = "complex_unzip_tool_v2.main:app"
 
 [build-system]
