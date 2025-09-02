@@ -1,6 +1,8 @@
+import re
 import subprocess
 import json
 import os
+import typer
 from typing import List, Dict, Optional, Union
 
 # Custom exception classes
@@ -366,34 +368,356 @@ def extractSpecificFilesWith7z(
     
     return results
 
-
-def testArchiveExtraction():
+def extractNestedArchives(
+    archive_path: str,
+    output_path: str,
+    password: Optional[str] = "",
+    seven_zip_path: Optional[str] = None,
+    max_depth: int = 10,
+    cleanup_archives: bool = True,
+    password_list: Optional[List[str]] = None,
+    interactive: bool = True
+) -> Dict[str, Union[bool, List[str]]]:
     """
-    Test function for archive extraction functionality.
+    Recursively extract archives within archives until no more archives are found.
+    
+    Args:
+        archive_path (str): Path to the initial archive file
+        output_path (str): Directory where files will be extracted
+        password (str, optional): Primary password for encrypted archives
+        seven_zip_path (str): Path to 7z.exe executable (default: auto-detect)
+        max_depth (int): Maximum recursion depth to prevent infinite loops (default: 10)
+        cleanup_archives (bool): Whether to delete extracted archive files after processing
+        password_list (List[str], optional): List of passwords to try for extraction
+        interactive (bool): Whether to prompt user for passwords when all fail (default: True)
+    
+    Returns:
+        Dict containing:
+            - 'success': bool - Overall extraction success
+            - 'extracted_archives': List[str] - List of all archives that were extracted
+            - 'final_files': List[str] - List of final non-archive files
+            - 'errors': List[str] - List of errors encountered
+            - 'password_used': Dict[str, str] - Mapping of archives to passwords that worked
+            - 'user_provided_passwords': List[str] - List of passwords provided by the user
+
+    Raises:
+        Same exceptions as extractArchiveWith7z for the initial archive
+    """
+    
+    result = {
+        'success': True,
+        'extracted_archives': [],
+        'final_files': [],
+        'errors': [],
+        'password_used': {},
+        'user_provided_passwords': []
+    }
+
+    # Build user provided passwords
+    user_provided_passwords = []
+
+    # Build password list to try
+    passwords_to_try = []
+    if password:
+        passwords_to_try.append(password)
+    if password_list:
+        passwords_to_try.extend([p for p in password_list if p not in passwords_to_try])
+    
+    # Always try empty password (no password) first
+    if "" not in passwords_to_try:
+        passwords_to_try.insert(0, "")
+    
+    def _tryOpenAsArchive(file_path: str) -> bool:
+        """Try to open a file as an archive. Returns True if successful."""
+        try:
+            # Try to read the file as an archive with primary password
+            content = readArchiveContentWith7z(
+                archive_path=file_path,
+                password=password,
+                seven_zip_path=seven_zip_path
+            )
+            # If we can read content and it's not empty, it's a valid archive
+            return content is not None and len(content) > 0
+            
+        except (ArchivePasswordError):
+            # If password error, try without password for listing
+            try:
+                content = readArchiveContentWith7z(
+                    archive_path=file_path,
+                    password="",
+                    seven_zip_path=seven_zip_path
+                )
+                return content is not None and len(content) > 0
+            except Exception:
+                return False
+                
+        except (ArchiveError, ArchiveCorruptedError, ArchiveUnsupportedError, ArchiveParsingError):
+            # Cannot read as archive
+            return False
+        except Exception:
+            # Any other error, treat as non-archive
+            return False
+    
+    def _promptUserForPassword(archive_name: str) -> Optional[str]:
+        """
+        Prompt user for password when all automatic attempts fail.
+        
+        Returns:
+            str: User-provided password or None if user chooses to skip
+        """
+        if not interactive:
+            return None
+            
+        typer.echo("")
+        typer.echo(f"⚠️  All provided passwords failed for archive: {typer.style(archive_name, fg=typer.colors.YELLOW)}")
+        typer.echo("Options:")
+        typer.echo("  1. Enter a password")
+        typer.echo("  2. Skip this archive")
+        typer.echo("  3. Skip all remaining password-protected archives")
+        
+        choice = typer.prompt("Choose an option (1/2/3)", type=int, default=2)
+        
+        if choice == 1:
+            password = typer.prompt("Enter password")
+            user_provided_passwords.append(password)
+            return password
+        elif choice == 3:
+            # User wants to skip all future password prompts
+            return "SKIP_ALL"
+        else:
+            # Skip this archive
+            return None
+    
+    def _tryExtractWithPasswords(archive_file: str, extract_to: str) -> tuple[bool, str]:
+        """
+        Try to extract an archive with different passwords.
+        
+        Returns:
+            tuple: (success: bool, password_used: str)
+        """
+        archive_name = os.path.basename(archive_file)
+        skip_all_prompts = False
+        
+        # Try all provided passwords first
+        for pwd in passwords_to_try:
+            try:
+                typer.echo(f"  🔓 Trying extraction with password: {typer.style('(empty)' if pwd == '' else pwd, fg=typer.colors.CYAN)}")
+                success = extractArchiveWith7z(
+                    archive_path=archive_file,
+                    output_path=extract_to,
+                    password=pwd,
+                    seven_zip_path=seven_zip_path,
+                    overwrite=True
+                )
+                
+                if success:
+                    typer.echo(f"  ✅ Extraction successful with password: {typer.style('(empty)' if pwd == '' else pwd, fg=typer.colors.GREEN)}")
+                    return True, pwd
+                    
+            except ArchivePasswordError:
+                typer.echo(f"  ❌ Wrong password: {typer.style('(empty)' if pwd == '' else pwd, fg=typer.colors.RED)}")
+                continue
+            except Exception as e:
+                typer.echo(f"  ❌ Extraction failed with password {'(empty)' if pwd == '' else pwd}: {typer.style(str(e), fg=typer.colors.RED)}")
+                continue
+        
+        # If all provided passwords failed, prompt user for new passwords
+        if interactive and not skip_all_prompts:
+            while True:
+                user_password = _promptUserForPassword(archive_name)
+                
+                if user_password == "SKIP_ALL":
+                    typer.echo(f"  ⏭️  Skipping all future password prompts")
+                    return False, ""
+                elif user_password is None:
+                    typer.echo(f"  ⏭️  Skipping archive: {typer.style(archive_name, fg=typer.colors.YELLOW)}")
+                    return False, ""
+                
+                # Try the user-provided password
+                try:
+                    typer.echo(f"  🔓 Trying user-provided password...")
+                    success = extractArchiveWith7z(
+                        archive_path=archive_file,
+                        output_path=extract_to,
+                        password=user_password,
+                        seven_zip_path=seven_zip_path,
+                        overwrite=True
+                    )
+                    
+                    if success:
+                        typer.echo(f"  ✅ Extraction successful with user password!")
+                        # Add the successful password to the list for future use
+                        passwords_to_try.append(user_password)
+                        return True, user_password
+                        
+                except ArchivePasswordError:
+                    typer.echo(f"  ❌ User password is incorrect")
+                    continue_prompt = typer.confirm("Try another password?", default=True)
+                    if not continue_prompt:
+                        return False, ""
+                    continue
+                except Exception as e:
+                    typer.echo(f"  ❌ Extraction failed: {typer.style(str(e), fg=typer.colors.RED)}")
+                    return False, ""
+        
+        return False, ""
+    
+    def _extractRecursively(current_archive: str, current_output: str, depth: int) -> None:
+        """Recursively extract archives while preserving folder structure."""
+        
+        if depth > max_depth:
+            error_msg = f"Maximum recursion depth ({max_depth}) reached for: {current_archive}"
+            result['errors'].append(error_msg)
+            typer.echo(f"  ⚠️  {typer.style(error_msg, fg=typer.colors.YELLOW)}")
+            return
+        
+        try:
+            # Extract directly to the current output directory to preserve structure
+            typer.echo(f"📦 Extracting (depth {depth}): {typer.style(os.path.basename(current_archive), fg=typer.colors.BLUE, bold=True)}")
+            
+            extract_success, used_password = _tryExtractWithPasswords(current_archive, current_output)
+            
+            if extract_success:
+                result['extracted_archives'].append(current_archive)
+                result['password_used'][current_archive] = used_password
+                result['user_provided_passwords'] = list(set(user_provided_passwords))
+                
+                # Find all files in the extracted directory (walk from current_output)
+                extracted_files = []
+                
+                for root, dirs, files in os.walk(current_output):
+                    for file in files:
+                        file_path = os.path.join(root, file)
+                        # Skip the original archive files that we already processed
+                        if file_path != current_archive and file_path not in result['extracted_archives']:
+                            extracted_files.append(file_path)
+                
+                # Find newly extracted archives to process recursively
+                nested_archives = []
+                regular_files = []
+                
+                typer.echo(f"  🔍 Testing {len(extracted_files)} extracted files for nested archives...")
+                
+                for file_path in extracted_files:
+                    file_name = os.path.basename(file_path)
+                    
+                    # Skip files that were already processed
+                    if file_path in result['extracted_archives']:
+                        continue
+                    
+                    if _tryOpenAsArchive(file_path):
+                        typer.echo(f"  📦 Found nested archive: {typer.style(file_name, fg=typer.colors.MAGENTA)}")
+                        nested_archives.append(file_path)
+                    else:
+                        regular_files.append(file_path)
+                
+                # Add regular files to final files list
+                result['final_files'].extend(regular_files)
+                
+                if regular_files:
+                    typer.echo(f"  📄 Found {len(regular_files)} regular files")
+                
+                # Delete the processed archive file if cleanup is enabled and it's not the original
+                if cleanup_archives and current_archive != archive_path:
+                    try:
+                        os.remove(current_archive)
+                        typer.echo(f"  🗑️  Cleaned up archive: {os.path.basename(current_archive)}")
+                    except OSError as e:
+                        error_msg = f"Failed to delete {current_archive}: {e}"
+                        result['errors'].append(error_msg)
+                        typer.echo(f"  ⚠️  {typer.style(error_msg, fg=typer.colors.YELLOW)}")
+                
+                # If we found nested archives, extract them recursively in their current location
+                if nested_archives:
+                    typer.echo(f"  🔄 Found {typer.style(str(len(nested_archives)), fg=typer.colors.GREEN)} nested archive(s) at depth {depth}")
+                    for nested_archive in nested_archives:
+                        # Extract nested archive in the same directory to preserve structure
+                        nested_output_dir = os.path.dirname(nested_archive)
+                        _extractRecursively(nested_archive, nested_output_dir, depth + 1)
+                else:
+                    typer.echo(f"  ✅ No more nested archives found at depth {depth}")
+            
+            else:
+                error_msg = f"Failed to extract: {current_archive} (tried all passwords)"
+                result['errors'].append(error_msg)
+                result['success'] = False
+                typer.echo(f"  ❌ {typer.style(error_msg, fg=typer.colors.RED)}")
+                
+        except Exception as e:
+            error_msg = f"Error extracting {current_archive}: {e}"
+            result['errors'].append(error_msg)
+            result['success'] = False
+            typer.echo(f"  ❌ {typer.style(error_msg, fg=typer.colors.RED)}")
+    
+    # Start the recursive extraction
+    try:
+        # Ensure output directory exists
+        os.makedirs(output_path, exist_ok=True)
+        
+        typer.echo("")
+        typer.echo(f"🚀 Starting nested archive extraction")
+        typer.echo(f"📁 Input: {typer.style(archive_path, fg=typer.colors.CYAN)}")
+        typer.echo(f"📂 Output: {typer.style(output_path, fg=typer.colors.CYAN)}")
+        typer.echo(f"🔑 Passwords to try: {len(passwords_to_try)}")
+        typer.echo(f"📊 Max depth: {max_depth}")
+        typer.echo("─" * 60)
+        
+        # Begin recursive extraction with the initial archive
+        _extractRecursively(archive_path, output_path, 0)
+        
+        # Clean up empty directories
+        typer.echo("🧹 Cleaning up empty directories...")
+        _cleanupEmptyDirectories(output_path)
+        
+        # Update final success status
+        result['success'] = result['success'] and len(result['errors']) == 0
+        
+        # Show final summary
+        typer.echo("")
+        typer.echo("─" * 60)
+        typer.echo("📋 Extraction Summary:")
+        
+        if result['success']:
+            typer.echo(f"✅ Status: {typer.style('SUCCESS', fg=typer.colors.GREEN, bold=True)}")
+        else:
+            typer.echo(f"❌ Status: {typer.style('PARTIAL/FAILED', fg=typer.colors.RED, bold=True)}")
+            
+        typer.echo(f"📦 Archives extracted: {typer.style(str(len(result['extracted_archives'])), fg=typer.colors.BLUE)}")
+        typer.echo(f"📄 Final files: {typer.style(str(len(result['final_files'])), fg=typer.colors.GREEN)}")
+        typer.echo(f"⚠️  Errors: {typer.style(str(len(result['errors'])), fg=typer.colors.RED)}")
+        
+        if result['errors']:
+            typer.echo("\n❌ Errors encountered:")
+            for error in result['errors']:
+                typer.echo(f"  • {error}")
+        
+    except Exception as e:
+        error_msg = f"Fatal error during extraction: {e}"
+        result['errors'].append(error_msg)
+        result['success'] = False
+        typer.echo(f"💥 {typer.style(error_msg, fg=typer.colors.RED, bold=True)}")
+        raise
+    
+    return result
+
+def _cleanupEmptyDirectories(root_path: str) -> None:
+    """
+    Remove empty directories recursively.
+    
+    Args:
+        root_path (str): Root directory to clean up
     """
     try:
-        # Example usage for full extraction
-        archive_path = "test_archive.7z"
-        output_path = "extracted_files"
-        password = "mypassword"  # None if no password
-        
-        print("Extracting entire archive...")
-        success = extractArchiveWith7z(archive_path, output_path, password)
-        
-        if success:
-            print(f"Archive extracted successfully to: {output_path}")
-        
-        # Example usage for specific files
-        specific_files = ["file1.txt", "folder/file2.txt"]
-        print("\nExtracting specific files...")
-        results = extractSpecificFilesWith7z(
-            archive_path, output_path, specific_files, password
-        )
-        
-        for file_path, extracted in results.items():
-            status = "✓" if extracted else "✗"
-            print(f"  {status} {file_path}")
-            
-    except Exception as e:
-        print(f"Error: {e}")
-
+        for root, dirs, files in os.walk(root_path, topdown=False):
+            for directory in dirs:
+                dir_path = os.path.join(root, directory)
+                try:
+                    # Try to remove directory if it's empty
+                    if not os.listdir(dir_path):
+                        os.rmdir(dir_path)
+                except OSError:
+                    # Directory not empty or other error, skip
+                    pass
+    except Exception:
+        # Ignore cleanup errors
+        pass

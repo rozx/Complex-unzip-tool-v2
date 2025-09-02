@@ -9,9 +9,12 @@ def loadAllPasswords(paths: list[str]) -> PasswordBook:
 
     # load password from paths
     for path in paths:
-
-        dir = os.path.dirname(path)
-        password_book.loadPasswords(os.path.join(dir, "passwords.txt"))
+        if os.path.isdir(path):
+            # load from directory
+            password_book.loadPasswords(os.path.join(path, "passwords.txt"))
+        else:
+            dir = os.path.dirname(path)
+            password_book.loadPasswords(os.path.join(dir, "passwords.txt"))
 
     return password_book
 

@@ -1,6 +1,10 @@
 import os
 import re
+import shutil
 import struct
+import typer
+
+from click import group
 
 
 from ..classes.ArchiveGroup import ArchiveGroup
@@ -42,6 +46,10 @@ def getArchiveBaseName(file_path: str) -> tuple[str, str]:
 def readDir(file_paths: list[str]) -> list[str]:
     """ Read directory contents """
     result = []
+
+    # ignore system files and passwords.txt
+    ignored_files = {".DS_Store", "thumbs.db", "desktop.ini", "passwords.txt"}
+
     for path in file_paths:
         if os.path.isdir(path):
             # Read files from directory
@@ -49,7 +57,9 @@ def readDir(file_paths: list[str]) -> list[str]:
                 for filename in files:
                     result.append(os.path.join(root, filename))
         else:
-            result.append(path)
+            # Check if the file is ignored
+            if os.path.basename(path) not in ignored_files:
+                result.append(path)
 
     # make sure the result is unique
     return list(set(result))
@@ -109,6 +119,74 @@ def uncloakFileExtensionForGroups(groups: list[ArchiveGroup]) -> None:
                 if new_path != file:
                     renameFile(file, new_path)
                     group.files[i] = new_path
+                    if group.mainArchiveFile == file:
+                        group.mainArchiveFile = new_path
+
+def addFileToGroups(file: str, groups: list[ArchiveGroup]) -> ArchiveGroup | None:
+    """
+    Check if a file belongs to a specific multi-part archive group, then add it to the group.
+    """
+
+    fileBaseName = os.path.basename(file)
+
+    for group in groups:
+        if group.isMultiPart:
+
+            mainArchiveBaseName = os.path.basename(group.mainArchiveFile)
+
+            if getStringSimilarity(fileBaseName, mainArchiveBaseName) >= 0.8:
+                # move file to group's main archive's location
+                new_path = os.path.join(os.path.dirname(group.mainArchiveFile), fileBaseName)
+                shutil.move(file, new_path)
+                group.addFile(new_path)
+                return group
+
+    return None
 
 
-
+def moveFilesPreservingStructure(
+    file_paths: list[str], 
+    source_root: str, 
+    destination_root: str,
+    verbose: bool = False
+) -> list[str]:
+    """
+    Move files from source to destination while preserving directory structure.
+    
+    Args:
+        file_paths: List of file paths to move
+        source_root: Root directory to calculate relative paths from
+        destination_root: Root directory to move files to
+    
+    Returns:
+        List of relative paths that were successfully moved
+    """
+    moved_files = []
+    
+    for file_path in file_paths:
+        if os.path.exists(file_path):
+            try:
+                # Calculate relative path from source root to preserve structure
+                relative_path = os.path.relpath(file_path, source_root)
+                destination = os.path.join(destination_root, relative_path)
+                
+                # Create destination directory if it doesn't exist
+                destination_dir = os.path.dirname(destination)
+                os.makedirs(destination_dir, exist_ok=True)
+                
+                # Handle duplicate filenames while preserving directory structure
+                counter = 1
+                original_destination = destination
+                while os.path.exists(destination):
+                    name, ext = os.path.splitext(original_destination)
+                    destination = f"{name}_{counter}{ext}"
+                    counter += 1
+                
+                shutil.move(file_path, destination)
+                moved_files.append(relative_path)
+                if verbose: typer.echo(f" - Moved: {relative_path}")
+                
+            except Exception as e:
+                typer.echo(f" - Error moving {file_path}: {e}")
+    
+    return moved_files

@@ -7,7 +7,6 @@ class ArchiveGroup:
         self.name = name
         self.files = []
         self.mainArchiveFile = ""
-        self.containers = []
         self.isMultiPart = False
 
     def addFile(self, file: str):
@@ -17,7 +16,7 @@ class ArchiveGroup:
             self.isMultiPart = True
 
         # check if the archive is the first part of the multipart
-        if re.search(firstPartRegex, file):
+        if re.search(firstPartRegex, file) or not self.mainArchiveFile:
             self.setMainArchive(file)
 
     def setMainArchive(self, archive: str):
@@ -27,9 +26,6 @@ class ArchiveGroup:
         if re.search(multipartRegex, archive):
             self.isMultiPart = True
 
-    # check if the archive is multipart and it is the first part
-    def addContainer(self, container: str):
-        self.containers.append(container)
 
 
     
