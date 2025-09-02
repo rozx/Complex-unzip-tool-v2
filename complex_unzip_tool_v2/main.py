@@ -71,7 +71,7 @@ def extract_files(paths: List[str]) -> None:
 
             for password in passwordBook.entries:
                 try:
-                    typer.echo(f"   Trying password: '{password}'")
+                    # typer.echo(f"   Trying password: '{password}'")
                     file_list = archiveUtils.read_archive_content_with_7z(item, password)
                     if file_list:
                         typer.echo(f"   (Password found: {password})")
@@ -80,12 +80,13 @@ def extract_files(paths: List[str]) -> None:
                         break  # Stop trying passwords after a successful extraction
                 except archiveUtils.ArchivePasswordError as e:
                     # Log the error and continue trying other passwords
-                    typer.echo(f"   (Failed with password '{password}')")
+                    # typer.echo(f"   (Failed with password '{password}')")
+                    pass
                 except archiveUtils.ArchiveCorruptedError as e:
                     typer.echo(f"   (Archive corrupted)")
                     break
                 except archiveUtils.ArchiveError as e:
-                    typer.echo(f"   (Archive error: can not open archive)")
+                    typer.echo(f"   (Archive error: can not open as archive)")
                     break
 
         if group.mainArchiveFile:
