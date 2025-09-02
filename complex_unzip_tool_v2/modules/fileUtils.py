@@ -16,6 +16,7 @@ def getArchiveBaseName(file_path: str) -> tuple[str, str]:
     """
     Get the base name and archive extension from a file path,
     handling multi-part archives like .7z.001, .rar.part1, etc.
+    获取文件路径的基本名称和档案扩展名，处理多部分档案如.7z.001, .rar.part1等
     Returns (base_name, archive_extension)
     """
     base_name = os.path.basename(file_path)
@@ -44,7 +45,7 @@ def getArchiveBaseName(file_path: str) -> tuple[str, str]:
     return name, ext.lstrip('.')
 
 def readDir(file_paths: list[str]) -> list[str]:
-    """ Read directory contents """
+    """Read directory contents 读取目录内容"""
     result = []
 
     # ignore system files and passwords.txt
@@ -66,16 +67,17 @@ def readDir(file_paths: list[str]) -> list[str]:
 
 def renameFile(old_path: str, new_path: str) -> None:
     """
-    Rename a file or directory
+    Rename a file or directory 重命名文件或目录
     For example, "old_name.txt" to "new_name.txt"
+    例如："old_name.txt" 到 "new_name.txt"
     """
     try:
         os.rename(old_path, new_path)
     except Exception as e:
-        print(f"Error renaming file {old_path} to {new_path}: {e}")
+        typer.echo(f"❌ Error renaming file 重命名文件错误 {old_path} to {new_path}: {e}")
 
 def createGroupsByName(file_paths: list[str]) -> list[ArchiveGroup]:
-    """ Create Archive Groups by name """
+    """Create Archive Groups by name 按名称创建档案组"""
     groups: list[ArchiveGroup] = []
     for path in file_paths:
         # get base name and directory name using the new function
@@ -105,7 +107,7 @@ def createGroupsByName(file_paths: list[str]) -> list[ArchiveGroup]:
     return groups
 
 def uncloakFileExtensionForGroups(groups: list[ArchiveGroup]) -> None:
-    """ Uncloak file extensions for groups """
+    """Uncloak file extensions for groups 为组揭示文件扩展名"""
     
     for group in groups:
         for i, file in enumerate(group.files):
@@ -125,6 +127,7 @@ def uncloakFileExtensionForGroups(groups: list[ArchiveGroup]) -> None:
 def addFileToGroups(file: str, groups: list[ArchiveGroup]) -> ArchiveGroup | None:
     """
     Check if a file belongs to a specific multi-part archive group, then add it to the group.
+    检查文件是否属于特定的多部分档案组，然后将其添加到组中
     """
 
     fileBaseName = os.path.basename(file)
@@ -152,14 +155,15 @@ def moveFilesPreservingStructure(
 ) -> list[str]:
     """
     Move files from source to destination while preserving directory structure.
+    在保持目录结构的同时将文件从源移动到目标
     
     Args:
-        file_paths: List of file paths to move
-        source_root: Root directory to calculate relative paths from
-        destination_root: Root directory to move files to
+        file_paths: List of file paths to move 要移动的文件路径列表
+        source_root: Root directory to calculate relative paths from 计算相对路径的根目录
+        destination_root: Root directory to move files to 移动文件到的根目录
     
     Returns:
-        List of relative paths that were successfully moved
+        List of relative paths that were successfully moved 成功移动的相对路径列表
     """
     moved_files = []
     
@@ -184,9 +188,9 @@ def moveFilesPreservingStructure(
                 
                 shutil.move(file_path, destination)
                 moved_files.append(relative_path)
-                if verbose: typer.echo(f" - Moved: {relative_path}")
+                if verbose: typer.echo(f"📁 Moved 已移动: {relative_path}")
                 
             except Exception as e:
-                typer.echo(f" - Error moving {file_path}: {e}")
+                typer.echo(f"❌ Error moving 移动错误 {file_path}: {e}")
     
     return moved_files

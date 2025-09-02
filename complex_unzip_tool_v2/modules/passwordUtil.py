@@ -4,7 +4,7 @@ from ..classes.PasswordBook import PasswordBook
 
 
 def loadAllPasswords(paths: list[str]) -> PasswordBook:
-    """Load all passwords from a directory."""
+    """Load all passwords from a directory 从目录加载所有密码"""
     password_book = PasswordBook()
 
     # load password from paths
@@ -19,5 +19,5 @@ def loadAllPasswords(paths: list[str]) -> PasswordBook:
     return password_book
 
 def saveAllPasswords(password_book: PasswordBook) -> None:
-    """Save all passwords to all loaded files."""
+    """Save all passwords to all loaded files 将所有密码保存到所有加载的文件"""
     password_book.savePasswords()
