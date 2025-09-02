@@ -32,7 +32,7 @@ class ArchiveParsingError(ArchiveError):
     """Raised when unable to parse 7z output."""
     pass
 
-def read_archive_content_with_7z(
+def readArchiveContentWith7z(
     archive_path: str, 
     password: Optional[str] = "",
     seven_zip_path: Optional[str] = None
@@ -96,7 +96,7 @@ def read_archive_content_with_7z(
 
         # Parse output
         try:
-            files_info = _parse_7z_list_output(result.stdout)
+            files_info = _parse7zListOutput(result.stdout)
             return files_info
         except Exception as e:
             raise ArchiveParsingError(f"Failed to parse 7z output: {str(e)}")
@@ -120,7 +120,7 @@ def read_archive_content_with_7z(
         raise SevenZipNotFoundError(f"7z executable not found at: {seven_zip_path}")
 
 
-def _parse_7z_list_output(output: str) -> List[Dict[str, Union[str, int]]]:
+def _parse7zListOutput(output: str) -> List[Dict[str, Union[str, int]]]:
     """
     Parse 7z list command output into structured data.
     
@@ -156,7 +156,7 @@ def _parse_7z_list_output(output: str) -> List[Dict[str, Union[str, int]]]:
         if line.startswith('Path = '):
             # Save previous file if it exists
             if current_file and current_file.get('Path'):
-                files.append(_format_file_info(current_file))
+                files.append(_formatFileInfo(current_file))
             
             # Start new file entry
             current_file = {}
@@ -174,12 +174,12 @@ def _parse_7z_list_output(output: str) -> List[Dict[str, Union[str, int]]]:
     
     # Add final file if exists
     if current_file and current_file.get('Path'):
-        files.append(_format_file_info(current_file))
+        files.append(_formatFileInfo(current_file))
     
     return files
 
 
-def _format_file_info(file_data: Dict[str, str]) -> Dict[str, Union[str, int]]:
+def _formatFileInfo(file_data: Dict[str, str]) -> Dict[str, Union[str, int]]:
     """
     Format raw file data into standardized structure.
     
@@ -211,24 +211,189 @@ def _format_file_info(file_data: Dict[str, str]) -> Dict[str, Union[str, int]]:
     }
 
 
-def test_archive_reading():
+def extractArchiveWith7z(
+    archive_path: str,
+    output_path: str,
+    password: Optional[str] = "",
+    seven_zip_path: Optional[str] = None,
+    overwrite: bool = True,
+    specific_files: Optional[List[str]] = None
+) -> bool:
     """
-    Test function for archive reading functionality.
+    Extract archive using 7z.exe with optional password support.
+    
+    Args:
+        archive_path (str): Path to the archive file
+        output_path (str): Directory where files will be extracted
+        password (str, optional): Password for encrypted archives
+        seven_zip_path (str): Path to 7z.exe executable (default: auto-detect)
+        overwrite (bool): Whether to overwrite existing files (default: True)
+        specific_files (List[str], optional): List of specific files to extract
+    
+    Returns:
+        bool: True if extraction successful
+    
+    Raises:
+        ArchiveNotFoundError: If archive file not found
+        SevenZipNotFoundError: If 7z executable not found
+        ArchivePasswordError: If password is incorrect or required
+        ArchiveCorruptedError: If archive is corrupted
+        ArchiveUnsupportedError: If archive format is not supported
+        ArchiveError: For other extraction errors
+    """
+    
+    # Set default 7z path if not provided
+    if seven_zip_path is None:
+        # Get the project root directory (go up one level from complex_unzip_tool_v2)
+        current_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        project_root = os.path.dirname(current_dir)
+        seven_zip_path = os.path.join(project_root, "7z", "7z.exe")
+    
+    # Check if archive exists
+    if not os.path.exists(archive_path):
+        raise ArchiveNotFoundError(f"Archive not found: {archive_path}")
+    
+    # Check if 7z executable exists
+    if not os.path.exists(seven_zip_path):
+        raise SevenZipNotFoundError(f"7z executable not found at: {seven_zip_path}")
+    
+    # Create output directory if it doesn't exist
+    try:
+        os.makedirs(output_path, exist_ok=True)
+    except OSError as e:
+        raise ArchiveError(f"Failed to create output directory: {e}")
+    
+    # Build command
+    cmd = [seven_zip_path, "x", archive_path, f"-o{output_path}"]
+    
+    # Add password if provided
+    cmd.extend([f"-p{password}"])
+    
+    # Add overwrite option
+    if overwrite:
+        cmd.append("-y")  # Yes to all prompts (overwrite)
+    else:
+        cmd.append("-aos")  # Skip existing files
+    
+    # Add specific files if provided
+    if specific_files:
+        cmd.extend(specific_files)
+    
+    try:
+        # Execute 7z command
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+
+        if result.returncode != 0:
+            raise ArchiveError(f"7z extraction failed ({result.returncode}): {result.stderr.strip()}")
+
+        return True
+        
+    except subprocess.CalledProcessError as e:
+        stderr_lower = e.stderr.lower()
+
+        if "wrong password" in stderr_lower or "cannot open encrypted archive" in stderr_lower:
+            raise ArchivePasswordError(f"Incorrect password or password required for: {archive_path}")
+        elif "data error" in stderr_lower or "crc failed" in stderr_lower:
+            raise ArchiveCorruptedError(f"Archive appears to be corrupted: {archive_path}")
+        elif "unsupported method" in stderr_lower or "unknown method" in stderr_lower:
+            raise ArchiveUnsupportedError(f"Archive format not supported: {archive_path}")
+        elif "cannot open file" in stderr_lower:
+            raise ArchiveNotFoundError(f"Cannot open archive file: {archive_path}")
+        elif "disk full" in stderr_lower or "not enough space" in stderr_lower:
+            raise ArchiveError(f"Insufficient disk space for extraction: {archive_path}")
+        else:
+            # Generic archive error for other cases
+            raise ArchiveError(f"7z extraction error ({e.returncode}): {e.stderr.strip()}")
+    
+    except FileNotFoundError:
+        raise SevenZipNotFoundError(f"7z executable not found at: {seven_zip_path}")
+
+
+def extractSpecificFilesWith7z(
+    archive_path: str,
+    output_path: str,
+    file_list: List[str],
+    password: Optional[str] = "",
+    seven_zip_path: Optional[str] = None,
+    overwrite: bool = True
+) -> Dict[str, bool]:
+    """
+    Extract specific files from archive using 7z.exe.
+    
+    Args:
+        archive_path (str): Path to the archive file
+        output_path (str): Directory where files will be extracted
+        file_list (List[str]): List of file paths to extract
+        password (str, optional): Password for encrypted archives
+        seven_zip_path (str): Path to 7z.exe executable (default: auto-detect)
+        overwrite (bool): Whether to overwrite existing files
+    
+    Returns:
+        Dict[str, bool]: Dictionary mapping file paths to extraction success status
+    
+    Raises:
+        Same exceptions as extract_archive_with_7z
+    """
+    
+    results = {}
+    
+    # Extract all specified files in one operation for efficiency
+    try:
+        success = extractArchiveWith7z(
+            archive_path=archive_path,
+            output_path=output_path,
+            password=password,
+            seven_zip_path=seven_zip_path,
+            overwrite=overwrite,
+            specific_files=file_list
+        )
+        
+        # If extraction succeeded, check which files were actually extracted
+        for file_path in file_list:
+            extracted_path = os.path.join(output_path, file_path)
+            results[file_path] = os.path.exists(extracted_path)
+            
+    except Exception as e:
+        # If extraction failed, mark all files as failed
+        for file_path in file_list:
+            results[file_path] = False
+        raise e
+    
+    return results
+
+
+def testArchiveExtraction():
+    """
+    Test function for archive extraction functionality.
     """
     try:
-        # Example usage
+        # Example usage for full extraction
         archive_path = "test_archive.7z"
+        output_path = "extracted_files"
         password = "mypassword"  # None if no password
         
-        files = read_archive_content_with_7z(archive_path, password)
+        print("Extracting entire archive...")
+        success = extractArchiveWith7z(archive_path, output_path, password)
         
-        print(f"Archive contains {len(files)} items:")
-        for file_info in files:
-            print(f"  {file_info['name']} ({file_info['size']} bytes)")
+        if success:
+            print(f"Archive extracted successfully to: {output_path}")
+        
+        # Example usage for specific files
+        specific_files = ["file1.txt", "folder/file2.txt"]
+        print("\nExtracting specific files...")
+        results = extractSpecificFilesWith7z(
+            archive_path, output_path, specific_files, password
+        )
+        
+        for file_path, extracted in results.items():
+            status = "✓" if extracted else "✗"
+            print(f"  {status} {file_path}")
             
     except Exception as e:
         print(f"Error: {e}")
 
-
-if __name__ == "__main__":
-    test_archive_reading()
