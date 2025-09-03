@@ -6,7 +6,7 @@ import typer
 
 from click import group
 
-
+from .richUtils import print_error, print_success
 from ..classes.ArchiveGroup import ArchiveGroup
 from .utils import getStringSimilarity
 from .archiveExtensionUtils import detectArchiveExtension
@@ -75,7 +75,7 @@ def renameFile(old_path: str, new_path: str) -> None:
     try:
         os.rename(old_path, new_path)
     except Exception as e:
-        typer.echo(f"❌ Error renaming file 重命名文件错误 {old_path} to {new_path}: {e}")
+        print_error(f"Error renaming file 重命名文件错误 {old_path} to {new_path}: {e}")
 
 def createGroupsByName(file_paths: list[str]) -> list[ArchiveGroup]:
     """Create Archive Groups by name 按名称创建档案组"""
@@ -189,9 +189,9 @@ def moveFilesPreservingStructure(
                 
                 shutil.move(file_path, destination)
                 moved_files.append(relative_path)
-                if verbose: typer.echo(f"📁 Moved 已移动: {relative_path}")
+                if verbose: print_success(f"📁 Moved 已移动: {relative_path}")
                 
             except Exception as e:
-                typer.echo(f"❌ Error moving 移动错误 {file_path}: {e}")
+                print_error(f"Error moving 移动错误 {file_path}: {e}")
     
     return moved_files

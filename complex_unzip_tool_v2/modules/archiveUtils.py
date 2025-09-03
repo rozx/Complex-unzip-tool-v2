@@ -7,7 +7,9 @@ from typing import List, Dict, Optional, Union
 from .richUtils import (
     print_nested_extraction_header, print_extraction_process_header,
     print_extracting_archive, print_password_attempt, print_password_failed,
-    print_password_success, print_extraction_summary
+    print_password_success, print_extraction_summary, print_warning, print_error,
+    print_error_summary, print_general, print_empty_line, print_info, 
+    print_success
 )
 
 # Custom exception classes
@@ -480,12 +482,12 @@ def extractNestedArchives(
         if loading_indicator and hasattr(loading_indicator, 'stop'):
             loading_indicator.stop()
             
-        typer.echo("")
-        typer.echo(f"⚠️  All provided passwords failed for archive 所有提供的密码对档案都失败了: {typer.style(archive_name, fg=typer.colors.YELLOW)}")
-        typer.echo("Options 选项:")
-        typer.echo("  1. Enter a password 输入密码")
-        typer.echo("  2. Skip this archive 跳过此档案")
-        typer.echo("  3. Skip all remaining password-protected archives 跳过所有剩余的密码保护档案")
+        print_empty_line()
+        print_warning(f"All provided passwords failed for archive 所有提供的密码对档案都失败了: {archive_name}", indent=0)
+        print_general("Options 选项:")
+        print_general("  1. Enter a password 输入密码")
+        print_general("  2. Skip this archive 跳过此档案")
+        print_general("  3. Skip all remaining password-protected archives 跳过所有剩余的密码保护档案")
         
         choice = typer.prompt("Choose an option 选择一个选项 (1/2/3)", type=int, default=2)
         
@@ -510,6 +512,7 @@ def extractNestedArchives(
     def _tryExtractWithPasswords(archive_file: str, extract_to: str) -> tuple[bool, str]:
         """
         Try to extract an archive with different passwords.
+        Note: This function assumes the file has already been verified as a valid archive.
         
         Returns:
             tuple: (success: bool, password_used: str)
@@ -540,10 +543,10 @@ def extractNestedArchives(
                 continue
             except (ArchiveCorruptedError, ArchiveUnsupportedError, ArchiveNotFoundError) as e:
                 # These are archive-related errors but not password issues
-                typer.echo(f"  ❌ Archive error 档案错误: {typer.style(str(e), fg=typer.colors.RED)}")
+                print_error(f"Archive error 档案错误: {str(e)}", indent=2)
                 return False, ""
             except Exception as e:
-                typer.echo(f"  ❌ Extraction failed with password 使用密码提取失败 {'(empty)' if pwd == '' else pwd}: {typer.style(str(e), fg=typer.colors.RED)}")
+                print_error(f"Extraction failed with password 使用密码提取失败 {'(empty)' if pwd == '' else pwd}: {str(e)}", indent=2)
                 continue
         
         # Only prompt user for passwords if we confirmed this is a valid archive that requires password
@@ -552,15 +555,15 @@ def extractNestedArchives(
                 user_password = _promptUserForPassword(archive_name)
                 
                 if user_password == "SKIP_ALL":
-                    typer.echo(f"  ⏭️  Skipping all future password prompts 跳过所有未来的密码提示")
+                    print_info("Skipping all future password prompts 跳过所有未来的密码提示", 2)
                     return False, ""
                 elif user_password is None:
-                    typer.echo(f"  ⏭️  Skipping archive 跳过档案: {typer.style(archive_name, fg=typer.colors.YELLOW)}")
+                    print_info(f"Skipping archive 跳过档案: {archive_name}", 2)
                     return False, ""
                 
                 # Try the user-provided password
                 try:
-                    typer.echo(f"  🔓 Trying user-provided password 尝试用户提供的密码...")
+                    print_info("Trying user-provided password 尝试用户提供的密码...", 2)
                     success = extractArchiveWith7z(
                         archive_path=archive_file,
                         output_path=extract_to,
@@ -570,13 +573,13 @@ def extractNestedArchives(
                     )
                     
                     if success:
-                        typer.echo(f"  ✅ Extraction successful with user password 使用用户密码提取成功!")
+                        print_success("Extraction successful with user password 使用用户密码提取成功!", 2)
                         # Add the successful password to the list for future use
                         passwords_to_try.append(user_password)
                         return True, user_password
                         
                 except ArchivePasswordError:
-                    typer.echo(f"  ❌ User password is incorrect 用户密码不正确")
+                    print_error("User password is incorrect 用户密码不正确", indent=2)
                     
                     # Stop loading indicator for user input
                     if loading_indicator and hasattr(loading_indicator, 'stop'):
@@ -592,11 +595,14 @@ def extractNestedArchives(
                         return False, ""
                     continue
                 except Exception as e:
-                    typer.echo(f"  ❌ Extraction failed 提取失败: {typer.style(str(e), fg=typer.colors.RED)}")
+                    print_error(f"Extraction failed 提取失败: {str(e)}", indent=2)
                     return False, ""
-        elif not password_required:
-            # If no password was required but extraction still failed, it's likely not a valid archive
-            typer.echo(f"  ⚠️  File may not be a valid archive or is corrupted 文件可能不是有效档案或已损坏: {archive_name}")
+        else:
+            # If no password was required but extraction still failed, show appropriate message
+            if password_required:
+                print_warning(f"Archive requires password but user chose to skip 档案需要密码但用户选择跳过: {archive_name}", indent=2)
+            else:
+                print_error(f"Failed to extract archive 提取档案失败: {archive_name}", indent=2)
         
         return False, ""
     
@@ -606,10 +612,17 @@ def extractNestedArchives(
         if depth > max_depth:
             error_msg = f"Maximum recursion depth ({max_depth}) reached for 达到最大递归深度: {current_archive}"
             result['errors'].append(error_msg)
-            typer.echo(f"  ⚠️  {typer.style(error_msg, fg=typer.colors.YELLOW)}")
+            print_warning(error_msg, indent=2)
             return
         
         try:
+            # First, verify that this is actually a valid archive before attempting extraction
+            if not _tryOpenAsArchive(current_archive):
+                error_msg = f"File is not a valid archive 文件不是有效档案: {current_archive}"
+                result['errors'].append(error_msg)
+                print_warning(error_msg, indent=6)
+                return
+            
             # Extract directly to the current output directory to preserve structure
             print_extracting_archive(os.path.basename(current_archive), depth)
             
@@ -634,8 +647,8 @@ def extractNestedArchives(
                 nested_archives = []
                 regular_files = []
                 
-                typer.echo(f"      🔍 Testing {len(extracted_files)} extracted files for nested archives")
-                typer.echo(f"         正在测试 {len(extracted_files)} 个提取的文件是否为嵌套档案...")
+                print_info(f"Testing {len(extracted_files)} extracted files for nested archives", 6)
+                print_info(f"正在测试 {len(extracted_files)} 个提取的文件是否为嵌套档案...", 9)
                 
                 for file_path in extracted_files:
                     file_name = os.path.basename(file_path)
@@ -645,7 +658,7 @@ def extractNestedArchives(
                         continue
                     
                     if _tryOpenAsArchive(file_path):
-                        typer.echo(f"         📦 Found nested archive 发现嵌套档案: {file_name}")
+                        print_info(f"📦 Found nested archive 发现嵌套档案: {file_name}", 9)
                         nested_archives.append(file_path)
                     else:
                         regular_files.append(file_path)
@@ -654,41 +667,41 @@ def extractNestedArchives(
                 result['final_files'].extend(regular_files)
                 
                 if regular_files:
-                    typer.echo(f"      📄 Found {len(regular_files)} regular files 发现 {len(regular_files)} 个常规文件")
+                    print_info(f"Found {len(regular_files)} regular files 发现 {len(regular_files)} 个常规文件", 6)
                 
                 # Delete the processed archive file if cleanup is enabled and it's not the original
                 if cleanup_archives and current_archive != archive_path:
                     try:
                         os.remove(current_archive)
-                        typer.echo(f"      🗑️  Cleaned up archive 已清理档案: {os.path.basename(current_archive)}")
+                        print_success(f"Cleaned up archive 已清理档案: {os.path.basename(current_archive)}", 6)
                     except OSError as e:
                         error_msg = f"Failed to delete 删除失败 {current_archive}: {e}"
                         result['errors'].append(error_msg)
-                        typer.echo(f"      ⚠️  {typer.style(error_msg, fg=typer.colors.YELLOW)}")
+                        print_warning(error_msg, indent=6)
                 
                 # If we found nested archives, extract them recursively in their current location
                 if nested_archives:
-                    typer.echo(f"      🔄 Found {typer.style(str(len(nested_archives)), fg=typer.colors.GREEN)} nested archive(s)")
-                    typer.echo(f"         在深度 {depth} 发现 {len(nested_archives)} 个嵌套档案")
+                    print_info(f"Found {len(nested_archives)} nested archive(s)", 6)
+                    print_info(f"在深度 {depth} 发现 {len(nested_archives)} 个嵌套档案", 9)
                     for nested_archive in nested_archives:
                         # Extract nested archive in the same directory to preserve structure
                         nested_output_dir = os.path.dirname(nested_archive)
                         _extractRecursively(nested_archive, nested_output_dir, depth + 1)
                 else:
-                    typer.echo(f"      ✅ No more nested archives found at depth {depth}")
-                    typer.echo(f"         在深度 {depth} 未发现更多嵌套档案")
+                    print_success(f"No more nested archives found at depth {depth}", 6)
+                    print_info(f"在深度 {depth} 未发现更多嵌套档案", 9)
             
             else:
                 error_msg = f"Failed to extract 提取失败: {current_archive} (tried all passwords 尝试了所有密码)"
                 result['errors'].append(error_msg)
                 result['success'] = False
-                typer.echo(f"      ❌ {typer.style(error_msg, fg=typer.colors.RED)}")
+                print_error(error_msg, indent=6)
                 
         except Exception as e:
             error_msg = f"Error extracting 提取错误 {current_archive}: {e}"
             result['errors'].append(error_msg)
             result['success'] = False
-            typer.echo(f"      ❌ {typer.style(error_msg, fg=typer.colors.RED)}")
+            print_error(error_msg, indent=6)
     
     # Start the recursive extraction
     try:
@@ -707,8 +720,8 @@ def extractNestedArchives(
         _extractRecursively(archive_path, output_path, 0)
         
         # Clean up empty directories
-        typer.echo()
-        typer.echo("🧹 Cleaning up empty directories 清理空目录...")
+        print_empty_line()
+        print_info("🧹 Cleaning up empty directories 清理空目录...")
         _cleanupEmptyDirectories(output_path)
         
         # Update final success status
@@ -724,18 +737,13 @@ def extractNestedArchives(
         )
         
         if result['errors']:
-            typer.echo()
-            typer.echo("❌ Errors encountered 遇到的错误:")
-            typer.echo("   ╭" + "─" * 74 + "╮")
-            for i, error in enumerate(result['errors']):
-                typer.echo(f"   │ {i+1}. {error[:70]:<70} │")
-            typer.echo("   ╰" + "─" * 74 + "╯")
+            print_error_summary(result['errors'])
         
     except Exception as e:
         error_msg = f"Fatal error during extraction 提取期间发生致命错误: {e}"
         result['errors'].append(error_msg)
         result['success'] = False
-        typer.echo(f"💥 {typer.style(error_msg, fg=typer.colors.RED, bold=True)}")
+        print_error(f"💥 {error_msg}", indent=0)
         raise
     
     return result

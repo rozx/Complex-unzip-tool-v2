@@ -333,3 +333,43 @@ def print_all_processed_success():
 def print_separator():
     """Print a beautiful separator line 打印美丽的分隔线"""
     console.print("   " + "─" * 70, style="bright_blue")
+
+def print_empty_line():
+    """Print an empty line 打印空行"""
+    console.print()
+
+def print_version(version: str):
+    """Print version information with rich formatting 打印版本信息"""
+    console.print(f"[bold bright_cyan]📦 Complex Unzip Tool v2 {version} 复杂解压工具v2[/bold bright_cyan]")
+
+def print_general(message: str, indent: int = 0):
+    """Print a general message with optional indentation 打印一般消息"""
+    indent_str = " " * indent
+    console.print(f"{indent_str}{message}")
+
+def print_error_summary(errors: List[str]):
+    """Print a beautiful error summary panel with Chinese text."""
+    if not errors:
+        return
+    
+    console.print()
+    console.print(Panel(
+        "[bold red]❌ 遇到的错误 Errors Encountered[/bold red]",
+        box=box.HEAVY,
+        style="red",
+        width=80,
+        padding=(0, 1)
+    ))
+    
+    # Create error table
+    error_table = Table(show_header=False, box=None, width=76)
+    error_table.add_column("#", style="bold red", width=4)
+    error_table.add_column("Error", style="red")
+    
+    for i, error in enumerate(errors, 1):
+        # Truncate long error messages but keep them readable
+        display_error = error if len(error) <= 70 else error[:67] + "..."
+        error_table.add_row(f"{i}.", display_error)
+    
+    console.print(error_table)
+    console.print()
