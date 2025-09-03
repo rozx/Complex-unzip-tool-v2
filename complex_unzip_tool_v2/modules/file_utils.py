@@ -141,7 +141,8 @@ def move_files_preserving_structure(
     file_paths: list[str], 
     source_root: str, 
     destination_root: str,
-    verbose: bool = False
+    verbose: bool = False,
+    progress_callback: callable = None
 ) -> list[str]:
     """
     Move files from source to destination while preserving directory structure.
@@ -151,6 +152,8 @@ def move_files_preserving_structure(
         file_paths: List of file paths to move 要移动的文件路径列表
         source_root: Root directory to calculate relative paths from 计算相对路径的根目录
         destination_root: Root directory to move files to 移动文件到的根目录
+        verbose: Print verbose output 打印详细输出
+        progress_callback: Optional callback function for progress updates 可选的进度更新回调函数
     
     Returns:
         List of relative paths that were successfully moved 成功移动的相对路径列表
@@ -178,6 +181,10 @@ def move_files_preserving_structure(
                 
                 shutil.move(file_path, destination)
                 moved_files.append(relative_path)
+                
+                # Call progress callback if provided
+                if progress_callback:
+                    progress_callback()
                 if verbose: print_success(f"📁 Moved 已移动: {relative_path}")
                 
             except Exception as e:

@@ -483,7 +483,7 @@ def extract_nested_archives(
             loading_indicator.stop()
             
         print_empty_line()
-        print_warning(f"All provided passwords failed for archive 所有提供的密码对档案都失败了: {archive_name}", indent=0)
+        print_warning(f"All provided passwords failed for archive 所有提供的密码对档案都失败了: {archive_name}", 1)
         print_general("Options 选项:")
         print_general("  1. Enter a password 输入密码")
         print_general("  2. Skip this archive 跳过此档案")
@@ -543,10 +543,10 @@ def extract_nested_archives(
                 continue
             except (ArchiveCorruptedError, ArchiveUnsupportedError, ArchiveNotFoundError) as e:
                 # These are archive-related errors but not password issues
-                print_error(f"Archive error 档案错误: {str(e)}", indent=2)
+                print_error(f"Archive error 档案错误: {str(e)}", 1)
                 return False, ""
             except Exception as e:
-                print_error(f"Extraction failed with password 使用密码提取失败 {'(empty)' if pwd == '' else pwd}: {str(e)}", indent=2)
+                print_error(f"Extraction failed with password 使用密码提取失败 {'(empty)' if pwd == '' else pwd}: {str(e)}", 1)
                 continue
         
         # Only prompt user for passwords if we confirmed this is a valid archive that requires password
@@ -573,13 +573,13 @@ def extract_nested_archives(
                     )
                     
                     if success:
-                        print_success("Extraction successful with user password 使用用户密码提取成功!", 2)
+                        print_success("Extraction successful with user password 使用用户密码提取成功!", 1)
                         # Add the successful password to the list for future use
                         passwords_to_try.append(user_password)
                         return True, user_password
                         
                 except ArchivePasswordError:
-                    print_error("User password is incorrect 用户密码不正确", indent=2)
+                    print_error("User password is incorrect 用户密码不正确", 1)
                     
                     # Stop loading indicator for user input
                     if loading_indicator and hasattr(loading_indicator, 'stop'):
@@ -595,14 +595,14 @@ def extract_nested_archives(
                         return False, ""
                     continue
                 except Exception as e:
-                    print_error(f"Extraction failed 提取失败: {str(e)}", indent=2)
+                    print_error(f"Extraction failed 提取失败: {str(e)}", 1)
                     return False, ""
         else:
             # If no password was required but extraction still failed, show appropriate message
             if password_required:
-                print_warning(f"Archive requires password but user chose to skip 档案需要密码但用户选择跳过: {archive_name}", indent=2)
+                print_warning(f"Archive requires password but user chose to skip 档案需要密码但用户选择跳过: {archive_name}", 1)
             else:
-                print_error(f"Failed to extract archive 提取档案失败: {archive_name}", indent=2)
+                print_error(f"Failed to extract archive 提取档案失败: {archive_name}", 1)
         
         return False, ""
     
@@ -612,7 +612,7 @@ def extract_nested_archives(
         if depth > max_depth:
             error_msg = f"Maximum recursion depth ({max_depth}) reached for 达到最大递归深度: {current_archive}"
             result['errors'].append(error_msg)
-            print_warning(error_msg, indent=2)
+            print_warning(error_msg, 1)
             return
         
         try:
@@ -620,7 +620,7 @@ def extract_nested_archives(
             if not _tryOpenAsArchive(current_archive):
                 error_msg = f"File is not a valid archive 文件不是有效档案: {current_archive}"
                 result['errors'].append(error_msg)
-                print_warning(error_msg, indent=6)
+                print_warning(error_msg, 2)
                 return
             
             # Extract directly to the current output directory to preserve structure
@@ -647,8 +647,8 @@ def extract_nested_archives(
                 nested_archives = []
                 regular_files = []
                 
-                print_info(f"Testing {len(extracted_files)} extracted files for nested archives", 6)
-                print_info(f"正在测试 {len(extracted_files)} 个提取的文件是否为嵌套档案...", 9)
+                print_info(f"Testing {len(extracted_files)} extracted files for nested archives", 2)
+                print_info(f"正在测试 {len(extracted_files)} 个提取的文件是否为嵌套档案...", 3)
                 
                 for file_path in extracted_files:
                     file_name = os.path.basename(file_path)
@@ -658,7 +658,7 @@ def extract_nested_archives(
                         continue
                     
                     if _tryOpenAsArchive(file_path):
-                        print_info(f"📦 Found nested archive 发现嵌套档案: {file_name}", 9)
+                        print_info(f"📦 Found nested archive 发现嵌套档案: {file_name}", 3)
                         nested_archives.append(file_path)
                     else:
                         regular_files.append(file_path)
@@ -667,41 +667,41 @@ def extract_nested_archives(
                 result['final_files'].extend(regular_files)
                 
                 if regular_files:
-                    print_info(f"Found {len(regular_files)} regular files 发现 {len(regular_files)} 个常规文件", 6)
+                    print_info(f"Found {len(regular_files)} regular files 发现 {len(regular_files)} 个常规文件", 2)
                 
                 # Delete the processed archive file if cleanup is enabled and it's not the original
                 if cleanup_archives and current_archive != archive_path:
                     try:
                         os.remove(current_archive)
-                        print_success(f"Cleaned up archive 已清理档案: {os.path.basename(current_archive)}", 6)
+                        print_success(f"Cleaned up archive 已清理档案: {os.path.basename(current_archive)}", 2)
                     except OSError as e:
                         error_msg = f"Failed to delete 删除失败 {current_archive}: {e}"
                         result['errors'].append(error_msg)
-                        print_warning(error_msg, indent=6)
+                        print_warning(error_msg, 2)
                 
                 # If we found nested archives, extract them recursively in their current location
                 if nested_archives:
-                    print_info(f"Found {len(nested_archives)} nested archive(s)", 6)
-                    print_info(f"在深度 {depth} 发现 {len(nested_archives)} 个嵌套档案", 9)
+                    print_info(f"Found {len(nested_archives)} nested archive(s)", 2)
+                    print_info(f"在深度 {depth} 发现 {len(nested_archives)} 个嵌套档案", 3)
                     for nested_archive in nested_archives:
                         # Extract nested archive in the same directory to preserve structure
                         nested_output_dir = os.path.dirname(nested_archive)
                         _extractRecursively(nested_archive, nested_output_dir, depth + 1)
                 else:
-                    print_success(f"No more nested archives found at depth {depth}", 6)
-                    print_info(f"在深度 {depth} 未发现更多嵌套档案", 9)
+                    print_success(f"No more nested archives found at depth {depth}", 2)
+                    print_info(f"在深度 {depth} 未发现更多嵌套档案", 3)
             
             else:
                 error_msg = f"Failed to extract 提取失败: {current_archive} (tried all passwords 尝试了所有密码)"
                 result['errors'].append(error_msg)
                 result['success'] = False
-                print_error(error_msg, indent=6)
+                print_error(error_msg, 2)
                 
         except Exception as e:
             error_msg = f"Error extracting 提取错误 {current_archive}: {e}"
             result['errors'].append(error_msg)
             result['success'] = False
-            print_error(error_msg, indent=6)
+            print_error(error_msg, 2)
     
     # Start the recursive extraction
     try:
@@ -743,7 +743,7 @@ def extract_nested_archives(
         error_msg = f"Fatal error during extraction 提取期间发生致命错误: {e}"
         result['errors'].append(error_msg)
         result['success'] = False
-        print_error(f"💥 {error_msg}", indent=0)
+        print_error(f"💥 {error_msg}", 0)
         raise
     
     return result

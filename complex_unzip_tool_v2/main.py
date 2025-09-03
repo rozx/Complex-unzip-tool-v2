@@ -14,7 +14,8 @@ from .modules.rich_utils import (
     print_remaining_groups_warning, print_all_processed_success,
     print_final_completion, print_separator, create_spinner,
     print_extraction_header, print_empty_line, print_version, 
-    print_general, print_file_path, print_error_summary
+    print_general, print_file_path, print_error_summary,
+    create_extraction_progress, create_file_operation_progress
 )
 from .classes.PasswordBook import PasswordBook
 from .classes.ArchiveGroup import ArchiveGroup
@@ -93,7 +94,41 @@ def extract_files(paths: List[str]) -> None:
     contents = file_utils.read_dir(paths)
     loader.stop()
     
-    print_success(f"Found {len(contents)} files 发现 {len(contents)} 个文件")
+    # Display scanning results with a nice table
+    from rich.console import Console
+    from rich.table import Table
+    from rich import box
+    
+    scan_console = Console()
+    scan_table = Table(show_header=True, box=box.ROUNDED)
+    scan_table.add_column("📁 Path Type / 路径类型", style="cyan", width=15)
+    scan_table.add_column("📊 Count / 数量", style="yellow", justify="center", width=10)
+    scan_table.add_column("📝 Details / 详情", style="dim", width=50)
+    
+    # Count different file types
+    archive_extensions = ['.zip', '.rar', '.7z', '.tar', '.gz', '.bz2', '.xz']
+    archive_files = [f for f in contents if any(str(f).lower().endswith(ext) for ext in archive_extensions)]
+    other_files = [f for f in contents if f not in archive_files]
+    
+    scan_table.add_row(
+        "Total Files / 总文件", 
+        f"[bold green]{len(contents)}[/bold green]",
+        f"[dim]All files found in scan / 扫描中发现的所有文件[/dim]"
+    )
+    scan_table.add_row(
+        "Archive Files / 档案", 
+        f"[bold blue]{len(archive_files)}[/bold blue]",
+        f"[dim]Recognized archive formats / 识别的档案格式[/dim]"
+    )
+    scan_table.add_row(
+        "Other Files / 其他", 
+        f"[bold magenta]{len(other_files)}[/bold magenta]",
+        f"[dim]Non-archive files / 非档案文件[/dim]"
+    )
+    
+    scan_console.print()
+    scan_console.print(scan_table)
+    print_success(f"Scan completed! 扫描完成！")
 
     # Step 4: Create archive groups 创建档案组
     print_step(4, "📋 Creating archive groups 创建档案组")
@@ -122,14 +157,23 @@ def extract_files(paths: List[str]) -> None:
     
     print_info("📝 Processing single archive to extract containers 处理单一档案以提取容器...")
 
-    for group in groups.copy():
-        if not group.isMultiPart:
+    # Get single archives for progress tracking
+    single_archives = [group for group in groups if not group.isMultiPart]
+    
+    if single_archives:
+        # Start extraction progress
+        extraction_progress = create_extraction_progress("Single Archives Processing / 单一档案处理")
+        extraction_progress.start(len(single_archives))
+        
+        for group in single_archives.copy():
+            extraction_progress.start_group(group.name, len(group.files))
+            
             print_extraction_header(f"🗂️ Extracting single archive: {group.name}")
 
             dir = os.path.dirname(group.mainArchiveFile)
             extraction_temp_path = os.path.join(dir, f'temp.{group.name}')
-            print_info("📂 Extraction temp path 提取临时路径:", 6)
-            print_file_path(extraction_temp_path, 9)
+            print_info("📂 Extraction temp path 提取临时路径:", 2)
+            print_file_path(extraction_temp_path, 3)
 
             try:
                 # Start loading indicator for extraction
@@ -160,18 +204,18 @@ def extract_files(paths: List[str]) -> None:
                     if isinstance(final_files_raw, list):
                         final_files = final_files_raw.copy()  # Make a copy to safely modify
                         
-                        print_success(f"Successfully extracted 成功提取: {group.name}", 6)
-                        print_info("Checking extracted files 正在检查提取的文件...", 6)
+                        print_success(f"Successfully extracted 成功提取: {group.name}", 2)
+                        print_info("Checking extracted files 正在检查提取的文件...", 2)
 
                         # Process each extracted file
                         files_to_remove = []
                         for file_path in final_files:
                             if os.path.exists(file_path):
                                 if file_utils.add_file_to_groups(file_path, groups):
-                                    print_success(f"📦 {os.path.basename(file_path)} → moved to group location 移动到组位置", 9)
+                                    print_success(f"📦 {os.path.basename(file_path)} → moved to group location 移动到组位置", 3)
                                     files_to_remove.append(file_path)
                             else:
-                                print_warning(f"File not found 文件未找到: {os.path.basename(file_path)}", 9)
+                                print_warning(f"File not found 文件未找到: {os.path.basename(file_path)}", 3)
                                 files_to_remove.append(file_path)
                         
                         # Remove processed files from the list
@@ -180,32 +224,40 @@ def extract_files(paths: List[str]) -> None:
 
                         # Move remaining files to output folder
                         if final_files:
-                            print_info(f"Moving {len(final_files)} remaining files to output folder", 6)
-                            print_info(f"正在将 {len(final_files)} 个剩余文件移动到输出文件夹...", 9)
+                            print_info(f"Moving {len(final_files)} remaining files to output folder", 2)
+                            print_info(f"正在将 {len(final_files)} 个剩余文件移动到输出文件夹...", 3)
+                            
+                            # Create file operation progress
+                            file_progress = create_file_operation_progress("Moving Files / 移动文件")
+                            file_progress.start(len(final_files))
+                            
                             moved_files = file_utils.move_files_preserving_structure(
                                 final_files, 
                                 extraction_temp_path, 
-                                output_folder
+                                output_folder,
+                                progress_callback=lambda: file_progress.update(1)
                             )
-                            print_success(f"Moved {len(moved_files)} files successfully 成功移动 {len(moved_files)} 个文件", 6)
+                            
+                            file_progress.stop()
+                            print_success(f"Moved {len(moved_files)} files successfully 成功移动 {len(moved_files)} 个文件", 2)
                         
                         # Remove the original archive file
                         try:
                             if os.path.exists(group.mainArchiveFile):
                                 os.remove(group.mainArchiveFile)
-                                print_success("Removed original archive 已删除原始档案:", 6)
-                                print_file_path(os.path.basename(group.mainArchiveFile), 9)
+                                print_success("Removed original archive 已删除原始档案:", 2)
+                                print_file_path(os.path.basename(group.mainArchiveFile), 3)
                         except Exception as e:
-                            print_warning(f"Could not remove original archive 无法删除原始档案:", 6)
-                            print_error(f"{group.mainArchiveFile}: {e}", 9)
+                            print_warning(f"Could not remove original archive 无法删除原始档案:", 2)
+                            print_error(f"{group.mainArchiveFile}: {e}", 3)
 
                         # Remove the temporary extraction folder
                         try:
                             if os.path.exists(extraction_temp_path):
                                 shutil.rmtree(extraction_temp_path)
-                                print_success("Cleaned up temporary folder 已清理临时文件夹", 6)
+                                print_success("Cleaned up temporary folder 已清理临时文件夹", 2)
                         except Exception as e:
-                            print_warning(f"Could not remove temp folder 无法删除临时文件夹: {e}", 6)
+                            print_warning(f"Could not remove temp folder 无法删除临时文件夹: {e}", 2)
 
                         # Remove the subfolder for group belongs, if not the current folder
                         try:
@@ -221,35 +273,38 @@ def extract_files(paths: List[str]) -> None:
                                 
                                 if not remaining_items:
                                     shutil.rmtree(archive_dir)
-                                    print_success("Removed empty archive subfolder 已删除空档案子文件夹:", 6)
-                                    print_file_path(os.path.basename(archive_dir), 9)
+                                    print_success("Removed empty archive subfolder 已删除空档案子文件夹:", 2)
+                                    print_file_path(os.path.basename(archive_dir), 3)
                                 else:
-                                    print_info("Archive subfolder kept (contains other files) 档案子文件夹保留（包含其他文件）:", 6)
-                                    print_file_path(os.path.basename(archive_dir), 9)
+                                    print_info("Archive subfolder kept (contains other files) 档案子文件夹保留（包含其他文件）:", 2)
+                                    print_file_path(os.path.basename(archive_dir), 3)
                             else:
-                                print_info("Archive subfolder is current directory, not removed 档案子文件夹是当前目录，未删除", 6)
+                                print_info("Archive subfolder is current directory, not removed 档案子文件夹是当前目录，未删除", 2)
                         except Exception as e:
-                            print_warning(f"Could not remove archive subfolder 无法删除档案子文件夹: {e}", 6)
+                            print_warning(f"Could not remove archive subfolder 无法删除档案子文件夹: {e}", 2)
 
                         
                         # Remove the group from processing
                         groups.remove(group)
-                        print_success("Processing completed 处理完成", 6)
+                        extraction_progress.complete_group()
+                        print_success("Processing completed 处理完成", 2)
                         
                     else:
-                        print_error("Expected list of files 期望文件列表", 6)
-                        print_error(f"Got {type(final_files_raw)} for {group.name}", 9)
+                        print_error("Expected list of files 期望文件列表", 2)
+                        print_error(f"Got {type(final_files_raw)} for {group.name}", 3)
                         groups.remove(group)
+                        extraction_progress.complete_group()
                 
                 else:
-                    print_error(f"Failed to extract 提取失败: {group.name}", 6)
+                    print_error(f"Failed to extract 提取失败: {group.name}", 2)
                     if os.path.exists(extraction_temp_path):
                         shutil.rmtree(extraction_temp_path)
                     groups.remove(group)
+                    extraction_progress.complete_group()
                     
             except Exception as e:
-                print_error(f"Error processing 处理错误: {group.name}", 6)
-                print_error(f"Error details 错误详情: {e}", 9)
+                print_error(f"Error processing 处理错误: {group.name}", 2)
+                print_error(f"Error details 错误详情: {e}", 3)
                 # Clean up temp folder if it exists
                 try:
                     if os.path.exists(extraction_temp_path):
@@ -258,10 +313,15 @@ def extract_files(paths: List[str]) -> None:
                     pass
                 finally:
                     groups.remove(group)
+                    extraction_progress.complete_group()
                 continue
             
             print_separator()
             print_empty_line()
+        
+        extraction_progress.stop()
+    else:
+        print_info("No single archives found 未找到单一档案")
 
     # add user provided passwords to password book
     if user_provided_passwords:
@@ -270,8 +330,17 @@ def extract_files(paths: List[str]) -> None:
     # Step 7: Then handle multipart archives 然后处理多部分档案
     print_step(7, "🔗 Processing multipart archives 处理多部分档案")
     
-    for group in groups.copy():
-        if group.isMultiPart:
+    # Get multipart archives for progress tracking
+    multipart_archives = [group for group in groups if group.isMultiPart]
+    
+    if multipart_archives:
+        # Start extraction progress for multipart archives
+        multipart_progress = create_extraction_progress("Multipart Archives Processing / 多部分档案处理")
+        multipart_progress.start(len(multipart_archives))
+        
+        for group in multipart_archives.copy():
+            multipart_progress.start_group(group.name, len(group.files))
+            
             print_extraction_header(f"📚 Handling multipart archive: {group.name}")
 
             dir = os.path.dirname(group.mainArchiveFile)
@@ -303,38 +372,46 @@ def extract_files(paths: List[str]) -> None:
 
                     # Type guard to ensure we have a list
                     if isinstance(final_files_raw, list):
-                        print_success(f"Successfully extracted 成功提取: {group.name}", 6)
+                        print_success(f"Successfully extracted 成功提取: {group.name}", 2)
 
                         final_files = final_files_raw.copy()  # Make a copy to safely modify
 
                         # Move files to output folder
                         if final_files:
-                            print_info(f"Moving {len(final_files)} files to output folder", 6)
-                            print_info(f"正在将 {len(final_files)} 个文件移动到输出文件夹...", 9)
+                            print_info(f"Moving {len(final_files)} files to output folder", 2)
+                            print_info(f"正在将 {len(final_files)} 个文件移动到输出文件夹...", 3)
+                            
+                            # Create file operation progress
+                            file_progress = create_file_operation_progress("Moving Multipart Files / 移动多部分文件")
+                            file_progress.start(len(final_files))
+                            
                             moved_files = file_utils.move_files_preserving_structure(
                                 final_files, 
                                 extraction_temp_path, 
-                                output_folder
+                                output_folder,
+                                progress_callback=lambda: file_progress.update(1)
                             )
-                            print_success(f"Moved {len(moved_files)} files successfully 成功移动 {len(moved_files)} 个文件", 6)
+                            
+                            file_progress.stop()
+                            print_success(f"Moved {len(moved_files)} files successfully 成功移动 {len(moved_files)} 个文件", 2)
 
                             # Remove the original archive file
-                            print_info(f"Removing {len(group.files)} archive parts 正在删除 {len(group.files)} 个档案部分...", 6)
+                            print_info(f"Removing {len(group.files)} archive parts 正在删除 {len(group.files)} 个档案部分...", 2)
                             try:
                                 for archive_file in group.files:
                                     if os.path.exists(archive_file):
                                         os.remove(archive_file)
-                                        print_success(f"✓ {os.path.basename(archive_file)}", 9)
+                                        print_success(f"✓ {os.path.basename(archive_file)}", 3)
                             except Exception as e:
-                                print_warning(f"Could not remove some archive parts 无法删除某些档案部分: {e}", 6)
+                                print_warning(f"Could not remove some archive parts 无法删除某些档案部分: {e}", 2)
 
                             # Remove the temporary extraction folder
                             try:
                                 if os.path.exists(extraction_temp_path):
                                     shutil.rmtree(extraction_temp_path)
-                                    print_success("Cleaned up temporary folder 已清理临时文件夹", 6)
+                                    print_success("Cleaned up temporary folder 已清理临时文件夹", 2)
                             except Exception as e:
-                                print_warning(f"Could not remove temp folder 无法删除临时文件夹: {e}", 6)
+                                print_warning(f"Could not remove temp folder 无法删除临时文件夹: {e}", 2)
 
                             # Remove the subfolder for group belongs, if not the current folder
                             try:
@@ -350,35 +427,38 @@ def extract_files(paths: List[str]) -> None:
                                     
                                     if not remaining_items:
                                         shutil.rmtree(archive_dir)
-                                        print_success("Removed empty archive subfolder 已删除空档案子文件夹:", 6)
-                                        print_file_path(os.path.basename(archive_dir), 9)
+                                        print_success("Removed empty archive subfolder 已删除空档案子文件夹:", 2)
+                                        print_file_path(os.path.basename(archive_dir), 3)
                                     else:
-                                        print_info("Archive subfolder kept (contains other files) 档案子文件夹保留（包含其他文件）:", 6)
-                                        print_file_path(os.path.basename(archive_dir), 9)
+                                        print_info("Archive subfolder kept (contains other files) 档案子文件夹保留（包含其他文件）:", 2)
+                                        print_file_path(os.path.basename(archive_dir), 3)
                                 else:
-                                    print_info("Archive subfolder is current directory, not removed 档案子文件夹是当前目录，未删除", 6)
+                                    print_info("Archive subfolder is current directory, not removed 档案子文件夹是当前目录，未删除", 2)
                             except Exception as e:
-                                print_warning(f"Could not remove archive subfolder 无法删除档案子文件夹: {e}", 6)
+                                print_warning(f"Could not remove archive subfolder 无法删除档案子文件夹: {e}", 2)
 
                             
 
                             # Remove the group from processing
                             groups.remove(group)
-                            print_success("Processing completed 处理完成", 6)
+                            multipart_progress.complete_group()
+                            print_success("Processing completed 处理完成", 2)
 
                     else:
-                        print_error("Expected list of files 期望文件列表", 6)
-                        print_error(f"Got {type(final_files_raw)} for {group.name}", 9)
+                        print_error("Expected list of files 期望文件列表", 2)
+                        print_error(f"Got {type(final_files_raw)} for {group.name}", 3)
                         groups.remove(group)
+                        multipart_progress.complete_group()
                 else:
-                    print_error(f"Failed to extract 提取失败: {group.name}", 6)
+                    print_error(f"Failed to extract 提取失败: {group.name}", 2)
                     if os.path.exists(extraction_temp_path):
                         shutil.rmtree(extraction_temp_path)
                     groups.remove(group)
+                    multipart_progress.complete_group()
 
             except Exception as e:
-                print_error(f"Error processing 处理错误: {group.name}", 6)
-                print_error(f"Error details 错误详情: {e}", 9)
+                print_error(f"Error processing 处理错误: {group.name}", 2)
+                print_error(f"Error details 错误详情: {e}", 3)
                 # Clean up temp folder if it exists
                 try:
                     if os.path.exists(extraction_temp_path):
@@ -387,10 +467,15 @@ def extract_files(paths: List[str]) -> None:
                     pass
                 finally:
                     groups.remove(group)
+                    multipart_progress.complete_group()
                 continue
             
             print_separator()
             print_empty_line()
+        
+        multipart_progress.stop()
+    else:
+        print_info("No multipart archives found 未找到多部分档案")
 
     
     # add user provided password to password book

@@ -2,15 +2,20 @@
 
 from rich.console import Console
 from rich.panel import Panel
-from rich.progress import Progress, SpinnerColumn, TextColumn
+from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeElapsedColumn, MofNCompleteColumn
 from rich.table import Table
 from rich.text import Text
+from rich.tree import Tree
+from rich.columns import Columns
+from rich.align import Align
 from rich import box
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 import time
+import os
+from pathlib import Path
 
-# Initialize console
-console = Console()
+# Initialize console with better width handling
+console = Console(width=120, force_terminal=True)
 
 def print_header(title: str):
     """Print a beautiful header with title."""
@@ -36,29 +41,29 @@ def print_step(step_num: int, title: str):
         padding=(0, 1)
     ))
 
-def print_success(message: str, indent: int = 3):
+def print_success(message: str, indent: int = 0):
     """Print a success message with checkmark."""
-    indent_str = " " * indent
+    indent_str = "   " * indent  # Use 3 spaces per indent level for consistency
     console.print(f"{indent_str}[bold green]✅[/bold green] [green]{message}[/green]")
 
-def print_info(message: str, indent: int = 3):
+def print_info(message: str, indent: int = 0):
     """Print an info message."""
-    indent_str = " " * indent
+    indent_str = "   " * indent  # Use 3 spaces per indent level for consistency
     console.print(f"{indent_str}[bold blue]📍[/bold blue] [bright_blue]{message}[/bright_blue]")
 
-def print_warning(message: str, indent: int = 3):
+def print_warning(message: str, indent: int = 0):
     """Print a warning message."""
-    indent_str = " " * indent
+    indent_str = "   " * indent  # Use 3 spaces per indent level for consistency
     console.print(f"{indent_str}[bold yellow]⚠️[/bold yellow] [yellow]{message}[/yellow]")
 
-def print_error(message: str, indent: int = 3):
+def print_error(message: str, indent: int = 0):
     """Print an error message."""
-    indent_str = " " * indent
+    indent_str = "   " * indent  # Use 3 spaces per indent level for consistency
     console.print(f"{indent_str}[bold red]❌[/bold red] [red]{message}[/red]")
 
-def print_file_path(path: str, indent: int = 6):
+def print_file_path(path: str, indent: int = 0):
     """Print a file path with proper styling."""
-    indent_str = " " * indent
+    indent_str = "   " * indent  # Use 3 spaces per indent level for consistency
     console.print(f"{indent_str}[dim cyan]📂 {path}[/dim cyan]")
 
 def print_section_divider():
@@ -66,65 +71,107 @@ def print_section_divider():
     console.print("─" * 70, style="dim bright_black")
 
 def print_archive_group_summary(groups: List[Any]):
-    """Print archive groups summary in a nice table format with Chinese text."""
+    """Print archive groups summary using rich tree structure and tables."""
     if not groups:
         return
     
     console.print()
     console.print(Panel(
-        "[bold bright_cyan]📦 Archive Groups Summary 档案组摘要[/bold bright_cyan]",
+        "[bold bright_cyan]📦 Archive Groups Summary / 档案组摘要[/bold bright_cyan]",
         box=box.ROUNDED,
         style="cyan",
-        width=76
+        title="[bold white]Analysis Results[/bold white]",
+        title_align="center",
+        width=100,
+        padding=(1, 2)
     ))
     
-    for i, group in enumerate(groups, 1):
-        # Create a table for each group
-        table = Table(show_header=False, box=None, padding=(0, 1))
-        table.add_column("", style="bold blue", width=8)
-        table.add_column("", style="white")
-        
-        # Group header
-        table.add_row(
-            f"[bold bright_blue]🗂️ 组{i}[/bold bright_blue]:", 
-            f"[bold white]{group.name}[/bold white]"
-        )
-        
-        # Files count
-        table.add_row(
-            "[cyan]📄 文件:[/cyan]", 
-            f"[yellow]{len(group.files)} files[/yellow]"
-        )
-        
-        # Show files (limit to 3)
-        files_to_show = group.files[:3] if hasattr(group, 'files') else []
-        for j, file_path in enumerate(files_to_show, 1):
-            file_name = file_path.name if hasattr(file_path, 'name') else str(file_path).split('/')[-1].split('\\')[-1]
-            table.add_row(
-                f"   {j}.", 
-                f"[dim white]{file_name}[/dim white]"
-            )
-        
-        if len(group.files) > 3:
-            remaining = len(group.files) - 3
-            table.add_row(
-                "   ...", 
-                f"[dim yellow]还有 {remaining} 个文件 (and {remaining} more files)[/dim yellow]"
-            )
-        
-        # Main archive
-        if hasattr(group, 'mainArchiveFile') and group.mainArchiveFile:
-            main_file = group.mainArchiveFile.split('/')[-1].split('\\')[-1]
-            table.add_row(
-                "[green]🎯 主档案:[/green]", 
-                f"[bold green]{main_file}[/bold green]"
-            )
-        
-        console.print(table)
-        
-        if i < len(groups):
-            console.print("[dim]" + "─" * 70 + "[/dim]")
+    # Create main statistics table
+    stats_table = Table(show_header=True, box=box.MINIMAL_DOUBLE_HEAD)
+    stats_table.add_column("📊 Metric / 指标", style="bold cyan", width=25)
+    stats_table.add_column("📈 Value / 值", style="bold white", justify="center", width=15)
+    stats_table.add_column("📝 Details / 详情", style="dim", width=45)
     
+    total_files = sum(len(group.files) for group in groups)
+    multipart_count = sum(1 for group in groups if group.isMultiPart)
+    single_count = len(groups) - multipart_count
+    
+    stats_table.add_row(
+        "Total Groups / 总组数", 
+        f"[bold yellow]{len(groups)}[/bold yellow]",
+        f"[dim]Archive collections found / 发现的档案集合[/dim]"
+    )
+    stats_table.add_row(
+        "Total Files / 总文件数", 
+        f"[bold green]{total_files}[/bold green]",
+        f"[dim]Individual archive files / 单个档案文件[/dim]"
+    )
+    stats_table.add_row(
+        "Single Archives / 单一档案", 
+        f"[bold blue]{single_count}[/bold blue]",
+        f"[dim]Standalone archive files / 独立档案文件[/dim]"
+    )
+    stats_table.add_row(
+        "Multipart Archives / 多部分档案", 
+        f"[bold magenta]{multipart_count}[/bold magenta]",
+        f"[dim]Split archive collections / 分割档案集合[/dim]"
+    )
+    
+    console.print(Align.center(stats_table))
+    console.print()
+    
+    # Create groups tree
+    tree = Tree(
+        "[bold bright_blue]📂 Archive Groups Structure / 档案组结构[/bold bright_blue]",
+        style="bold bright_blue"
+    )
+    
+    for i, group in enumerate(groups, 1):
+        # Determine group type and icon
+        group_type = "📚 Multipart" if group.isMultiPart else "📄 Single"
+        group_type_cn = "多部分" if group.isMultiPart else "单一"
+        
+        # Create group branch
+        group_name = f"[bold white]{group.name}[/bold white]"
+        group_info = f"[dim cyan]({len(group.files)} files / {len(group.files)} 个文件)[/dim cyan]"
+        group_branch = tree.add(f"{group_type} {group_name} {group_info}")
+        
+        # Add main archive info
+        if hasattr(group, 'mainArchiveFile') and group.mainArchiveFile:
+            main_file = os.path.basename(group.mainArchiveFile)
+            size_info = ""
+            try:
+                if os.path.exists(group.mainArchiveFile):
+                    size_mb = os.path.getsize(group.mainArchiveFile) / (1024 * 1024)
+                    size_info = f" [dim]({size_mb:.1f} MB)[/dim]"
+            except:
+                pass
+            
+            main_branch = group_branch.add(f"[green]🎯 Main Archive / 主档案:[/green] [bold]{main_file}[/bold]{size_info}")
+        
+        # Add files list (show first 5, then summarize)
+        if hasattr(group, 'files') and group.files:
+            files_branch = group_branch.add(f"[cyan]📄 Files / 文件 ({len(group.files)}):[/cyan]")
+            
+            # Show first 5 files
+            for j, file_path in enumerate(group.files[:5], 1):
+                file_name = os.path.basename(str(file_path))
+                size_info = ""
+                try:
+                    if os.path.exists(str(file_path)):
+                        size_mb = os.path.getsize(str(file_path)) / (1024 * 1024)
+                        size_info = f" [dim]({size_mb:.1f} MB)[/dim]"
+                except:
+                    pass
+                
+                files_branch.add(f"[dim white]{j}. {file_name}[/dim white]{size_info}")
+            
+            # Show summary for remaining files
+            if len(group.files) > 5:
+                remaining = len(group.files) - 5
+                files_branch.add(f"[dim yellow]... and {remaining} more files / 还有 {remaining} 个文件[/dim yellow]")
+    
+    console.print(tree)
     console.print()
 
 def print_extraction_header(archive_name: str):
@@ -147,17 +194,20 @@ def print_nested_extraction_header(input_path: str, output_path: str, num_passwo
         padding=(1, 2)
     ))
     
-    # Create an info table
-    info_table = Table(show_header=False, box=None, padding=(0, 1))
-    info_table.add_column("", style="bold bright_blue", width=20)
-    info_table.add_column("", style="white")
+    # Create an info table with proper indentation
+    info_table = Table(show_header=False, box=None, padding=(0, 1), width=76)
+    info_table.add_column("", style="bold bright_blue", width=25)
+    info_table.add_column("", style="white", width=50)
     
     info_table.add_row("📁 输入 Input:", f"[cyan]{input_path}[/cyan]")
     info_table.add_row("📂 输出 Output:", f"[cyan]{output_path}[/cyan]")
     info_table.add_row("🔑 密码数量 Passwords:", f"[yellow]{num_passwords}[/yellow]")
     info_table.add_row("📊 最大深度 Max depth:", f"[magenta]{max_depth}[/magenta]")
     
+    # Add proper indentation
+    console.print(" ")
     console.print(info_table)
+    console.print(" ")
 
 def print_extraction_process_header():
     """Print extraction process section header with Chinese text."""
@@ -180,21 +230,21 @@ def print_extracting_archive(filename: str, depth: int):
         padding=(0, 1)
     ))
 
-def print_password_attempt(password: str, indent: int = 2):
+def print_password_attempt(password: str, indent: int = 0):
     """Print password attempt message with Chinese text."""
-    indent_str = " " * indent
+    indent_str = "   " * indent  # Use 3 spaces per indent level for consistency
     display_pwd = "[dim](空密码 empty)[/dim]" if not password else f"[bright_cyan]{password}[/bright_cyan]"
     console.print(f"{indent_str}[bright_blue]🔓[/bright_blue] [blue]尝试密码 Trying password:[/blue] {display_pwd}")
 
-def print_password_failed(password: str, indent: int = 2):
+def print_password_failed(password: str, indent: int = 0):
     """Print password failed message with Chinese text."""
-    indent_str = " " * indent
+    indent_str = "   " * indent  # Use 3 spaces per indent level for consistency
     display_pwd = "[dim](空密码 empty)[/dim]" if not password else f"[red]{password}[/red]"
     console.print(f"{indent_str}[bold red]❌[/bold red] [red]密码错误 Wrong password:[/red] {display_pwd}")
 
-def print_password_success(password: str, indent: int = 2):
+def print_password_success(password: str, indent: int = 0):
     """Print password success message with Chinese text."""
-    indent_str = " " * indent
+    indent_str = "   " * indent  # Use 3 spaces per indent level for consistency
     display_pwd = "[dim](空密码 empty)[/dim]" if not password else f"[bright_green]{password}[/bright_green]"
     console.print(f"{indent_str}[bold green]✅[/bold green] [green]密码成功 Extraction successful with password:[/green] {display_pwd}")
 
@@ -242,29 +292,42 @@ def print_extraction_summary(status: str, archives_extracted: int, final_files: 
     ))
 
 def print_final_completion(output_location: str):
-    """Print final completion message with Chinese text and celebration."""
-    # Create a celebration table
-    completion_table = Table(show_header=False, box=None, padding=(0, 2))
-    completion_table.add_column("", style="bold", width=25)
-    completion_table.add_column("", style="")
+    """Print enhanced final completion message with statistics."""
+    console.print()
     
-    completion_table.add_row(
-        "[bold bright_green]🎉 状态 Status:[/bold bright_green]", 
-        "[bold bright_green]提取完成! Extraction completed![/bold bright_green]"
-    )
-    completion_table.add_row(
-        "[bright_blue]📂 输出位置 Output:[/bright_blue]", 
-        f"[bright_cyan]{output_location}[/bright_cyan]"
-    )
+    # Create completion statistics
+    stats_text = f"""
+[bold bright_green]🎉 Extraction Process Completed! / 提取过程完成！[/bold bright_green]
+
+[bold bright_blue]📊 Summary / 摘要:[/bold bright_blue]
+• All archives have been processed / 所有档案都已处理
+• Files extracted to output directory / 文件已提取到输出目录
+• Temporary files cleaned up / 临时文件已清理
+• Original archives removed / 原始档案已删除
+
+[bold bright_cyan]📂 Output Location / 输出位置:[/bold bright_cyan]
+[bright_cyan]{output_location}[/bright_cyan]
+
+[bold bright_yellow]💡 Next Steps / 下一步:[/bold bright_yellow]
+• Check the output folder for extracted files / 检查输出文件夹中的提取文件
+• Verify all expected files are present / 验证所有预期文件都存在
+• Remove any unwanted files if necessary / 如有必要，删除不需要的文件
+    """
     
     console.print(Panel(
-        completion_table,
-        title="[bold bright_yellow]🏆 任务完成 Mission Accomplished[/bold bright_yellow]",
+        stats_text.strip(),
+        title="[bold bright_yellow]🏆 Mission Accomplished / 任务完成[/bold bright_yellow]",
+        title_align="center",
         box=box.DOUBLE_EDGE,
-        width=80,
+        width=100,
         style="bright_green",
-        padding=(1, 2)
+        padding=(1, 3)
     ))
+    
+    # Add a final celebratory message
+    celebration_text = Text("✨ Thank you for using Complex Unzip Tool v2! / 感谢使用复杂解压工具v2！ ✨", style="bold bright_magenta")
+    console.print(Align.center(celebration_text))
+    console.print()
 
 class RichSpinner:
     """A rich-based spinner for long operations with Chinese text."""
@@ -290,35 +353,178 @@ class RichSpinner:
         if self.progress:
             self.progress.stop()
 
+
+class ExtractionProgress:
+    """Advanced progress tracker for extraction operations."""
+    
+    def __init__(self, title: str = "Extraction Progress / 提取进度"):
+        self.title = title
+        self.progress = None
+        self.overall_task = None
+        self.current_task = None
+        self.total_groups = 0
+        self.completed_groups = 0
+        
+    def start(self, total_groups: int):
+        """Start the progress tracker."""
+        self.total_groups = total_groups
+        self.progress = Progress(
+            SpinnerColumn(style="bright_green"),
+            TextColumn("[bold bright_blue]{task.description}[/bold bright_blue]"),
+            BarColumn(bar_width=None, style="bright_green", complete_style="green"),
+            MofNCompleteColumn(),
+            TimeElapsedColumn(),
+            console=console,
+            expand=True
+        )
+        self.progress.start()
+        self.overall_task = self.progress.add_task(
+            f"[bold]{self.title}[/bold]", 
+            total=total_groups
+        )
+    
+    def start_group(self, group_name: str, file_count: int = 0):
+        """Start processing a new group."""
+        task_desc = f"Processing / 正在处理: [cyan]{group_name}[/cyan]"
+        if file_count > 0:
+            task_desc += f" ([yellow]{file_count} files[/yellow])"
+        
+        if self.current_task is not None:
+            self.progress.remove_task(self.current_task)
+        
+        self.current_task = self.progress.add_task(
+            task_desc,
+            total=None
+        )
+    
+    def complete_group(self):
+        """Mark current group as completed."""
+        if self.current_task is not None:
+            self.progress.remove_task(self.current_task)
+            self.current_task = None
+        
+        self.completed_groups += 1
+        if self.overall_task is not None:
+            self.progress.update(self.overall_task, completed=self.completed_groups)
+    
+    def stop(self):
+        """Stop the progress tracker."""
+        if self.progress:
+            self.progress.stop()
+
+
+class FileOperationProgress:
+    """Progress tracker for file operations like moving, copying."""
+    
+    def __init__(self, operation: str = "File Operation"):
+        self.operation = operation
+        self.progress = None
+        self.task = None
+        
+    def start(self, total_files: int):
+        """Start file operation progress."""
+        self.progress = Progress(
+            TextColumn("[bold blue]{task.description}[/bold blue]"),
+            BarColumn(bar_width=None, style="bright_blue", complete_style="blue"),
+            MofNCompleteColumn(),
+            TextColumn("files"),
+            TimeElapsedColumn(),
+            console=console,
+            expand=True
+        )
+        self.progress.start()
+        self.task = self.progress.add_task(
+            f"[bold]{self.operation} / 文件操作[/bold]",
+            total=total_files
+        )
+    
+    def update(self, advance: int = 1, description: Optional[str] = None):
+        """Update progress."""
+        if self.task is not None:
+            self.progress.update(self.task, advance=advance)
+            if description:
+                self.progress.update(self.task, description=description)
+    
+    def stop(self):
+        """Stop the progress tracker."""
+        if self.progress:
+            self.progress.stop()
+
+
+def create_extraction_progress(title: str = "Extraction Progress / 提取进度") -> ExtractionProgress:
+    """Create a new extraction progress tracker."""
+    return ExtractionProgress(title)
+
+
+def create_file_operation_progress(operation: str = "Processing Files") -> FileOperationProgress:
+    """Create a new file operation progress tracker."""
+    return FileOperationProgress(operation)
+
 def create_spinner(message: str) -> RichSpinner:
     """Create a new colorful spinner with the given message."""
     return RichSpinner(message)
 
 def print_remaining_groups_warning(groups: List[Any]):
-    """Print warning about remaining unprocessed groups with Chinese text."""
+    """Print warning about remaining unprocessed groups with enhanced table."""
+    console.print()
     console.print(Panel(
-        "[bold bright_yellow]⚠️ 剩余未处理组 Remaining unprocessed groups[/bold bright_yellow]",
+        "[bold bright_yellow]⚠️ Unprocessed Groups / 未处理的组[/bold bright_yellow]",
         box=box.HEAVY,
         style="yellow",
-        width=76,
-        padding=(0, 1)
+        title="[bold red]Issues Found[/bold red]",
+        title_align="center",
+        width=100,
+        padding=(1, 2)
     ))
     
-    # Create a warning table
-    warning_table = Table(show_header=False, box=box.SIMPLE, width=70)
-    warning_table.add_column("#", style="dim", width=5)
-    warning_table.add_column("Group Name", style="red")
-    warning_table.add_column("Status", style="bold red", width=10)
+    # Create a detailed warning table
+    warning_table = Table(show_header=True, box=box.ROUNDED, width=90)
+    warning_table.add_column("#", style="bold red", width=5, justify="center")
+    warning_table.add_column("Group Name / 组名", style="bold white", width=30)
+    warning_table.add_column("Type / 类型", style="cyan", width=15, justify="center")
+    warning_table.add_column("Files / 文件数", style="yellow", width=12, justify="center")
+    warning_table.add_column("Status / 状态", style="bold red", width=15, justify="center")
+    warning_table.add_column("Main Archive / 主档案", style="dim", width=25)
     
     for i, group in enumerate(groups, 1):
         group_name = group.name if hasattr(group, 'name') else str(group)
+        group_type = "Multipart / 多部分" if getattr(group, 'isMultiPart', False) else "Single / 单一"
+        file_count = len(getattr(group, 'files', []))
+        main_archive = ""
+        
+        if hasattr(group, 'mainArchiveFile') and group.mainArchiveFile:
+            main_archive = os.path.basename(group.mainArchiveFile)
+        
         warning_table.add_row(
-            f"{i}.", 
-            f"{group_name}", 
-            "❌ 失败"
+            f"{i}",
+            f"{group_name}",
+            f"{group_type}",
+            f"{file_count}",
+            "❌ Failed / 失败",
+            f"[dim]{main_archive}[/dim]"
         )
     
-    console.print(warning_table)
+    console.print(Align.center(warning_table))
+    
+    # Add suggestions panel
+    suggestions_text = """
+[bold bright_yellow]💡 Suggestions / 建议:[/bold bright_yellow]
+• Check if archives are corrupted / 检查档案是否损坏
+• Verify passwords in passwords.txt / 验证 passwords.txt 中的密码
+• Ensure all parts are present for multipart archives / 确保多部分档案的所有部分都存在
+• Check file permissions / 检查文件权限
+    """
+    
+    console.print(Panel(
+        suggestions_text.strip(),
+        box=box.ROUNDED,
+        style="bright_yellow",
+        title="[bold]Troubleshooting / 故障排除[/bold]",
+        title_align="left",
+        width=100,
+        padding=(1, 2)
+    ))
+    console.print()
 
 def print_all_processed_success():
     """Print success message when all archives are processed with Chinese celebration."""
