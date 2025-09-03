@@ -1,5 +1,5 @@
 import re
-from ..modules.regex import multipartRegex, firstPartRegex
+from ..modules.regex import multipart_regex, first_part_regex
 
 
 class ArchiveGroup:
@@ -9,21 +9,21 @@ class ArchiveGroup:
         self.mainArchiveFile = ""
         self.isMultiPart = False
 
-    def addFile(self, file: str):
+    def add_file(self, file: str):
         self.files.append(file)
         # if it is a multipart archive
-        if re.search(multipartRegex, file):
+        if re.search(multipart_regex, file):
             self.isMultiPart = True
 
         # check if the archive is the first part of the multipart
-        if re.search(firstPartRegex, file) or not self.mainArchiveFile:
-            self.setMainArchive(file)
+        if re.search(first_part_regex, file) or not self.mainArchiveFile:
+            self.set_main_archive(file)
 
-    def setMainArchive(self, archive: str):
+    def set_main_archive(self, archive: str):
         self.mainArchiveFile = archive
 
         # if it is a multipart archive
-        if re.search(multipartRegex, archive):
+        if re.search(multipart_regex, archive):
             self.isMultiPart = True
 
 

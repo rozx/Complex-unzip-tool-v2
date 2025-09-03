@@ -4,7 +4,7 @@ import json
 import os
 import typer
 from typing import List, Dict, Optional, Union
-from .richUtils import (
+from .rich_utils import (
     print_nested_extraction_header, print_extraction_process_header,
     print_extracting_archive, print_password_attempt, print_password_failed,
     print_password_success, print_extraction_summary, print_warning, print_error,
@@ -375,7 +375,7 @@ def extractSpecificFilesWith7z(
     
     return results
 
-def extractNestedArchives(
+def extract_nested_archives(
     archive_path: str,
     output_path: str,
     password: Optional[str] = "",

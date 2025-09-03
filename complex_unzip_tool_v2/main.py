@@ -7,8 +7,8 @@ import typer
 from typing import List, Optional, Annotated
 from pathlib import Path
 
-from .modules import fileUtils, archiveUtils, const, passwordUtil, archiveExtensionUtils
-from .modules.richUtils import (
+from .modules import file_utils, archive_utils, const, password_util, archive_extension_utils
+from .modules.rich_utils import (
     print_header, print_step, print_info, print_success, 
     print_warning, print_error, print_archive_group_summary,
     print_remaining_groups_warning, print_all_processed_success,
@@ -75,11 +75,11 @@ def extract_files(paths: List[str]) -> None:
     
     loader = create_spinner("Loading passwords 正在加载密码...")
     loader.start()
-    passwordBook = passwordUtil.loadAllPasswords(paths)
+    passwordBook = password_util.load_all_passwords(paths)
     user_provided_passwords = []
     loader.stop()
     
-    print_success(f"Loaded {len(passwordBook.getPasswords())} unique passwords 已加载 {len(passwordBook.getPasswords())} 个唯一密码")
+    print_success(f"Loaded {len(passwordBook.get_passwords())} unique passwords 已加载 {len(passwordBook.get_passwords())} 个唯一密码")
 
     # Step 3: Scanning files 扫描文件
     print_step(3, "📂 Scanning files 扫描文件")
@@ -90,7 +90,7 @@ def extract_files(paths: List[str]) -> None:
     
     loader = create_spinner("Scanning directory 正在扫描目录...")
     loader.start()
-    contents = fileUtils.readDir(paths)
+    contents = file_utils.read_dir(paths)
     loader.stop()
     
     print_success(f"Found {len(contents)} files 发现 {len(contents)} 个文件")
@@ -100,7 +100,7 @@ def extract_files(paths: List[str]) -> None:
     
     loader = create_spinner("Analyzing archive groups 正在分析档案组...")
     loader.start()
-    groups = fileUtils.createGroupsByName(contents)
+    groups = file_utils.create_groups_by_name(contents)
     loader.stop()
     
     print_success(f"Created {len(groups)} archive groups 已创建 {len(groups)} 个档案组")
@@ -111,7 +111,7 @@ def extract_files(paths: List[str]) -> None:
 
     # Rename archive files to have the correct extensions
     print_info("🎭 Uncloaking file extensions 正在揭示文件扩展名...")
-    fileUtils.uncloakFileExtensionForGroups(groups)
+    file_utils.uncloak_file_extension_for_groups(groups)
     print_empty_line()
 
     # Display groups with fancy formatting - use rich function instead
@@ -127,19 +127,19 @@ def extract_files(paths: List[str]) -> None:
             print_extraction_header(f"🗂️ Extracting single archive: {group.name}")
 
             dir = os.path.dirname(group.mainArchiveFile)
-            extractionTempPath = os.path.join(dir, f'temp.{group.name}')
+            extraction_temp_path = os.path.join(dir, f'temp.{group.name}')
             print_info("📂 Extraction temp path 提取临时路径:", 6)
-            print_file_path(extractionTempPath, 9)
+            print_file_path(extraction_temp_path, 9)
 
             try:
                 # Start loading indicator for extraction
                 loader = create_spinner(f"Extracting {group.name} 正在提取 {group.name}...")
                 loader.start()
                 
-                result = archiveUtils.extractNestedArchives(
+                result = archive_utils.extract_nested_archives(
                     archive_path=group.mainArchiveFile,
-                    output_path=extractionTempPath,
-                    password_list=passwordBook.getPasswords(),
+                    output_path=extraction_temp_path,
+                    password_list=passwordBook.get_passwords(),
                     max_depth=10,
                     cleanup_archives=True,
                     loading_indicator=loader
@@ -167,7 +167,7 @@ def extract_files(paths: List[str]) -> None:
                         files_to_remove = []
                         for file_path in final_files:
                             if os.path.exists(file_path):
-                                if fileUtils.addFileToGroups(file_path, groups):
+                                if file_utils.add_file_to_groups(file_path, groups):
                                     print_success(f"📦 {os.path.basename(file_path)} → moved to group location 移动到组位置", 9)
                                     files_to_remove.append(file_path)
                             else:
@@ -182,9 +182,9 @@ def extract_files(paths: List[str]) -> None:
                         if final_files:
                             print_info(f"Moving {len(final_files)} remaining files to output folder", 6)
                             print_info(f"正在将 {len(final_files)} 个剩余文件移动到输出文件夹...", 9)
-                            moved_files = fileUtils.moveFilesPreservingStructure(
+                            moved_files = file_utils.move_files_preserving_structure(
                                 final_files, 
-                                extractionTempPath, 
+                                extraction_temp_path, 
                                 output_folder
                             )
                             print_success(f"Moved {len(moved_files)} files successfully 成功移动 {len(moved_files)} 个文件", 6)
@@ -201,8 +201,8 @@ def extract_files(paths: List[str]) -> None:
 
                         # Remove the temporary extraction folder
                         try:
-                            if os.path.exists(extractionTempPath):
-                                shutil.rmtree(extractionTempPath)
+                            if os.path.exists(extraction_temp_path):
+                                shutil.rmtree(extraction_temp_path)
                                 print_success("Cleaned up temporary folder 已清理临时文件夹", 6)
                         except Exception as e:
                             print_warning(f"Could not remove temp folder 无法删除临时文件夹: {e}", 6)
@@ -243,8 +243,8 @@ def extract_files(paths: List[str]) -> None:
                 
                 else:
                     print_error(f"Failed to extract 提取失败: {group.name}", 6)
-                    if os.path.exists(extractionTempPath):
-                        shutil.rmtree(extractionTempPath)
+                    if os.path.exists(extraction_temp_path):
+                        shutil.rmtree(extraction_temp_path)
                     groups.remove(group)
                     
             except Exception as e:
@@ -252,8 +252,8 @@ def extract_files(paths: List[str]) -> None:
                 print_error(f"Error details 错误详情: {e}", 9)
                 # Clean up temp folder if it exists
                 try:
-                    if os.path.exists(extractionTempPath):
-                        shutil.rmtree(extractionTempPath)
+                    if os.path.exists(extraction_temp_path):
+                        shutil.rmtree(extraction_temp_path)
                 except:
                     pass
                 finally:
@@ -274,17 +274,17 @@ def extract_files(paths: List[str]) -> None:
             print_extraction_header(f"📚 Handling multipart archive: {group.name}")
 
             dir = os.path.dirname(group.mainArchiveFile)
-            extractionTempPath = os.path.join(dir, f'temp.{group.name}')
+            extraction_temp_path = os.path.join(dir, f'temp.{group.name}')
 
             try:
                 # Start loading indicator for extraction
                 loader = create_spinner(f"Extracting multipart {group.name} 正在提取多部分 {group.name}...")
                 loader.start()
                 
-                result = archiveUtils.extractNestedArchives(
+                result = archive_utils.extract_nested_archives(
                     archive_path=group.mainArchiveFile,
-                    output_path=extractionTempPath,
-                    password_list=passwordBook.getPasswords(),
+                    output_path=extraction_temp_path,
+                    password_list=passwordBook.get_passwords(),
                     max_depth=10,
                     cleanup_archives=True,
                     loading_indicator=loader
@@ -310,9 +310,9 @@ def extract_files(paths: List[str]) -> None:
                         if final_files:
                             print_info(f"Moving {len(final_files)} files to output folder", 6)
                             print_info(f"正在将 {len(final_files)} 个文件移动到输出文件夹...", 9)
-                            moved_files = fileUtils.moveFilesPreservingStructure(
+                            moved_files = file_utils.move_files_preserving_structure(
                                 final_files, 
-                                extractionTempPath, 
+                                extraction_temp_path, 
                                 output_folder
                             )
                             print_success(f"Moved {len(moved_files)} files successfully 成功移动 {len(moved_files)} 个文件", 6)
@@ -329,8 +329,8 @@ def extract_files(paths: List[str]) -> None:
 
                             # Remove the temporary extraction folder
                             try:
-                                if os.path.exists(extractionTempPath):
-                                    shutil.rmtree(extractionTempPath)
+                                if os.path.exists(extraction_temp_path):
+                                    shutil.rmtree(extraction_temp_path)
                                     print_success("Cleaned up temporary folder 已清理临时文件夹", 6)
                             except Exception as e:
                                 print_warning(f"Could not remove temp folder 无法删除临时文件夹: {e}", 6)
@@ -371,8 +371,8 @@ def extract_files(paths: List[str]) -> None:
                         groups.remove(group)
                 else:
                     print_error(f"Failed to extract 提取失败: {group.name}", 6)
-                    if os.path.exists(extractionTempPath):
-                        shutil.rmtree(extractionTempPath)
+                    if os.path.exists(extraction_temp_path):
+                        shutil.rmtree(extraction_temp_path)
                     groups.remove(group)
 
             except Exception as e:
@@ -380,8 +380,8 @@ def extract_files(paths: List[str]) -> None:
                 print_error(f"Error details 错误详情: {e}", 9)
                 # Clean up temp folder if it exists
                 try:
-                    if os.path.exists(extractionTempPath):
-                        shutil.rmtree(extractionTempPath)
+                    if os.path.exists(extraction_temp_path):
+                        shutil.rmtree(extraction_temp_path)
                 except:
                     pass
                 finally:

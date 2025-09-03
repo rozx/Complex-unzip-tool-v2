@@ -1,7 +1,7 @@
 import re
 import os
 
-def detectArchiveExtension(filepath: str) -> str | None:
+def detect_archive_extension(filepath: str) -> str | None:
     """
     Detect and uncloak the true archive extension including multipart suffixes.
     Handles cloaked filenames and returns clean extension like '7z.001', 'rar.002', 'zip', etc.
@@ -14,7 +14,7 @@ def detectArchiveExtension(filepath: str) -> str | None:
         'normal.7z' -> '7z'
     """
     # First try to detect with the original filename
-    info = detectArchiveInfo(filepath)
+    info = detect_archive_info(filepath)
     if info:
         archive_type = info['type']
         if info['is_multipart']:
@@ -28,7 +28,7 @@ def detectArchiveExtension(filepath: str) -> str | None:
     uncloaked_path = _uncloakFilename(filepath)
     if uncloaked_path != filepath:
         # Try detection again with uncloaked filename
-        info = detectArchiveInfo(uncloaked_path)
+        info = detect_archive_info(uncloaked_path)
         if info:
             archive_type = info['type']
             if info['is_multipart']:
@@ -184,7 +184,7 @@ def _flexibleArchiveMatch(filename: str, archive_ext: str, part_patterns: list[s
     return filename
 
 
-def detectArchiveInfo(filepath: str) -> dict | None:
+def detect_archive_info(filepath: str) -> dict | None:
     """
     Detect archive type and multipart information from filepath.
     Returns dict with 'type', 'is_multipart', 'part_number' or None if not an archive.

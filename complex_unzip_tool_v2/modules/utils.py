@@ -1,6 +1,6 @@
 from difflib import SequenceMatcher
 
-def getStringSimilarity(str1, str2):
+def get_string_similarity(str1, str2):
     """
     Calculate similarity between two strings using SequenceMatcher.
     

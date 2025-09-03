@@ -6,13 +6,14 @@ import typer
 
 from click import group
 
-from .richUtils import print_error, print_success
+from .rich_utils import print_error, print_success
+from .const import MULTI_PART_PATTERNS, IGNORED_FILES
 from ..classes.ArchiveGroup import ArchiveGroup
-from .utils import getStringSimilarity
-from .archiveExtensionUtils import detectArchiveExtension
+from .utils import get_string_similarity
+from .archive_extension_utils import detect_archive_extension
 
 
-def getArchiveBaseName(file_path: str) -> tuple[str, str]:
+def get_archive_base_name(file_path: str) -> tuple[str, str]:
     """
     Get the base name and archive extension from a file path,
     handling multi-part archives like .7z.001, .rar.part1, etc.
@@ -21,18 +22,8 @@ def getArchiveBaseName(file_path: str) -> tuple[str, str]:
     """
     base_name = os.path.basename(file_path)
     
-    # Common multi-part archive patterns
-    multi_part_patterns = [
-        r'\.7z\.\d+$',           # .7z.001, .7z.002, etc.
-        r'\.rar\.part\d+$',      # .rar.part1, .rar.part2, etc.
-        r'\.zip\.\d+$',          # .zip.001, .zip.002, etc.
-        r'\.tar\.gz\.\d+$',      # .tar.gz.001, etc.
-        r'\.tar\.bz2\.\d+$',     # .tar.bz2.001, etc.
-        r'\.tar\.xz\.\d+$',      # .tar.xz.001, etc.
-        r'\.\w+\.part\d+$',      # generic .ext.part1 format
-    ]
-    
-    for pattern in multi_part_patterns:
+    # Use the multi-part archive patterns from constants
+    for pattern in MULTI_PART_PATTERNS:
         match = re.search(pattern, base_name, re.IGNORECASE)
         if match:
             # Remove the part number/suffix to get the base name
@@ -44,29 +35,27 @@ def getArchiveBaseName(file_path: str) -> tuple[str, str]:
     name, ext = os.path.splitext(base_name)
     return name, ext.lstrip('.')
 
-def readDir(file_paths: list[str]) -> list[str]:
+def read_dir(file_paths: list[str]) -> list[str]:
     """Read directory contents 读取目录内容"""
     result = []
 
-    # ignore system files and passwords.txt
-    ignored_files = {".DS_Store", "thumbs.db", "desktop.ini", "passwords.txt"}
-
+    # Use ignored files from constants
     for path in file_paths:
         if os.path.isdir(path):
             # Read files from directory
             for root, dirs, files in os.walk(path):
                 for filename in files:
-                    if filename not in ignored_files:
+                    if filename not in IGNORED_FILES:
                         result.append(os.path.join(root, filename))
         else:
             # Check if the file is ignored
-            if os.path.basename(path) not in ignored_files:
+            if os.path.basename(path) not in IGNORED_FILES:
                 result.append(path)
 
     # make sure the result is unique
     return list(set(result))
 
-def renameFile(old_path: str, new_path: str) -> None:
+def rename_file(old_path: str, new_path: str) -> None:
     """
     Rename a file or directory 重命名文件或目录
     For example, "old_name.txt" to "new_name.txt"
@@ -77,12 +66,12 @@ def renameFile(old_path: str, new_path: str) -> None:
     except Exception as e:
         print_error(f"Error renaming file 重命名文件错误 {old_path} to {new_path}: {e}")
 
-def createGroupsByName(file_paths: list[str]) -> list[ArchiveGroup]:
+def create_groups_by_name(file_paths: list[str]) -> list[ArchiveGroup]:
     """Create Archive Groups by name 按名称创建档案组"""
     groups: list[ArchiveGroup] = []
     for path in file_paths:
         # get base name and directory name using the new function
-        name, ext = getArchiveBaseName(path)
+        name, ext = get_archive_base_name(path)
         dir_name = os.path.dirname(path).split(os.path.sep)[-1]
         group_name = f"{dir_name}-{name}"
 
@@ -90,15 +79,15 @@ def createGroupsByName(file_paths: list[str]) -> list[ArchiveGroup]:
         found_group = False
         for group in groups:
             # if group's name is similar to the file's base name and it is in the same directory
-            if getStringSimilarity(group_name, group.name) >= 0.8:
-                group.addFile(path)
+            if get_string_similarity(group_name, group.name) >= 0.8:
+                group.add_file(path)
                 found_group = True
                 break
                 
 
         if not found_group:
             new_group = ArchiveGroup(group_name)
-            new_group.addFile(path)
+            new_group.add_file(path)
             groups.append(new_group)
 
     # and finally sort it by name
@@ -107,48 +96,48 @@ def createGroupsByName(file_paths: list[str]) -> list[ArchiveGroup]:
 
     return groups
 
-def uncloakFileExtensionForGroups(groups: list[ArchiveGroup]) -> None:
+def uncloak_file_extension_for_groups(groups: list[ArchiveGroup]) -> None:
     """Uncloak file extensions for groups 为组揭示文件扩展名"""
     
     for group in groups:
         for i, file in enumerate(group.files):
-            true_ext = detectArchiveExtension(file)
+            true_ext = detect_archive_extension(file)
             if true_ext:
                 # rename the file to have the true extension
-                name, current_ext = getArchiveBaseName(file)
+                name, current_ext = get_archive_base_name(file)
                 new_name = f"{name}.{true_ext}"
                 new_path = os.path.join(os.path.dirname(file), new_name)
 
                 if new_path != file:
-                    renameFile(file, new_path)
+                    rename_file(file, new_path)
                     group.files[i] = new_path
                     if group.mainArchiveFile == file:
                         group.mainArchiveFile = new_path
 
-def addFileToGroups(file: str, groups: list[ArchiveGroup]) -> ArchiveGroup | None:
+def add_file_to_groups(file: str, groups: list[ArchiveGroup]) -> ArchiveGroup | None:
     """
     Check if a file belongs to a specific multi-part archive group, then add it to the group.
     检查文件是否属于特定的多部分档案组，然后将其添加到组中
     """
 
-    fileBaseName = os.path.basename(file)
+    file_basename = os.path.basename(file)
 
     for group in groups:
         if group.isMultiPart:
 
-            mainArchiveBaseName = os.path.basename(group.mainArchiveFile)
+            main_archive_basename = os.path.basename(group.mainArchiveFile)
 
-            if getStringSimilarity(fileBaseName, mainArchiveBaseName) >= 0.8:
+            if get_string_similarity(file_basename, main_archive_basename) >= 0.8:
                 # move file to group's main archive's location
-                new_path = os.path.join(os.path.dirname(group.mainArchiveFile), fileBaseName)
+                new_path = os.path.join(os.path.dirname(group.mainArchiveFile), file_basename)
                 shutil.move(file, new_path)
-                group.addFile(new_path)
+                group.add_file(new_path)
                 return group
 
     return None
 
 
-def moveFilesPreservingStructure(
+def move_files_preserving_structure(
     file_paths: list[str], 
     source_root: str, 
     destination_root: str,
