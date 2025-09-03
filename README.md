@@ -83,6 +83,51 @@ poetry run main -v
 poetry run main --help
 ```
 
+## 🔨 Building Standalone Executable | 构建独立可执行文件
+
+To create a standalone executable that includes all dependencies and the 7z binaries:
+
+要创建包含所有依赖项和 7z 二进制文件的独立可执行文件：
+
+### Method 1: Using the Build Script | 方法一：使用构建脚本
+
+```bash
+# Run the build script | 运行构建脚本
+poetry run python build.py
+
+# Or on Windows, use the batch file | 或在 Windows 上使用批处理文件
+build.bat
+```
+
+### Method 2: Manual Build | 方法二：手动构建
+
+```bash
+# Install PyInstaller (already included in dev dependencies) | 安装 PyInstaller（已包含在开发依赖中）
+poetry install
+
+# Run the build script to generate spec and build | 运行构建脚本以生成规范并构建
+poetry run python scripts/build.py
+```
+
+The standalone executable will be created in the `dist/` folder as `complex-unzip-tool-v2.exe`. This single file contains everything needed to run the tool, including:
+
+独立可执行文件将在 `dist/` 文件夹中创建为 `complex-unzip-tool-v2.exe`。这个单一文件包含运行工具所需的一切，包括：
+
+- Python runtime | Python 运行时
+- All Python dependencies | 所有 Python 依赖项
+- 7z.exe and 7z.dll | 7z.exe 和 7z.dll
+- Application code | 应用程序代码
+
+Usage of standalone executable | 独立可执行文件的使用：
+
+```bash
+# Extract archives | 提取档案
+complex-unzip-tool-v2.exe "C:\path\to\archives"
+
+# Show version | 显示版本
+complex-unzip-tool-v2.exe --version
+```
+
 ### Password Management | 密码管理
 
 1. Create or edit the `passwords.txt` file in the project root | 在项目根目录创建或编辑 `passwords.txt` 文件

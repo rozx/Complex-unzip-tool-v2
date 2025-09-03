@@ -2,6 +2,7 @@ import re
 import subprocess
 import json
 import os
+import sys
 import typer
 from typing import List, Dict, Optional, Union
 from .rich_utils import (
@@ -41,6 +42,23 @@ class ArchiveParsingError(ArchiveError):
     """Raised when unable to parse 7z output."""
     pass
 
+def _get_default_7z_path() -> str:
+    """
+    Get the default path to 7z.exe executable.
+    Works for both development and PyInstaller standalone builds.
+    """
+    if getattr(sys, 'frozen', False):
+        # Running in a PyInstaller bundle
+        bundle_dir = sys._MEIPASS
+        seven_zip_path = os.path.join(bundle_dir, "7z", "7z.exe")
+    else:
+        # Running in development mode
+        current_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        project_root = os.path.dirname(current_dir)
+        seven_zip_path = os.path.join(project_root, "7z", "7z.exe")
+    
+    return seven_zip_path
+
 def readArchiveContentWith7z(
     archive_path: str, 
     password: Optional[str] = "",
@@ -73,10 +91,7 @@ def readArchiveContentWith7z(
     
     # Set default 7z path if not provided
     if seven_zip_path is None:
-        # Get the project root directory (go up one level from complex_unzip_tool_v2)
-        current_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        project_root = os.path.dirname(current_dir)
-        seven_zip_path = os.path.join(project_root, "7z", "7z.exe")
+        seven_zip_path = _get_default_7z_path()
     
     # Check if archive exists
     if not os.path.exists(archive_path):
@@ -253,10 +268,7 @@ def extractArchiveWith7z(
     
     # Set default 7z path if not provided
     if seven_zip_path is None:
-        # Get the project root directory (go up one level from complex_unzip_tool_v2)
-        current_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        project_root = os.path.dirname(current_dir)
-        seven_zip_path = os.path.join(project_root, "7z", "7z.exe")
+        seven_zip_path = _get_default_7z_path()
     
     # Check if archive exists
     if not os.path.exists(archive_path):

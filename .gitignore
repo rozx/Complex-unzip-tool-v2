@@ -172,3 +172,6 @@ demo/
 *.tar
 *.gz
 *.bz2
+
+# Generated build files
+*generated.spec
