@@ -89,17 +89,24 @@ To create a standalone executable that includes all dependencies and the 7z bina
 
 要创建包含所有依赖项和 7z 二进制文件的独立可执行文件：
 
-### Method 1: Using the Build Script | 方法一：使用构建脚本
+### Method 1: Using Poetry Script (Recommended) | 方法一：使用 Poetry 脚本（推荐）
 
 ```bash
-# Run the build script | 运行构建脚本
-poetry run python build.py
-
-# Or on Windows, use the batch file | 或在 Windows 上使用批处理文件
-build.bat
+# Build using the poetry script | 使用 poetry 脚本构建
+poetry run build
 ```
 
-### Method 2: Manual Build | 方法二：手动构建
+### Method 2: Using the Build Script | 方法二：使用构建脚本
+
+```bash
+# Run the build script directly | 直接运行构建脚本
+poetry run python scripts/build.py
+
+# Or on Windows, use the batch file | 或在 Windows 上使用批处理文件
+scripts\build.bat
+```
+
+### Method 3: Manual Build | 方法三：手动构建
 
 ```bash
 # Install PyInstaller (already included in dev dependencies) | 安装 PyInstaller（已包含在开发依赖中）

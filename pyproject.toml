@@ -21,6 +21,7 @@ pyinstaller = "^6.15.0"
 [tool.poetry.scripts]
 main = "complex_unzip_tool_v2.main:app"
 cuz = "complex_unzip_tool_v2.main:app"
+build = "scripts.build:main"
 
 [build-system]
 requires = ["poetry-core"]
