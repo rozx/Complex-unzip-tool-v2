@@ -23,6 +23,23 @@ from .classes.ArchiveGroup import ArchiveGroup
 
 app = typer.Typer(help="Complex Unzip Tool v2 - Advanced Archive Extraction Utility 复杂解压工具v2 - 高级档案提取实用程序")
 
+def _ask_for_user_input_and_exit() -> None:
+    """Ask for random user input before exiting the application."""
+    print_empty_line()
+    print_info("🎯 Press Enter to continue or type anything and press Enter...")
+    try:
+        user_input = input(">>> ")
+        if user_input.strip():
+            print_success(f"You entered: {user_input}")
+        else:
+            print_success("Thanks for using Complex Unzip Tool v2! 感谢使用复杂解压工具v2!")
+    except (KeyboardInterrupt, EOFError):
+        print_warning("\nInput cancelled 输入已取消")
+    
+    print_empty_line()
+    print_success("🚪 Exiting application... 正在退出应用程序...")
+    sys.exit(0)
+
 @app.callback(invoke_without_command=True)
 def main_callback(
     ctx: typer.Context,
@@ -33,7 +50,7 @@ def main_callback(
     if version:
         from . import __version__
         print_version(__version__)
-        raise typer.Exit()
+        _ask_for_user_input_and_exit()
     
     # If no command is provided, run the default extract command
     if ctx.invoked_subcommand is None:
@@ -43,13 +60,14 @@ def main_callback(
         else:
             # Show help when no paths are provided
             print_general(ctx.get_help())
-            raise typer.Exit(0)
+            _ask_for_user_input_and_exit()
 
 @app.command()
 def version() -> None:
     """Show version information 显示版本信息"""
     from . import __version__
     print_version(__version__)
+    _ask_for_user_input_and_exit()
 
 def extract(paths: Annotated[List[str], typer.Argument(help="Paths to the archives to extract 要提取的档案路径")]) -> None:
     """Extract files from an archive 从档案中提取文件"""
@@ -517,6 +535,9 @@ def extract_files(paths: List[str]) -> None:
     print_major_section_break()
     # Footer with fancy border
     print_final_completion(output_folder)
+    
+    # Ask for random user input before exit
+    _ask_for_user_input_and_exit()
 
 
 def cli() -> None:
@@ -530,10 +551,10 @@ def main() -> None:
         cli()
     except KeyboardInterrupt:
         print_error("\nOperation cancelled by user 操作被用户取消")
-        sys.exit(1)
+        _ask_for_user_input_and_exit()
     except Exception as e:
         print_error(f"Unexpected error 意外错误: {e}")
-        sys.exit(1)
+        _ask_for_user_input_and_exit()
 
 
 if __name__ == "__main__":
