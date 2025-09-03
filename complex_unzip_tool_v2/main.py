@@ -15,7 +15,8 @@ from .modules.rich_utils import (
     print_final_completion, print_separator, create_spinner,
     print_extraction_header, print_empty_line, print_version, 
     print_general, print_file_path, print_error_summary,
-    create_extraction_progress, create_file_operation_progress
+    create_extraction_progress, create_file_operation_progress,
+    print_major_section_break, print_minor_section_break, print_processing_separator
 )
 from .classes.PasswordBook import PasswordBook
 from .classes.ArchiveGroup import ArchiveGroup
@@ -129,6 +130,7 @@ def extract_files(paths: List[str]) -> None:
     scan_console.print()
     scan_console.print(scan_table)
     print_success(f"Scan completed! 扫描完成！")
+    print_minor_section_break()
 
     # Step 4: Create archive groups 创建档案组
     print_step(4, "📋 Creating archive groups 创建档案组")
@@ -139,6 +141,7 @@ def extract_files(paths: List[str]) -> None:
     loader.stop()
     
     print_success(f"Created {len(groups)} archive groups 已创建 {len(groups)} 个档案组")
+    print_minor_section_break()
 
     # Step 5: Processing archive groups 处理档案组
     print_step(5, "⚙️ Processing archive groups 处理档案组")
@@ -147,10 +150,11 @@ def extract_files(paths: List[str]) -> None:
     # Rename archive files to have the correct extensions
     print_info("🎭 Uncloaking file extensions 正在揭示文件扩展名...")
     file_utils.uncloak_file_extension_for_groups(groups)
-    print_empty_line()
+    print_minor_section_break()
 
     # Display groups with fancy formatting - use rich function instead
     print_archive_group_summary(groups)
+    print_minor_section_break()
 
     # Step 6: Processing single archives first 首先处理单一档案
     print_step(6, "🔧 Processing single archives first 首先处理单一档案")
@@ -206,6 +210,7 @@ def extract_files(paths: List[str]) -> None:
                         
                         print_success(f"Successfully extracted 成功提取: {group.name}", 2)
                         print_info("Checking extracted files 正在检查提取的文件...", 2)
+                        print_processing_separator()
 
                         # Process each extracted file
                         files_to_remove = []
@@ -224,6 +229,7 @@ def extract_files(paths: List[str]) -> None:
 
                         # Move remaining files to output folder
                         if final_files:
+                            print_processing_separator()
                             print_info(f"Moving {len(final_files)} remaining files to output folder", 2)
                             print_info(f"正在将 {len(final_files)} 个剩余文件移动到输出文件夹...", 3)
                             
@@ -241,6 +247,7 @@ def extract_files(paths: List[str]) -> None:
                             file_progress.stop()
                             print_success(f"Moved {len(moved_files)} files successfully 成功移动 {len(moved_files)} 个文件", 2)
                         
+                        print_processing_separator()
                         # Remove the original archive file
                         try:
                             if os.path.exists(group.mainArchiveFile):
@@ -288,6 +295,7 @@ def extract_files(paths: List[str]) -> None:
                         groups.remove(group)
                         extraction_progress.complete_group()
                         print_success("Processing completed 处理完成", 2)
+                        print_minor_section_break()
                         
                     else:
                         print_error("Expected list of files 期望文件列表", 2)
@@ -301,6 +309,7 @@ def extract_files(paths: List[str]) -> None:
                         shutil.rmtree(extraction_temp_path)
                     groups.remove(group)
                     extraction_progress.complete_group()
+                    print_minor_section_break()
                     
             except Exception as e:
                 print_error(f"Error processing 处理错误: {group.name}", 2)
@@ -314,6 +323,7 @@ def extract_files(paths: List[str]) -> None:
                 finally:
                     groups.remove(group)
                     extraction_progress.complete_group()
+                    print_minor_section_break()
                 continue
             
             print_separator()
@@ -322,6 +332,7 @@ def extract_files(paths: List[str]) -> None:
         extraction_progress.stop()
     else:
         print_info("No single archives found 未找到单一档案")
+        print_minor_section_break()
 
     # add user provided passwords to password book
     if user_provided_passwords:
@@ -373,6 +384,7 @@ def extract_files(paths: List[str]) -> None:
                     # Type guard to ensure we have a list
                     if isinstance(final_files_raw, list):
                         print_success(f"Successfully extracted 成功提取: {group.name}", 2)
+                        print_processing_separator()
 
                         final_files = final_files_raw.copy()  # Make a copy to safely modify
 
@@ -395,6 +407,7 @@ def extract_files(paths: List[str]) -> None:
                             file_progress.stop()
                             print_success(f"Moved {len(moved_files)} files successfully 成功移动 {len(moved_files)} 个文件", 2)
 
+                            print_processing_separator()
                             # Remove the original archive file
                             print_info(f"Removing {len(group.files)} archive parts 正在删除 {len(group.files)} 个档案部分...", 2)
                             try:
@@ -443,18 +456,21 @@ def extract_files(paths: List[str]) -> None:
                             groups.remove(group)
                             multipart_progress.complete_group()
                             print_success("Processing completed 处理完成", 2)
+                            print_minor_section_break()
 
                     else:
                         print_error("Expected list of files 期望文件列表", 2)
                         print_error(f"Got {type(final_files_raw)} for {group.name}", 3)
                         groups.remove(group)
                         multipart_progress.complete_group()
+                        print_minor_section_break()
                 else:
                     print_error(f"Failed to extract 提取失败: {group.name}", 2)
                     if os.path.exists(extraction_temp_path):
                         shutil.rmtree(extraction_temp_path)
                     groups.remove(group)
                     multipart_progress.complete_group()
+                    print_minor_section_break()
 
             except Exception as e:
                 print_error(f"Error processing 处理错误: {group.name}", 2)
@@ -468,6 +484,7 @@ def extract_files(paths: List[str]) -> None:
                 finally:
                     groups.remove(group)
                     multipart_progress.complete_group()
+                    print_minor_section_break()
                 continue
             
             print_separator()
@@ -476,6 +493,7 @@ def extract_files(paths: List[str]) -> None:
         multipart_progress.stop()
     else:
         print_info("No multipart archives found 未找到多部分档案")
+        print_minor_section_break()
 
     
     # add user provided password to password book
@@ -491,10 +509,12 @@ def extract_files(paths: List[str]) -> None:
     else:
         print_all_processed_success()
 
+    print_minor_section_break()
     # save user provided passwords
     print_info("💾 Saving passwords 正在保存密码...")
     passwordBook.save_passwords()
     
+    print_major_section_break()
     # Footer with fancy border
     print_final_completion(output_folder)
 

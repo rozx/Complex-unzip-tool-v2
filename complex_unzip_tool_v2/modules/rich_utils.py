@@ -28,10 +28,13 @@ def print_header(title: str):
     ))
 
 def print_step(step_num: int, title: str):
-    """Print a step header."""
+    """Print a step header with enhanced visual separation."""
     # Create gradient-like effect with emojis
     step_icons = ["🚀", "🔑", "📂", "📋", "⚙️", "🔧", "🔗", "📊", "🎯"]
     icon = step_icons[step_num - 1] if step_num <= len(step_icons) else "📌"
+    
+    # Add visual separation before each step
+    print_major_section_break()
     
     console.print(Panel(
         f"{icon} [bold]Step {step_num}[/bold]: {title}",
@@ -69,6 +72,22 @@ def print_file_path(path: str, indent: int = 0):
 def print_section_divider():
     """Print a section divider."""
     console.print("─" * 70, style="dim bright_black")
+
+def print_major_section_break():
+    """Print a major section break with enhanced visual separation."""
+    console.print()
+    console.print("═" * 80, style="bold bright_blue")
+    console.print()
+
+def print_minor_section_break():
+    """Print a minor section break for subsections."""
+    console.print()
+    console.print("─" * 60, style="dim cyan")
+    console.print()
+
+def print_processing_separator():
+    """Print a separator for individual processing items."""
+    console.print("┈" * 50, style="dim white")
 
 def print_archive_group_summary(groups: List[Any]):
     """Print archive groups summary using rich tree structure and tables."""
@@ -175,7 +194,8 @@ def print_archive_group_summary(groups: List[Any]):
     console.print()
 
 def print_extraction_header(archive_name: str):
-    """Print extraction header for an archive with Chinese text."""
+    """Print extraction header for an archive with Chinese text and enhanced separation."""
+    print_minor_section_break()
     console.print(Panel(
         f"[bold bright_yellow]🎯 正在提取 Extracting: [/bold bright_yellow][white]{archive_name}[/white]",
         box=box.HEAVY,
@@ -220,7 +240,8 @@ def print_extraction_process_header():
     ))
 
 def print_extracting_archive(filename: str, depth: int):
-    """Print extracting archive message with Chinese text."""
+    """Print extracting archive message with Chinese text and processing separator."""
+    print_processing_separator()
     depth_color = "green" if depth == 0 else "yellow" if depth < 3 else "red"
     console.print(Panel(
         f"[bold {depth_color}]📦 正在提取 Extracting (深度 depth {depth}): [/bold {depth_color}][white]{filename}[/white]",
