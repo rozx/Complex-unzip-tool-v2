@@ -449,16 +449,9 @@ def extract_nested_archives(
             return content is not None and len(content) > 0
             
         except (ArchivePasswordError):
-            # If password error, try without password for listing
-            try:
-                content = readArchiveContentWith7z(
-                    archive_path=file_path,
-                    password="",
-                    seven_zip_path=seven_zip_path
-                )
-                return content is not None and len(content) > 0
-            except Exception:
-                return False
+            # If password error, it means 7z recognized this as a valid archive format
+            # but couldn't access the content due to encryption - still a valid archive
+            return True
                 
         except (ArchiveError, ArchiveCorruptedError, ArchiveUnsupportedError, ArchiveParsingError):
             # Cannot read as archive
