@@ -27,6 +27,7 @@ No installation required - just download and run! | 无需安装 - 下载即可�
 Complex Unzip Tool v2 is a powerful and intelligent archive extraction utility designed to handle complex archive scenarios. It provides advanced features for extracting password-protected archives, multipart archives, and nested archive structures with intelligent password management and automatic organization. The tool includes smart features like drag & drop support, filename uncloaking, and automatic detection of missing archive parts.
 
 复杂解压工具 v2 是一个功能强大且智能的档案提取实用程序，专为处理复杂的档案场景而设计。它提供了提取受密码保护的档案、多部分档案和嵌套档案结构的高级功能，具有智能密码管理和自动组织功能。该工具包含智能功能，如拖拽支持、文件名解隐和自动检测缺失档案部分。
+>在某些特定场景中，我们常常会遇到经过多层嵌套、设置了不同密码、修改了后缀名等方式进行伪装的压缩包。手动一层层解压、重命名、尝试密码非常繁琐且耗时。
 
 ## ✨ Features | 主要特性
 
