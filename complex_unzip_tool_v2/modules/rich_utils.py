@@ -101,15 +101,15 @@ def print_archive_group_summary(groups: List[Any]):
         style="cyan",
         title="[bold white]Analysis Results[/bold white]",
         title_align="center",
-        width=100,
+        width=78,
         padding=(1, 2)
     ))
     
     # Create main statistics table
     stats_table = Table(show_header=True, box=box.MINIMAL_DOUBLE_HEAD)
-    stats_table.add_column("📊 Metric / 指标", style="bold cyan", width=25)
-    stats_table.add_column("📈 Value / 值", style="bold white", justify="center", width=15)
-    stats_table.add_column("📝 Details / 详情", style="dim", width=45)
+    stats_table.add_column("📊 Metric / 指标", style="bold cyan", width=22)
+    stats_table.add_column("📈 Value / 值", style="bold white", justify="center", width=12)
+    stats_table.add_column("📝 Details / 详情", style="dim", width=36)
     
     total_files = sum(len(group.files) for group in groups)
     multipart_count = sum(1 for group in groups if group.isMultiPart)
@@ -136,7 +136,9 @@ def print_archive_group_summary(groups: List[Any]):
         f"[dim]Split archive collections / 分割档案集合[/dim]"
     )
     
-    console.print(Align.center(stats_table))
+    # Add manual padding to better center the table within the 78-char panel
+    console.print("      ", end="")  # Add 6 spaces for better centering
+    console.print(stats_table)
     console.print()
     
     # Create groups tree
@@ -328,11 +330,6 @@ def print_final_completion(output_location: str):
 
 [bold bright_cyan]📂 Output Location / 输出位置:[/bold bright_cyan]
 [bright_cyan]{output_location}[/bright_cyan]
-
-[bold bright_yellow]💡 Next Steps / 下一步:[/bold bright_yellow]
-• Check the output folder for extracted files / 检查输出文件夹中的提取文件
-• Verify all expected files are present / 验证所有预期文件都存在
-• Remove any unwanted files if necessary / 如有必要，删除不需要的文件
     """
     
     console.print(Panel(
@@ -346,7 +343,7 @@ def print_final_completion(output_location: str):
     ))
     
     # Add a final celebratory message
-    celebration_text = Text("✨ Thank you for using Complex Unzip Tool v2! / 感谢使用复杂解压工具v2！ ✨", style="bold bright_magenta")
+    celebration_text = Text("✨ Thank you for using Complex Unzip Tool v2! / 感谢使用复杂解压工具v2！ by Rozx✨", style="bold bright_magenta")
     console.print(Align.center(celebration_text))
     console.print()
 
