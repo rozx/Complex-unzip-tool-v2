@@ -264,7 +264,8 @@ def extract_files(paths: List[str]) -> None:
             print_empty_line()
 
     # add user provided passwords to password book
-    passwordBook.addPasswords(user_provided_passwords)
+    if user_provided_passwords:
+        passwordBook.add_passwords(user_provided_passwords)
 
     # Step 7: Then handle multipart archives 然后处理多部分档案
     print_step(7, "🔗 Processing multipart archives 处理多部分档案")
@@ -393,7 +394,8 @@ def extract_files(paths: List[str]) -> None:
 
     
     # add user provided password to password book
-    passwordBook.addPasswords(user_provided_passwords)
+    if user_provided_passwords:
+        passwordBook.add_passwords(user_provided_passwords)
 
     # Step 8: Final summary 最终摘要
     print_step(8, "📊 Final summary 最终摘要")
@@ -406,7 +408,7 @@ def extract_files(paths: List[str]) -> None:
 
     # save user provided passwords
     print_info("💾 Saving passwords 正在保存密码...")
-    passwordBook.savePasswords()
+    passwordBook.save_passwords()
     
     # Footer with fancy border
     print_final_completion(output_folder)
