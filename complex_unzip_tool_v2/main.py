@@ -15,34 +15,15 @@ from .modules import fileUtils
 from .modules import archiveExtensionUtils
 from .modules import archiveUtils
 from .modules import const
+from .modules.richUtils import (
+    print_header, print_step, print_success, print_info, 
+    print_file_path, create_spinner, print_archive_group_summary,
+    print_final_completion, print_extraction_header,
+    print_remaining_groups_warning, print_all_processed_success,
+    print_separator
+)
 
-# Loading indicator class
-class LoadingIndicator:
-    def __init__(self, message: str):
-        self.message = message
-        self.is_running = False
-        self.thread = None
-        
-    def start(self):
-        self.is_running = True
-        self.thread = threading.Thread(target=self._animate)
-        self.thread.daemon = True
-        self.thread.start()
-        
-    def stop(self):
-        self.is_running = False
-        if self.thread:
-            self.thread.join()
-        # Clear the line
-        print('\r' + ' ' * (len(self.message) + 10), end='\r')
-        
-    def _animate(self):
-        spinner = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
-        i = 0
-        while self.is_running:
-            print(f'\r{spinner[i % len(spinner)]} {self.message}', end='', flush=True)
-            time.sleep(0.1)
-            i += 1
+# Rich-based loading already imported from rich_utils
 
 app = typer.Typer(help="Complex Unzip Tool v2 - Advanced Archive Extraction Utility 复杂解压工具v2 - 高级档案提取实用程序")
 
@@ -81,75 +62,98 @@ def extract(paths: Annotated[List[str], typer.Argument(help="Paths to the archiv
 def extract_files(paths: List[str]) -> None:
     """Shared extraction logic 共享提取逻辑"""
     
-    typer.echo("🚀 Starting Complex Unzip Tool v2 启动复杂解压工具v2")
-    typer.echo("=" * 60)
+    # Header with fancy border
+    print_header("🚀 Starting Complex Unzip Tool v2 启动复杂解压工具v2")
 
     # Step 1: Setup output folder 设置输出文件夹
-    typer.echo("📁 Step 1: Setting up output folder 步骤1：设置输出文件夹")
+    print_step(1, "📁 Setting up output folder 设置输出文件夹")
+    
     if(os.path.isdir(paths[0])):
         output_folder = os.path.join(paths[0], const.OUTPUT_FOLDER)
     else:
         output_folder = os.path.join(os.path.dirname(paths[0]), const.OUTPUT_FOLDER)
     os.makedirs(output_folder, exist_ok=True)
-    typer.echo(f"   ✅ Output folder created 输出文件夹已创建: {output_folder}")
+    print_success("Output folder created 输出文件夹已创建:")
+    print_file_path(f"📂 {output_folder}")
 
     # Step 2: Load passwords 加载密码
-    typer.echo("\n🔑 Step 2: Loading passwords 步骤2：加载密码")
-    loader = LoadingIndicator("Loading passwords 正在加载密码...")
+    print_step(2, "🔑 Loading passwords 加载密码")
+    
+    loader = create_spinner("Loading passwords 正在加载密码...")
     loader.start()
     passwordBook = passwordUtil.loadAllPasswords(paths)
     user_provided_passwords = []
     loader.stop()
-    typer.echo(f"   ✅ Loaded {len(passwordBook.getPasswords())} unique passwords 已加载 {len(passwordBook.getPasswords())} 个唯一密码")
+    
+    print_success(f"Loaded {len(passwordBook.getPasswords())} unique passwords 已加载 {len(passwordBook.getPasswords())} 个唯一密码")
 
     # Step 3: Scanning files 扫描文件
-    typer.echo(f"\n📂 Step 3: Scanning files 步骤3：扫描文件")
-    typer.echo(f"   📍 Extracting files from 正在提取文件自: {paths}")
+    print_step(3, "📂 Scanning files 扫描文件")
     
-    loader = LoadingIndicator("Scanning directory 正在扫描目录...")
+    print_info("Extracting files from 正在提取文件自:")
+    for i, path in enumerate(paths):
+        print_file_path(f"{i+1}. {path}")
+    
+    loader = create_spinner("Scanning directory 正在扫描目录...")
     loader.start()
     contents = fileUtils.readDir(paths)
     loader.stop()
-    typer.echo(f"   ✅ Found {len(contents)} files 发现 {len(contents)} 个文件")
+    
+    print_success(f"Found {len(contents)} files 发现 {len(contents)} 个文件")
 
     # Step 4: Create archive groups 创建档案组
-    typer.echo(f"\n📋 Step 4: Creating archive groups 步骤4：创建档案组")
-    loader = LoadingIndicator("Analyzing archive groups 正在分析档案组...")
+    print_step(4, "📋 Creating archive groups 创建档案组")
+    
+    loader = create_spinner("Analyzing archive groups 正在分析档案组...")
     loader.start()
     groups = fileUtils.createGroupsByName(contents)
     loader.stop()
-    typer.echo(f"   ✅ Created {len(groups)} archive groups 已创建 {len(groups)} 个档案组")
+    
+    print_success(f"Created {len(groups)} archive groups 已创建 {len(groups)} 个档案组")
 
     # Step 5: Processing archive groups 处理档案组
-    typer.echo(f"\n⚙️  Step 5: Processing archive groups 步骤5：处理档案组")
+    print_step(5, "⚙️ Processing archive groups 处理档案组")
+    # Remove this line since print_step already handles the formatting
 
     # Rename archive files to have the correct extensions
-    typer.echo("   🎭 Uncloaking file extensions 正在揭示文件扩展名...")
+    print_info("🎭 Uncloaking file extensions 正在揭示文件扩展名...")
     fileUtils.uncloakFileExtensionForGroups(groups)
+    typer.echo()
 
-    for group in groups:
-        typer.echo(f"   📦 Group 组: {group.name}")
-        for item in group.files:
-            typer.echo(f"      📄 {item}")
+    # Display groups with fancy formatting
+    typer.echo("   📦 Archive Groups Summary 档案组摘要:")
+    print_separator()
+    
+    for i, group in enumerate(groups):
+        typer.echo(f"   �️  Group {i+1} 组{i+1}: {group.name}")
+        typer.echo(f"      📄 Files 文件 ({len(group.files)}):")
+        for j, item in enumerate(group.files[:3]):  # Show first 3 files
+            typer.echo(f"         {j+1}. {os.path.basename(item)}")
+        if len(group.files) > 3:
+            typer.echo(f"         ... and {len(group.files) - 3} more files 还有 {len(group.files) - 3} 个文件")
 
         if group.mainArchiveFile:
-            typer.echo(f"      🎯 Main archive 主档案: {group.mainArchiveFile}")
+            typer.echo(f"      🎯 Main archive 主档案: {os.path.basename(group.mainArchiveFile)}")
+        print_separator()
+    typer.echo()
 
     # Step 6: Processing single archives first 首先处理单一档案
-    typer.echo(f"\n🔧 Step 6: Processing single archives first 步骤6：首先处理单一档案")
-    typer.echo("   📝 Processing single archive to extract containers 处理单一档案以提取容器...")
+    print_step(6, "🔧 Processing single archives first 首先处理单一档案")
+    
+    print_info("📝 Processing single archive to extract containers 处理单一档案以提取容器...")
 
     for group in groups.copy():
         if not group.isMultiPart:
-            typer.echo(f"\n   🗂️  Extracting single archive 正在提取单一档案: {group.name}")
+            print_extraction_header(f"🗂️ Extracting single archive: {group.name}")
 
             dir = os.path.dirname(group.mainArchiveFile)
             extractionTempPath = os.path.join(dir, f'temp.{group.name}')
-            typer.echo(f"      📂 Extraction temp path 提取临时路径: {extractionTempPath}")
+            typer.echo(f"      📂 Extraction temp path 提取临时路径:")
+            typer.echo(f"         {extractionTempPath}")
 
             try:
                 # Start loading indicator for extraction
-                loader = LoadingIndicator(f"Extracting {group.name} 正在提取 {group.name}...")
+                loader = create_spinner(f"Extracting {group.name} 正在提取 {group.name}...")
                 loader.start()
                 
                 result = archiveUtils.extractNestedArchives(
@@ -157,7 +161,8 @@ def extract_files(paths: List[str]) -> None:
                     output_path=extractionTempPath,
                     password_list=passwordBook.getPasswords(),
                     max_depth=10,
-                    cleanup_archives=True
+                    cleanup_archives=True,
+                    loading_indicator=loader
                 )
                 
                 loader.stop()
@@ -183,10 +188,10 @@ def extract_files(paths: List[str]) -> None:
                         for file_path in final_files:
                             if os.path.exists(file_path):
                                 if fileUtils.addFileToGroups(file_path, groups):
-                                    typer.echo(f"         📦 {os.path.basename(file_path)} is part of multi-part archive, moved to the location of group 是多部分档案的一部分，已移动到组位置")
+                                    typer.echo(f"         📦 {os.path.basename(file_path)} → moved to group location 移动到组位置")
                                     files_to_remove.append(file_path)
                             else:
-                                typer.echo(f"         ⚠️  Warning 警告: File not found 文件未找到: {file_path}")
+                                typer.echo(f"         ⚠️  Warning 警告: File not found 文件未找到: {os.path.basename(file_path)}")
                                 files_to_remove.append(file_path)
                         
                         # Remove processed files from the list
@@ -195,35 +200,65 @@ def extract_files(paths: List[str]) -> None:
 
                         # Move remaining files to output folder
                         if final_files:
-                            typer.echo(f"      📤 Moving {len(final_files)} remaining files to output folder 正在将 {len(final_files)} 个剩余文件移动到输出文件夹...")
+                            typer.echo(f"      📤 Moving {len(final_files)} remaining files to output folder")
+                            typer.echo(f"         正在将 {len(final_files)} 个剩余文件移动到输出文件夹...")
                             moved_files = fileUtils.moveFilesPreservingStructure(
                                 final_files, 
                                 extractionTempPath, 
                                 output_folder
                             )
-                            typer.echo(f"      ✅ Moved {len(moved_files)} remaining files to 已移动 {len(moved_files)} 个剩余文件到: {output_folder}")
+                            typer.echo(f"      ✅ Moved {len(moved_files)} files successfully 成功移动 {len(moved_files)} 个文件")
                         
                         # Remove the original archive file
                         try:
                             if os.path.exists(group.mainArchiveFile):
                                 os.remove(group.mainArchiveFile)
-                                typer.echo(f"      🗑️  Removed original archive 已删除原始档案: {os.path.basename(group.mainArchiveFile)}")
+                                typer.echo(f"      🗑️  Removed original archive 已删除原始档案:")
+                                typer.echo(f"         {os.path.basename(group.mainArchiveFile)}")
                         except Exception as e:
-                            typer.echo(f"      ⚠️  Warning 警告: Could not remove original archive 无法删除原始档案 {group.mainArchiveFile}: {e}")
+                            typer.echo(f"      ⚠️  Warning 警告: Could not remove original archive 无法删除原始档案:")
+                            typer.echo(f"         {group.mainArchiveFile}: {e}")
 
                         # Remove the temporary extraction folder
                         try:
                             if os.path.exists(extractionTempPath):
                                 shutil.rmtree(extractionTempPath)
-                                typer.echo(f"      🧹 Cleaned up temporary folder 已清理临时文件夹: {extractionTempPath}")
+                                typer.echo(f"      🧹 Cleaned up temporary folder 已清理临时文件夹")
                         except Exception as e:
-                            typer.echo(f"      ⚠️  Warning 警告: Could not remove temp folder 无法删除临时文件夹 {extractionTempPath}: {e}")
+                            typer.echo(f"      ⚠️  Warning 警告: Could not remove temp folder 无法删除临时文件夹: {e}")
 
+                        # Remove the subfolder for group belongs, if not the current folder
+                        try:
+                            # Get the directory containing the archive files
+                            archive_dir = os.path.dirname(group.mainArchiveFile)
+                            current_working_dir = os.getcwd()
+                            
+                            # Only remove if it's not the current working directory and it's empty after file removal
+                            if os.path.abspath(archive_dir) != os.path.abspath(current_working_dir):
+                                # Check if directory is empty (or only contains hidden files/folders)
+                                remaining_items = [item for item in os.listdir(archive_dir) 
+                                                 if not item.startswith('.') and item != const.OUTPUT_FOLDER]
+                                
+                                if not remaining_items:
+                                    shutil.rmtree(archive_dir)
+                                    typer.echo(f"      🗑️  Removed empty archive subfolder 已删除空档案子文件夹:")
+                                    typer.echo(f"         {os.path.basename(archive_dir)}")
+                                else:
+                                    typer.echo(f"      📁 Archive subfolder kept (contains other files) 档案子文件夹保留（包含其他文件）:")
+                                    typer.echo(f"         {os.path.basename(archive_dir)}")
+                            else:
+                                typer.echo(f"      📁 Archive subfolder is current directory, not removed 档案子文件夹是当前目录，未删除")
+                        except Exception as e:
+                            typer.echo(f"      ⚠️  Warning 警告: Could not remove archive subfolder 无法删除档案子文件夹: {e}")
+
+                        
                         # Remove the group from processing
                         groups.remove(group)
+                        typer.echo("      ✅ Processing completed 处理完成")
                         
                     else:
-                        typer.echo(f"      ❌ Error 错误: Expected list of files for {group.name}, got {type(final_files_raw)} 期望文件列表，得到 {type(final_files_raw)}")
+                        typer.echo(f"      ❌ Error 错误: Expected list of files 期望文件列表")
+                        typer.echo(f"         Got {type(final_files_raw)} for {group.name}")
                         groups.remove(group)
                 
                 else:
@@ -233,7 +268,8 @@ def extract_files(paths: List[str]) -> None:
                     groups.remove(group)
                     
             except Exception as e:
-                typer.echo(f"      ❌ Error processing 处理错误 {group.name}: {e}")
+                typer.echo(f"      ❌ Error processing 处理错误: {group.name}")
+                typer.echo(f"         Error details 错误详情: {e}")
                 # Clean up temp folder if it exists
                 try:
                     if os.path.exists(extractionTempPath):
@@ -243,23 +279,26 @@ def extract_files(paths: List[str]) -> None:
                 finally:
                     groups.remove(group)
                 continue
+            
+            print_separator()
+            typer.echo()
 
     # add user provided passwords to password book
     passwordBook.addPasswords(user_provided_passwords)
 
     # Step 7: Then handle multipart archives 然后处理多部分档案
-    typer.echo(f"\n🔗 Step 7: Processing multipart archives 步骤7：处理多部分档案")
+    print_step(7, "🔗 Processing multipart archives 处理多部分档案")
     
     for group in groups.copy():
         if group.isMultiPart:
-            typer.echo(f"\n   📚 Handling multipart archive 正在处理多部分档案: {group.name}")
+            print_extraction_header(f"📚 Handling multipart archive: {group.name}")
 
             dir = os.path.dirname(group.mainArchiveFile)
             extractionTempPath = os.path.join(dir, f'temp.{group.name}')
 
             try:
                 # Start loading indicator for extraction
-                loader = LoadingIndicator(f"Extracting multipart {group.name} 正在提取多部分 {group.name}...")
+                loader = create_spinner(f"Extracting multipart {group.name} 正在提取多部分 {group.name}...")
                 loader.start()
                 
                 result = archiveUtils.extractNestedArchives(
@@ -267,7 +306,8 @@ def extract_files(paths: List[str]) -> None:
                     output_path=extractionTempPath,
                     password_list=passwordBook.getPasswords(),
                     max_depth=10,
-                    cleanup_archives=True
+                    cleanup_archives=True,
+                    loading_indicator=loader
                 )
                 
                 loader.stop()
@@ -288,36 +328,66 @@ def extract_files(paths: List[str]) -> None:
 
                         # Move files to output folder
                         if final_files:
-                            typer.echo(f"      📤 Moving {len(final_files)} files to output folder 正在将 {len(final_files)} 个文件移动到输出文件夹...")
+                            typer.echo(f"      📤 Moving {len(final_files)} files to output folder")
+                            typer.echo(f"         正在将 {len(final_files)} 个文件移动到输出文件夹...")
                             moved_files = fileUtils.moveFilesPreservingStructure(
                                 final_files, 
                                 extractionTempPath, 
                                 output_folder
                             )
-                            typer.echo(f"      ✅ Moved {len(moved_files)} files to 已移动 {len(moved_files)} 个文件到: {output_folder}")
+                            typer.echo(f"      ✅ Moved {len(moved_files)} files successfully 成功移动 {len(moved_files)} 个文件")
 
                             # Remove the original archive file
+                            typer.echo(f"      🗑️  Removing {len(group.files)} archive parts 正在删除 {len(group.files)} 个档案部分...")
                             try:
                                 for archive_file in group.files:
                                     if os.path.exists(archive_file):
                                         os.remove(archive_file)
-                                        typer.echo(f"      🗑️  Removed original archive 已删除原始档案: {os.path.basename(archive_file)}")
+                                        typer.echo(f"         ✓ {os.path.basename(archive_file)}")
                             except Exception as e:
-                                typer.echo(f"      ⚠️  Warning 警告: Could not remove original archive 无法删除原始档案 {group.mainArchiveFile}: {e}")
+                                typer.echo(f"      ⚠️  Warning 警告: Could not remove some archive parts 无法删除某些档案部分: {e}")
 
                             # Remove the temporary extraction folder
                             try:
                                 if os.path.exists(extractionTempPath):
                                     shutil.rmtree(extractionTempPath)
-                                    typer.echo(f"      🧹 Cleaned up temporary folder 已清理临时文件夹: {extractionTempPath}")
+                                    typer.echo(f"      🧹 Cleaned up temporary folder 已清理临时文件夹")
                             except Exception as e:
-                                typer.echo(f"      ⚠️  Warning 警告: Could not remove temp folder 无法删除临时文件夹 {extractionTempPath}: {e}")
+                                typer.echo(f"      ⚠️  Warning 警告: Could not remove temp folder 无法删除临时文件夹: {e}")
+
+                            # Remove the subfolder for group belongs, if not the current folder
+                            try:
+                                # Get the directory containing the archive files
+                                archive_dir = os.path.dirname(group.mainArchiveFile)
+                                current_working_dir = os.getcwd()
+                                
+                                # Only remove if it's not the current working directory and it's empty after file removal
+                                if os.path.abspath(archive_dir) != os.path.abspath(current_working_dir):
+                                    # Check if directory is empty (or only contains hidden files/folders)
+                                    remaining_items = [item for item in os.listdir(archive_dir) 
+                                                     if not item.startswith('.') and item != const.OUTPUT_FOLDER]
+                                    
+                                    if not remaining_items:
+                                        shutil.rmtree(archive_dir)
+                                        typer.echo(f"      🗑️  Removed empty archive subfolder 已删除空档案子文件夹:")
+                                        typer.echo(f"         {os.path.basename(archive_dir)}")
+                                    else:
+                                        typer.echo(f"      📁 Archive subfolder kept (contains other files) 档案子文件夹保留（包含其他文件）:")
+                                        typer.echo(f"         {os.path.basename(archive_dir)}")
+                                else:
+                                    typer.echo(f"      📁 Archive subfolder is current directory, not removed 档案子文件夹是当前目录，未删除")
+                            except Exception as e:
+                                typer.echo(f"      ⚠️  Warning 警告: Could not remove archive subfolder 无法删除档案子文件夹: {e}")
+
+                            
 
                             # Remove the group from processing
                             groups.remove(group)
+                            typer.echo("      ✅ Processing completed 处理完成")
 
                     else:
-                        typer.echo(f"      ❌ Error 错误: Expected list of files for {group.name}, got {type(final_files_raw)} 期望文件列表，得到 {type(final_files_raw)}")
+                        typer.echo(f"      ❌ Error 错误: Expected list of files 期望文件列表")
+                        typer.echo(f"         Got {type(final_files_raw)} for {group.name}")
                         groups.remove(group)
                 else:
                     typer.echo(f"      ❌ Failed to extract 提取失败: {group.name}")
@@ -325,9 +395,9 @@ def extract_files(paths: List[str]) -> None:
                         shutil.rmtree(extractionTempPath)
                     groups.remove(group)
 
-
             except Exception as e:
-                typer.echo(f"      ❌ Error processing 处理错误 {group.name}: {e}")
+                typer.echo(f"      ❌ Error processing 处理错误: {group.name}")
+                typer.echo(f"         Error details 错误详情: {e}")
                 # Clean up temp folder if it exists
                 try:
                     if os.path.exists(extractionTempPath):
@@ -337,28 +407,29 @@ def extract_files(paths: List[str]) -> None:
                 finally:
                     groups.remove(group)
                 continue
+            
+            print_separator()
+            typer.echo()
 
     
     # add user provided password to password book
     passwordBook.addPasswords(user_provided_passwords)
 
     # Step 8: Final summary 最终摘要
-    typer.echo(f"\n📊 Step 8: Final summary 步骤8：最终摘要")
+    print_step(8, "📊 Final summary 最终摘要")
     
     # Show remaining unable to process files
     if groups:
-        typer.echo("⚠️  Remaining groups unable to process 剩余无法处理的组:")
-        for group in groups:
-            typer.echo(f"   ❌ {group.name}")
+        print_remaining_groups_warning(groups)
     else:
-        typer.echo("✅ All archives processed successfully 所有档案处理成功!")
+        print_all_processed_success()
 
     # save user provided passwords
-    typer.echo("💾 Saving passwords 正在保存密码...")
+    print_info("💾 Saving passwords 正在保存密码...")
     passwordBook.savePasswords()
     
-    typer.echo("\n🎉 Extraction completed! 提取完成!")
-    typer.echo("=" * 60)
+    # Footer with fancy border
+    print_final_completion(output_folder)
 
 
 def cli() -> None:

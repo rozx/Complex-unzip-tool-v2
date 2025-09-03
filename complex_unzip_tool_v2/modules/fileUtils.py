@@ -56,7 +56,8 @@ def readDir(file_paths: list[str]) -> list[str]:
             # Read files from directory
             for root, dirs, files in os.walk(path):
                 for filename in files:
-                    result.append(os.path.join(root, filename))
+                    if filename not in ignored_files:
+                        result.append(os.path.join(root, filename))
         else:
             # Check if the file is ignored
             if os.path.basename(path) not in ignored_files:

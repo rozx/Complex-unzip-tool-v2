@@ -9,6 +9,7 @@ packages = [{include = "complex_unzip_tool_v2"}]
 [tool.poetry.dependencies]
 python = "^3.11"
 typer = "^0.17.3"
+rich = "^14.1.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^7.4.0"

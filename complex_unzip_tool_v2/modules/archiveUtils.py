@@ -4,6 +4,11 @@ import json
 import os
 import typer
 from typing import List, Dict, Optional, Union
+from .richUtils import (
+    print_nested_extraction_header, print_extraction_process_header,
+    print_extracting_archive, print_password_attempt, print_password_failed,
+    print_password_success, print_extraction_summary
+)
 
 # Custom exception classes
 class ArchiveError(Exception):
@@ -376,7 +381,8 @@ def extractNestedArchives(
     max_depth: int = 10,
     cleanup_archives: bool = True,
     password_list: Optional[List[str]] = None,
-    interactive: bool = True
+    interactive: bool = True,
+    loading_indicator = None
 ) -> Dict[str, Union[bool, List[str]]]:
     """
     Recursively extract archives within archives until no more archives are found.
@@ -390,6 +396,7 @@ def extractNestedArchives(
         cleanup_archives (bool): Whether to delete extracted archive files after processing
         password_list (List[str], optional): List of passwords to try for extraction
         interactive (bool): Whether to prompt user for passwords when all fail (default: True)
+        loading_indicator: Loading indicator instance to stop/start during user prompts
     
     Returns:
         Dict containing:
@@ -468,6 +475,10 @@ def extractNestedArchives(
         """
         if not interactive:
             return None
+        
+        # Stop loading indicator if it exists
+        if loading_indicator and hasattr(loading_indicator, 'stop'):
+            loading_indicator.stop()
             
         typer.echo("")
         typer.echo(f"⚠️  All provided passwords failed for archive 所有提供的密码对档案都失败了: {typer.style(archive_name, fg=typer.colors.YELLOW)}")
@@ -478,16 +489,23 @@ def extractNestedArchives(
         
         choice = typer.prompt("Choose an option 选择一个选项 (1/2/3)", type=int, default=2)
         
+        result = None
         if choice == 1:
             password = typer.prompt("Enter password 输入密码")
             user_provided_passwords.append(password)
-            return password
+            result = password
         elif choice == 3:
             # User wants to skip all future password prompts
-            return "SKIP_ALL"
+            result = "SKIP_ALL"
         else:
             # Skip this archive
-            return None
+            result = None
+        
+        # Restart loading indicator if it exists
+        if loading_indicator and hasattr(loading_indicator, 'start'):
+            loading_indicator.start()
+            
+        return result
     
     def _tryExtractWithPasswords(archive_file: str, extract_to: str) -> tuple[bool, str]:
         """
@@ -502,7 +520,7 @@ def extractNestedArchives(
         # Try all provided passwords first
         for pwd in passwords_to_try:
             try:
-                typer.echo(f"  🔓 Trying extraction with password 尝试使用密码提取: {typer.style('(empty)' if pwd == '' else pwd, fg=typer.colors.CYAN)}")
+                print_password_attempt(pwd)
                 success = extractArchiveWith7z(
                     archive_path=archive_file,
                     output_path=extract_to,
@@ -512,11 +530,11 @@ def extractNestedArchives(
                 )
                 
                 if success:
-                    typer.echo(f"  ✅ Extraction successful with password 使用密码提取成功: {typer.style('(empty)' if pwd == '' else pwd, fg=typer.colors.GREEN)}")
+                    print_password_success(pwd)
                     return True, pwd
                     
             except ArchivePasswordError:
-                typer.echo(f"  ❌ Wrong password 密码错误: {typer.style('(empty)' if pwd == '' else pwd, fg=typer.colors.RED)}")
+                print_password_failed(pwd)
                 continue
             except Exception as e:
                 typer.echo(f"  ❌ Extraction failed with password 使用密码提取失败 {'(empty)' if pwd == '' else pwd}: {typer.style(str(e), fg=typer.colors.RED)}")
@@ -553,7 +571,17 @@ def extractNestedArchives(
                         
                 except ArchivePasswordError:
                     typer.echo(f"  ❌ User password is incorrect 用户密码不正确")
+                    
+                    # Stop loading indicator for user input
+                    if loading_indicator and hasattr(loading_indicator, 'stop'):
+                        loading_indicator.stop()
+                    
                     continue_prompt = typer.confirm("Try another password 尝试另一个密码?", default=True)
+                    
+                    # Restart loading indicator
+                    if loading_indicator and hasattr(loading_indicator, 'start'):
+                        loading_indicator.start()
+                    
                     if not continue_prompt:
                         return False, ""
                     continue
@@ -574,7 +602,7 @@ def extractNestedArchives(
         
         try:
             # Extract directly to the current output directory to preserve structure
-            typer.echo(f"📦 Extracting (depth {depth}) 正在提取 (深度 {depth}): {typer.style(os.path.basename(current_archive), fg=typer.colors.BLUE, bold=True)}")
+            print_extracting_archive(os.path.basename(current_archive), depth)
             
             extract_success, used_password = _tryExtractWithPasswords(current_archive, current_output)
             
@@ -597,7 +625,8 @@ def extractNestedArchives(
                 nested_archives = []
                 regular_files = []
                 
-                typer.echo(f"  🔍 Testing {len(extracted_files)} extracted files for nested archives 正在测试 {len(extracted_files)} 个提取的文件是否为嵌套档案...")
+                typer.echo(f"      🔍 Testing {len(extracted_files)} extracted files for nested archives")
+                typer.echo(f"         正在测试 {len(extracted_files)} 个提取的文件是否为嵌套档案...")
                 
                 for file_path in extracted_files:
                     file_name = os.path.basename(file_path)
@@ -607,7 +636,7 @@ def extractNestedArchives(
                         continue
                     
                     if _tryOpenAsArchive(file_path):
-                        typer.echo(f"  📦 Found nested archive 发现嵌套档案: {typer.style(file_name, fg=typer.colors.MAGENTA)}")
+                        typer.echo(f"         📦 Found nested archive 发现嵌套档案: {file_name}")
                         nested_archives.append(file_path)
                     else:
                         regular_files.append(file_path)
@@ -616,57 +645,60 @@ def extractNestedArchives(
                 result['final_files'].extend(regular_files)
                 
                 if regular_files:
-                    typer.echo(f"  📄 Found {len(regular_files)} regular files 发现 {len(regular_files)} 个常规文件")
+                    typer.echo(f"      📄 Found {len(regular_files)} regular files 发现 {len(regular_files)} 个常规文件")
                 
                 # Delete the processed archive file if cleanup is enabled and it's not the original
                 if cleanup_archives and current_archive != archive_path:
                     try:
                         os.remove(current_archive)
-                        typer.echo(f"  🗑️  Cleaned up archive 已清理档案: {os.path.basename(current_archive)}")
+                        typer.echo(f"      🗑️  Cleaned up archive 已清理档案: {os.path.basename(current_archive)}")
                     except OSError as e:
                         error_msg = f"Failed to delete 删除失败 {current_archive}: {e}"
                         result['errors'].append(error_msg)
-                        typer.echo(f"  ⚠️  {typer.style(error_msg, fg=typer.colors.YELLOW)}")
+                        typer.echo(f"      ⚠️  {typer.style(error_msg, fg=typer.colors.YELLOW)}")
                 
                 # If we found nested archives, extract them recursively in their current location
                 if nested_archives:
-                    typer.echo(f"  🔄 Found {typer.style(str(len(nested_archives)), fg=typer.colors.GREEN)} nested archive(s) at depth {depth} 在深度 {depth} 发现 {len(nested_archives)} 个嵌套档案")
+                    typer.echo(f"      🔄 Found {typer.style(str(len(nested_archives)), fg=typer.colors.GREEN)} nested archive(s)")
+                    typer.echo(f"         在深度 {depth} 发现 {len(nested_archives)} 个嵌套档案")
                     for nested_archive in nested_archives:
                         # Extract nested archive in the same directory to preserve structure
                         nested_output_dir = os.path.dirname(nested_archive)
                         _extractRecursively(nested_archive, nested_output_dir, depth + 1)
                 else:
-                    typer.echo(f"  ✅ No more nested archives found at depth {depth} 在深度 {depth} 未发现更多嵌套档案")
+                    typer.echo(f"      ✅ No more nested archives found at depth {depth}")
+                    typer.echo(f"         在深度 {depth} 未发现更多嵌套档案")
             
             else:
                 error_msg = f"Failed to extract 提取失败: {current_archive} (tried all passwords 尝试了所有密码)"
                 result['errors'].append(error_msg)
                 result['success'] = False
-                typer.echo(f"  ❌ {typer.style(error_msg, fg=typer.colors.RED)}")
+                typer.echo(f"      ❌ {typer.style(error_msg, fg=typer.colors.RED)}")
                 
         except Exception as e:
             error_msg = f"Error extracting 提取错误 {current_archive}: {e}"
             result['errors'].append(error_msg)
             result['success'] = False
-            typer.echo(f"  ❌ {typer.style(error_msg, fg=typer.colors.RED)}")
+            typer.echo(f"      ❌ {typer.style(error_msg, fg=typer.colors.RED)}")
     
     # Start the recursive extraction
     try:
         # Ensure output directory exists
         os.makedirs(output_path, exist_ok=True)
         
-        typer.echo("")
-        typer.echo(f"🚀 Starting nested archive extraction 开始嵌套档案提取")
-        typer.echo(f"📁 Input 输入: {typer.style(archive_path, fg=typer.colors.CYAN)}")
-        typer.echo(f"📂 Output 输出: {typer.style(output_path, fg=typer.colors.CYAN)}")
-        typer.echo(f"🔑 Passwords to try 要尝试的密码: {len(passwords_to_try)}")
-        typer.echo(f"📊 Max depth 最大深度: {max_depth}")
-        typer.echo("─" * 60)
+        print_nested_extraction_header(
+            archive_path, 
+            output_path, 
+            len(passwords_to_try), 
+            max_depth
+        )
+        print_extraction_process_header()
         
         # Begin recursive extraction with the initial archive
         _extractRecursively(archive_path, output_path, 0)
         
         # Clean up empty directories
+        typer.echo()
         typer.echo("🧹 Cleaning up empty directories 清理空目录...")
         _cleanupEmptyDirectories(output_path)
         
@@ -674,23 +706,21 @@ def extractNestedArchives(
         result['success'] = result['success'] and len(result['errors']) == 0
         
         # Show final summary
-        typer.echo("")
-        typer.echo("─" * 60)
-        typer.echo("📋 Extraction Summary 提取摘要:")
-        
-        if result['success']:
-            typer.echo(f"✅ Status 状态: {typer.style('SUCCESS 成功', fg=typer.colors.GREEN, bold=True)}")
-        else:
-            typer.echo(f"❌ Status 状态: {typer.style('PARTIAL/FAILED 部分/失败', fg=typer.colors.RED, bold=True)}")
-            
-        typer.echo(f"📦 Archives extracted 提取的档案: {typer.style(str(len(result['extracted_archives'])), fg=typer.colors.BLUE)}")
-        typer.echo(f"📄 Final files 最终文件: {typer.style(str(len(result['final_files'])), fg=typer.colors.GREEN)}")
-        typer.echo(f"⚠️  Errors 错误: {typer.style(str(len(result['errors'])), fg=typer.colors.RED)}")
+        status = "SUCCESS" if result['success'] else "PARTIAL/FAILED"
+        print_extraction_summary(
+            status,
+            len(result['extracted_archives']),
+            len(result['final_files']),
+            len(result['errors'])
+        )
         
         if result['errors']:
-            typer.echo("\n❌ Errors encountered 遇到的错误:")
-            for error in result['errors']:
-                typer.echo(f"  • {error}")
+            typer.echo()
+            typer.echo("❌ Errors encountered 遇到的错误:")
+            typer.echo("   ╭" + "─" * 74 + "╮")
+            for i, error in enumerate(result['errors']):
+                typer.echo(f"   │ {i+1}. {error[:70]:<70} │")
+            typer.echo("   ╰" + "─" * 74 + "╯")
         
     except Exception as e:
         error_msg = f"Fatal error during extraction 提取期间发生致命错误: {e}"
