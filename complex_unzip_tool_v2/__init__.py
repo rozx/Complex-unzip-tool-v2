@@ -1,5 +1,5 @@
 """Complex Unzip Tool v2 - A powerful archive extraction utility."""
 
-__version__ = "0.1.0"
-__author__ = "Your Name"
-__email__ = "your.email@example.com"
+__version__ = "1.0.0"
+__author__ = "Rozx"
+__email__ = "lisida900710@gmail.com"
