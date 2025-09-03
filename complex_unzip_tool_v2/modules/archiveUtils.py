@@ -516,6 +516,7 @@ def extractNestedArchives(
         """
         archive_name = os.path.basename(archive_file)
         skip_all_prompts = False
+        password_required = False
         
         # Try all provided passwords first
         for pwd in passwords_to_try:
@@ -535,13 +536,18 @@ def extractNestedArchives(
                     
             except ArchivePasswordError:
                 print_password_failed(pwd)
+                password_required = True  # Mark that this is a valid archive that needs password
                 continue
+            except (ArchiveCorruptedError, ArchiveUnsupportedError, ArchiveNotFoundError) as e:
+                # These are archive-related errors but not password issues
+                typer.echo(f"  ❌ Archive error 档案错误: {typer.style(str(e), fg=typer.colors.RED)}")
+                return False, ""
             except Exception as e:
                 typer.echo(f"  ❌ Extraction failed with password 使用密码提取失败 {'(empty)' if pwd == '' else pwd}: {typer.style(str(e), fg=typer.colors.RED)}")
                 continue
         
-        # If all provided passwords failed, prompt user for new passwords
-        if interactive and not skip_all_prompts:
+        # Only prompt user for passwords if we confirmed this is a valid archive that requires password
+        if interactive and not skip_all_prompts and password_required:
             while True:
                 user_password = _promptUserForPassword(archive_name)
                 
@@ -588,6 +594,9 @@ def extractNestedArchives(
                 except Exception as e:
                     typer.echo(f"  ❌ Extraction failed 提取失败: {typer.style(str(e), fg=typer.colors.RED)}")
                     return False, ""
+        elif not password_required:
+            # If no password was required but extraction still failed, it's likely not a valid archive
+            typer.echo(f"  ⚠️  File may not be a valid archive or is corrupted 文件可能不是有效档案或已损坏: {archive_name}")
         
         return False, ""
     
