@@ -434,6 +434,5 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ## 👤 Author | 作者
 
 - **Rozx** - [GitHub](https://github.com/rozx)
-- Email | 邮箱: lisida900710@gmail.com
 
 
