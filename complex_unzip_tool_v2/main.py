@@ -25,19 +25,7 @@ app = typer.Typer(help="Complex Unzip Tool v2 - Advanced Archive Extraction Util
 
 def _ask_for_user_input_and_exit() -> None:
     """Ask for random user input before exiting the application."""
-    print_empty_line()
-    print_info("🎯 Press Enter to continue or type anything and press Enter...")
-    try:
-        user_input = input(">>> ")
-        if user_input.strip():
-            print_success(f"You entered: {user_input}")
-        else:
-            print_success("Thanks for using Complex Unzip Tool v2! 感谢使用复杂解压工具v2!")
-    except (KeyboardInterrupt, EOFError):
-        print_warning("\nInput cancelled 输入已取消")
-    
-    print_empty_line()
-    print_success("🚪 Exiting application... 正在退出应用程序...")
+    input("Press Enter to exit... 按回车键退出...")
     sys.exit(0)
 
 @app.callback(invoke_without_command=True)
@@ -528,9 +516,12 @@ def extract_files(paths: List[str]) -> None:
         print_all_processed_success()
 
     print_minor_section_break()
-    # save user provided passwords
-    print_info("💾 Saving passwords 正在保存密码...")
-    passwordBook.save_passwords()
+    # save user provided passwords only if there are changes
+    if passwordBook.has_unsaved_changes():
+        print_info("💾 Saving passwords 正在保存密码...")
+        passwordBook.save_passwords()
+    else:
+        print_info("📝 No new passwords to save 没有新密码需要保存")
     
     print_major_section_break()
     # Footer with fancy border
