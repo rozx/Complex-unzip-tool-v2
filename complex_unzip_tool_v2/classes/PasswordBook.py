@@ -66,6 +66,8 @@ class PasswordBook:
         if password in self.local_entries:
             self.local_entries.remove(password)
             self._has_changes = True
+        else:
+            raise ValueError(f"Password '{password}' not found in local entries.")
 
     def has_unsaved_changes(self) -> bool:
         """Check if there are unsaved changes 检查是否有未保存的更改"""

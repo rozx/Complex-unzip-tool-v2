@@ -12,6 +12,7 @@ from .rich_utils import (
     print_error_summary, print_general, print_empty_line, print_info, 
     print_success
 )
+from .rich_utils import console
 
 # Custom exception classes
 class ArchiveError(Exception):
@@ -396,7 +397,8 @@ def extract_nested_archives(
     cleanup_archives: bool = True,
     password_list: Optional[List[str]] = None,
     interactive: bool = True,
-    loading_indicator = None
+    loading_indicator = None,
+    active_progress_bars: Optional[List] = None
 ) -> Dict[str, Union[bool, List[str]]]:
     """
     Recursively extract archives within archives until no more archives are found.
@@ -472,10 +474,14 @@ def extract_nested_archives(
             # Any other error, treat as non-archive
             return False
     
-    def _promptUserForPassword(archive_name: str) -> Optional[str]:
+    def _promptUserForPassword(archive_name: str, active_progress_bars: Optional[List] = None) -> Optional[str]:
         """
         Prompt user for password when all automatic attempts fail.
         提示用户输入密码，当所有自动尝试失败时
+        
+        Args:
+            archive_name (str): Name of the archive requiring password
+            active_progress_bars (List, optional): List of active progress bars to temporarily stop
         
         Returns:
             str: User-provided password or None if user chooses to skip
@@ -486,21 +492,55 @@ def extract_nested_archives(
         # Stop loading indicator if it exists
         if loading_indicator and hasattr(loading_indicator, 'stop'):
             loading_indicator.stop()
-            
-        print_empty_line()
-        print_warning(f"All provided passwords failed for archive 所有提供的密码对档案都失败了: {archive_name}", 1)
-        print_general("Options 选项:")
-        print_general("  1. Enter a password 输入密码")
-        print_general("  2. Skip this archive 跳过此档案")
-        print_general("  3. Skip all remaining password-protected archives 跳过所有剩余的密码保护档案")
         
-        choice = typer.prompt("Choose an option 选择一个选项 (1/2/3)", type=int, default=2)
+        # Stop all active progress bars to prevent interference with user input
+        stopped_progress_bars = []
+        if active_progress_bars:
+            for progress_bar in active_progress_bars:
+                if hasattr(progress_bar, 'stop') and hasattr(progress_bar, 'progress') and progress_bar.progress:
+                    progress_bar.stop()
+                    stopped_progress_bars.append(progress_bar)
+        
+        
+        
+        # Clear any remaining display artifacts and ensure clean terminal state
+        console.clear()
+        
+        console.print()
+        console.print(f"[bold yellow]⚠️  All provided passwords failed for archive: {archive_name}[/bold yellow]")
+        console.print(f"[dim yellow]   所有提供的密码对档案都失败了: {archive_name}[/dim yellow]")
+        console.print()
+        console.print("[bold bright_blue]Options 选项:[/bold bright_blue]")
+        console.print("  [bold cyan]1.[/bold cyan] Enter a password 输入密码")
+        console.print("  [bold cyan]2.[/bold cyan] Skip this archive 跳过此档案")
+        console.print("  [bold cyan]3.[/bold cyan] Skip all remaining password-protected archives 跳过所有剩余的密码保护档案")
+        console.print()
+        
+        # Use a simple input loop to ensure compatibility
+        while True:
+            try:
+                choice_input = input("Choose an option 选择一个选项 (1/2/3) [default: 2]: ").strip()
+                if choice_input == "":
+                    choice = 2
+                    break
+                else:
+                    choice = int(choice_input)
+                    if choice in [1, 2, 3]:
+                        break
+                    else:
+                        console.print("[red]Please enter 1, 2, or 3 请输入 1、2 或 3[/red]")
+            except (ValueError, KeyboardInterrupt):
+                choice = 2
+                break
         
         result = None
         if choice == 1:
-            password = typer.prompt("Enter password 输入密码")
-            user_provided_passwords.append(password)
-            result = password
+            try:
+                password = input("Enter password 输入密码: ")
+                user_provided_passwords.append(password)
+                result = password
+            except KeyboardInterrupt:
+                result = None
         elif choice == 3:
             # User wants to skip all future password prompts
             result = "SKIP_ALL"
@@ -508,13 +548,21 @@ def extract_nested_archives(
             # Skip this archive
             result = None
         
+        # Show user that processing is continuing
+        if result is not None and result != "SKIP_ALL":
+            console.print()
+            console.print("[bold green]✓ Continuing with extraction... 继续提取...[/bold green]")
+        
+        # Note: We don't restart the progress bars here as they will interfere again
+        # The extraction process will continue normally without progress display during user input
+        
         # Restart loading indicator if it exists
         if loading_indicator and hasattr(loading_indicator, 'start'):
             loading_indicator.start()
             
         return result
     
-    def _tryExtractWithPasswords(archive_file: str, extract_to: str) -> tuple[bool, str]:
+    def _tryExtractWithPasswords(archive_file: str, extract_to: str, active_progress_bars: Optional[List] = None) -> tuple[bool, str]:
         """
         Try to extract an archive with different passwords.
         Note: This function assumes the file has already been verified as a valid archive.
@@ -557,7 +605,7 @@ def extract_nested_archives(
         # Only prompt user for passwords if we confirmed this is a valid archive that requires password
         if interactive and not skip_all_prompts and password_required:
             while True:
-                user_password = _promptUserForPassword(archive_name)
+                user_password = _promptUserForPassword(archive_name, active_progress_bars)
                 
                 if user_password == "SKIP_ALL":
                     print_info("Skipping all future password prompts 跳过所有未来的密码提示", 2)
@@ -590,7 +638,31 @@ def extract_nested_archives(
                     if loading_indicator and hasattr(loading_indicator, 'stop'):
                         loading_indicator.stop()
                     
-                    continue_prompt = typer.confirm("Try another password 尝试另一个密码?", default=True)
+                    # Stop all active progress bars to prevent interference with user input
+                    if active_progress_bars:
+                        for progress_bar in active_progress_bars:
+                            if hasattr(progress_bar, 'stop') and hasattr(progress_bar, 'progress') and progress_bar.progress:
+                                progress_bar.stop()
+                    
+                    # Use simple input instead of typer.confirm for better compatibility
+                    from .rich_utils import console
+                    console.print()
+                    console.print("[bold yellow]Password incorrect 密码不正确[/bold yellow]")
+                    
+                    while True:
+                        try:
+                            continue_input = input("Try another password 尝试另一个密码? (Y/n) [default: Y]: ").strip().lower()
+                            if continue_input == "" or continue_input in ['y', 'yes', '是']:
+                                continue_prompt = True
+                                break
+                            elif continue_input in ['n', 'no', '否']:
+                                continue_prompt = False
+                                break
+                            else:
+                                console.print("[red]Please enter Y or N 请输入 Y 或 N[/red]")
+                        except KeyboardInterrupt:
+                            continue_prompt = False
+                            break
                     
                     # Restart loading indicator
                     if loading_indicator and hasattr(loading_indicator, 'start'):
@@ -631,7 +703,7 @@ def extract_nested_archives(
             # Extract directly to the current output directory to preserve structure
             print_extracting_archive(os.path.basename(current_archive), depth)
             
-            extract_success, used_password = _tryExtractWithPasswords(current_archive, current_output)
+            extract_success, used_password = _tryExtractWithPasswords(current_archive, current_output, active_progress_bars)
             
             if extract_success:
                 result['extracted_archives'].append(current_archive)

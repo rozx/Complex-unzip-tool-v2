@@ -74,6 +74,7 @@ def extract_files(paths: List[str]) -> None:
         output_folder = os.path.join(paths[0], const.OUTPUT_FOLDER)
     else:
         output_folder = os.path.join(os.path.dirname(paths[0]), const.OUTPUT_FOLDER)
+
     os.makedirs(output_folder, exist_ok=True)
     print_success("Output folder created 输出文件夹已创建:")
     print_file_path(f"📂 {output_folder}")
@@ -100,46 +101,23 @@ def extract_files(paths: List[str]) -> None:
     loader.start()
     contents = file_utils.read_dir(paths)
     loader.stop()
-    
-    # Display scanning results with a nice table
-    from rich.console import Console
-    from rich.table import Table
-    from rich import box
-    
-    scan_console = Console()
-    scan_table = Table(show_header=True, box=box.ROUNDED)
-    scan_table.add_column("📁 Path Type / 路径类型", style="cyan", width=15)
-    scan_table.add_column("📊 Count / 数量", style="yellow", justify="center", width=10)
-    scan_table.add_column("📝 Details / 详情", style="dim", width=50)
-    
-    # Count different file types
-    archive_extensions = ['.zip', '.rar', '.7z', '.tar', '.gz', '.bz2', '.xz']
-    archive_files = [f for f in contents if any(str(f).lower().endswith(ext) for ext in archive_extensions)]
-    other_files = [f for f in contents if f not in archive_files]
-    
-    scan_table.add_row(
-        "Total Files / 总文件", 
-        f"[bold green]{len(contents)}[/bold green]",
-        f"[dim]All files found in scan / 扫描中发现的所有文件[/dim]"
-    )
-    scan_table.add_row(
-        "Archive Files / 档案", 
-        f"[bold blue]{len(archive_files)}[/bold blue]",
-        f"[dim]Recognized archive formats / 识别的档案格式[/dim]"
-    )
-    scan_table.add_row(
-        "Other Files / 其他", 
-        f"[bold magenta]{len(other_files)}[/bold magenta]",
-        f"[dim]Non-archive files / 非档案文件[/dim]"
-    )
-    
-    scan_console.print()
-    scan_console.print(scan_table)
+
     print_success(f"Scan completed! 扫描完成！")
     print_minor_section_break()
 
-    # Step 4: Create archive groups 创建档案组
-    print_step(4, "📋 Creating archive groups 创建档案组")
+    # Step 4: Uncloak file extensions 揭示文件扩展名
+    print_step(4, "🎭 Uncloaking file extensions 揭示文件扩展名")
+    
+    loader = create_spinner("Uncloaking file extensions 正在揭示文件扩展名...")
+    loader.start()
+    contents = file_utils.uncloak_file_extensions(contents)
+    loader.stop()
+    
+    print_success("File extensions uncloaked 文件扩展名已揭示")
+    print_minor_section_break()
+
+    # Step 5: Create archive groups 创建档案组
+    print_step(5, "📋 Creating archive groups 创建档案组")
     
     loader = create_spinner("Analyzing archive groups 正在分析档案组...")
     loader.start()
@@ -149,21 +127,15 @@ def extract_files(paths: List[str]) -> None:
     print_success(f"Created {len(groups)} archive groups 已创建 {len(groups)} 个档案组")
     print_minor_section_break()
 
-    # Step 5: Processing archive groups 处理档案组
-    print_step(5, "⚙️ Processing archive groups 处理档案组")
-    # Remove this line since print_step already handles the formatting
-
-    # Rename archive files to have the correct extensions
-    print_info("🎭 Uncloaking file extensions 正在揭示文件扩展名...")
-    file_utils.uncloak_file_extension_for_groups(groups)
-    print_minor_section_break()
+    # Step 6: Processing archive groups 处理档案组
+    print_step(6, "⚙️ Processing archive groups 处理档案组")
 
     # Display groups with fancy formatting - use rich function instead
     print_archive_group_summary(groups)
     print_minor_section_break()
 
-    # Step 6: Processing single archives first 首先处理单一档案
-    print_step(6, "🔧 Processing single archives first 首先处理单一档案")
+    # Step 7: Processing single archives first 首先处理单一档案
+    print_step(7, "🔧 Processing single archives first 首先处理单一档案")
     
     print_info("📝 Processing single archive to extract containers 处理单一档案以提取容器...")
 
@@ -196,7 +168,8 @@ def extract_files(paths: List[str]) -> None:
                     password_list=passwordBook.get_passwords(),
                     max_depth=10,
                     cleanup_archives=True,
-                    loading_indicator=loader
+                    loading_indicator=loader,
+                    active_progress_bars=[extraction_progress]
                 )
                 
                 loader.stop()
@@ -344,8 +317,8 @@ def extract_files(paths: List[str]) -> None:
     if user_provided_passwords:
         passwordBook.add_passwords(user_provided_passwords)
 
-    # Step 7: Then handle multipart archives 然后处理多部分档案
-    print_step(7, "🔗 Processing multipart archives 处理多部分档案")
+    # Step 8: Then handle multipart archives 然后处理多部分档案
+    print_step(8, "🔗 Processing multipart archives 处理多部分档案")
     
     # Get multipart archives for progress tracking
     multipart_archives = [group for group in groups if group.isMultiPart]
@@ -374,7 +347,8 @@ def extract_files(paths: List[str]) -> None:
                     password_list=passwordBook.get_passwords(),
                     max_depth=10,
                     cleanup_archives=True,
-                    loading_indicator=loader
+                    loading_indicator=loader,
+                    active_progress_bars=[multipart_progress]
                 )
                 
                 loader.stop()
@@ -506,8 +480,8 @@ def extract_files(paths: List[str]) -> None:
     if user_provided_passwords:
         passwordBook.add_passwords(user_provided_passwords)
 
-    # Step 8: Final summary 最终摘要
-    print_step(8, "📊 Final summary 最终摘要")
+    # Step 9: Final summary 最终摘要
+    print_step(9, "📊 Final summary 最终摘要")
     
     # Show remaining unable to process files
     if groups:
