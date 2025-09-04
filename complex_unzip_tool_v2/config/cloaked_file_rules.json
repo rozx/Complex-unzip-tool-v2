@@ -1,0 +1,49 @@
+{
+  "rules": [
+    {
+      "name": "7z_multipart_with_extension",
+      "filename_pattern": "^(.+)\\.7z$",
+      "ext_pattern": "^(\\d{3})$",
+      "priority": 100,
+      "matching_type": "both",
+      "type": "7z",
+      "enabled": true
+    },
+    {
+      "name": "rar_multipart_with_extension",
+      "filename_pattern": "^(.+)\\.rar$",
+      "ext_pattern": "^part(\\d+)$",
+      "priority": 95,
+      "matching_type": "both",
+      "type": "rar",
+      "enabled": true
+    },
+    {
+      "name": "zip_multipart_with_extension",
+      "filename_pattern": "^(.+)\\.zip$",
+      "ext_pattern": "^(\\d{3})$",
+      "priority": 95,
+      "matching_type": "both",
+      "type": "zip",
+      "enabled": true
+    },
+    {
+      "name": "7z_multipart_extensionless",
+      "filename_pattern": "^(.+)(\\d{3})$",
+      "ext_pattern": "",
+      "priority": 90,
+      "matching_type": "filename",
+      "type": "7z",
+      "enabled": true
+    },
+    {
+      "name": "generic_cloaked_multipart",
+      "filename_pattern": "^(.+)\\.(\\w+)$",
+      "ext_pattern": "^(\\d{1,3})$",
+      "priority": 80,
+      "matching_type": "both",
+      "type": "7z",
+      "enabled": true
+    }
+  ]
+}
