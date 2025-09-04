@@ -217,112 +217,206 @@ def uncloak_file_extension_for_groups(groups: list[ArchiveGroup]) -> None:
                 if group.mainArchiveFile == original_file:
                     group.mainArchiveFile = new_path
 
+def _format_part_number(part_number: str, digit_count: int) -> str:
+    """
+    Format part number with proper zero-padding based on original digit count.
+    根据原始数字计数格式化部分编号，使用适当的零填充。
+    
+    Args:
+        part_number: The part number as string
+        digit_count: Original number of digits (1, 2, or 3)
+    
+    Returns:
+        Formatted part number with proper padding
+    """
+    if digit_count == 3:
+        return f"{int(part_number):03d}"
+    elif digit_count == 2:
+        return f"{int(part_number):02d}"
+    else:
+        return part_number
+
+
+def _generate_first_part_candidates(base_name: str, digit_count: int, dirname: str) -> list[str]:
+    """
+    Generate candidate paths for the first part of a multi-part archive.
+    为多部分档案的第一部分生成候选路径。
+    
+    Args:
+        base_name: Base name without part number
+        digit_count: Number of digits in part numbering
+        dirname: Directory path
+    
+    Returns:
+        List of candidate file paths to check
+    """
+    if digit_count == 3:
+        first_part_extensionless = f"{base_name}001"
+        first_part_formatted = f"{base_name}.7z.001"
+    elif digit_count == 2:
+        first_part_extensionless = f"{base_name}01"
+        first_part_formatted = f"{base_name}.7z.01"
+    else:
+        first_part_extensionless = f"{base_name}1"
+        first_part_formatted = f"{base_name}.7z.1"
+    
+    return [
+        os.path.join(dirname, first_part_extensionless),
+        os.path.join(dirname, first_part_formatted)
+    ]
+
+
+def _detect_archive_type_from_first_part(base_name: str, digit_count: int, dirname: str) -> str | None:
+    """
+    Try to detect archive type by finding and examining the first part of a multi-part archive.
+    通过查找和检查多部分档案的第一部分来尝试检测档案类型。
+    
+    Args:
+        base_name: Base name without part number
+        digit_count: Number of digits in part numbering
+        dirname: Directory path
+    
+    Returns:
+        Archive type if detected, None otherwise
+    """
+    from .archive_extension_utils import detect_archive_info
+    
+    first_part_candidates = _generate_first_part_candidates(base_name, digit_count, dirname)
+    
+    for first_part_path in first_part_candidates:
+        if os.path.exists(first_part_path):
+            first_info = detect_archive_info(first_part_path)
+            if first_info and first_info['type']:
+                return first_info['type']
+    
+    return None
+
+
+def _handle_extensionless_file_with_parts(file_path: str, filename: str, dirname: str) -> str:
+    """
+    Handle extensionless files that might be archive parts with embedded part numbers.
+    处理可能是带有嵌入部分编号的档案部分的无扩展名文件。
+    
+    Examples:
+        "3729457aaa001" -> "3729457aaa.7z.001"
+        "archive002" -> "archive.7z.002"
+    
+    Args:
+        file_path: Full path to the file
+        filename: Just the filename without directory
+        dirname: Directory path
+    
+    Returns:
+        New file path with proper extension, or original if no changes needed
+    """
+    from .archive_extension_utils import detect_archive_info
+    from .regex import PART_NUMBER_PATTERNS
+    
+    for pattern, digit_count in PART_NUMBER_PATTERNS:
+        part_match = re.search(pattern, filename)
+        if part_match:
+            part_number = part_match.group(1)
+            base_name = filename[:-digit_count]  # Everything except the digits
+            
+            # Skip if base name is too short (likely not a real filename)
+            if len(base_name) < 2:
+                continue
+            
+            # Try to detect archive type by file signature first
+            if os.path.exists(file_path):
+                info = detect_archive_info(file_path)
+                if info and info['type']:
+                    archive_type = info['type']
+                else:
+                    # If current file doesn't have signature, try to find first part
+                    current_part_num = int(part_number)
+                    if current_part_num > 1:
+                        archive_type = _detect_archive_type_from_first_part(base_name, digit_count, dirname)
+                    else:
+                        archive_type = None
+                
+                if archive_type:
+                    formatted_part = _format_part_number(part_number, digit_count)
+                    new_filename = f"{base_name}.{archive_type}.{formatted_part}"
+                    return os.path.join(dirname, new_filename)
+            
+            # Only try the first matching pattern
+            break
+    
+    return file_path
+
+
+def _is_already_multipart_format(filename: str) -> bool:
+    """
+    Check if a file already has proper multi-part archive format.
+    检查文件是否已经具有正确的多部分档案格式。
+    
+    Examples of files that should NOT be renamed:
+        "单词表.xls.001" -> True (already proper format)
+        "document.pdf.002" -> True (already proper format)
+        "archive.txt" -> False (not a part file)
+    
+    Args:
+        filename: The filename to check
+    
+    Returns:
+        True if file already has proper multi-part format, False otherwise
+    """
+    from .regex import MULTIPART_EXTENSION_PATTERNS
+    
+    for pattern in MULTIPART_EXTENSION_PATTERNS:
+        if re.search(pattern, filename):
+            return True
+    return False
+
+
 def _uncloak_single_file(file_path: str) -> str:
     """
     Uncloak a single file's extension, handling various cloaking patterns.
-    Handles cases like "3729457aaa001" -> "3729457aaa.7z.001"
+    解除单个文件扩展名的隐藏，处理各种隐藏模式。
+    
+    This function handles two main scenarios:
+    1. Extensionless files that might be archives with embedded part numbers
+       无扩展名文件，可能是带有嵌入部分编号的档案
+       Example: "3729457aaa001" -> "3729457aaa.7z.001"
+    
+    2. Files with extensions that need archive type detection
+       需要档案类型检测的带扩展名文件
+       Example: "archive.bin" -> "archive.7z" (if .bin is actually a 7z file)
+    
+    Args:
+        file_path: Full path to the file to uncloak
+    
+    Returns:
+        New file path with proper extension, or original path if no changes needed
     """
     filename = os.path.basename(file_path)
     dirname = os.path.dirname(file_path)
     
-    # Special handling for extensionless files that might be archives with part numbers
     if '.' not in filename:
-        # Look for 1-3 digits at the end that could be part numbers
-        part_patterns = [
-            (r'(\d{3})$', 3),  # 3 digits like 001
-            (r'(\d{2})$', 2),  # 2 digits like 01  
-            (r'(\d{1})$', 1),  # 1 digit like 1
-        ]
+        # Handle extensionless files that might be archives with part numbers
+        new_path = _handle_extensionless_file_with_parts(file_path, filename, dirname)
+        if new_path != file_path:
+            return new_path
         
-        for pattern, digit_count in part_patterns:
-            part_match = re.search(pattern, filename)
-            if part_match:
-                part_number = part_match.group(1)
-                base_name = filename[:-digit_count]  # Everything except the digits
-                
-                # Skip if base name is too short (likely not a real filename)
-                if len(base_name) < 2:
-                    continue
-                
-                # Try to detect archive type by file signature
-                if os.path.exists(file_path):
-                    from .archive_extension_utils import detect_archive_info
-                    info = detect_archive_info(file_path)
-                    if info and info['type']:
-                        archive_type = info['type']
-                        
-                        # Format part number based on original length
-                        if digit_count == 3:
-                            formatted_part = f"{int(part_number):03d}"
-                        elif digit_count == 2:
-                            formatted_part = f"{int(part_number):02d}"
-                        else:
-                            formatted_part = part_number
-                        
-                        # Reconstruct filename with proper format
-                        new_filename = f"{base_name}.{archive_type}.{formatted_part}"
-                        return os.path.join(dirname, new_filename)
-                    else:
-                        # If current file doesn't have signature (likely a split part),
-                        # try to find the first part and check its signature
-                        current_part_num = int(part_number)
-                        if current_part_num > 1:
-                            # Look for the first part (001, 01, or 1)
-                            if digit_count == 3:
-                                first_part_extensionless = f"{base_name}001"
-                                first_part_formatted = f"{base_name}.7z.001"  # Try common format
-                            elif digit_count == 2:
-                                first_part_extensionless = f"{base_name}01"
-                                first_part_formatted = f"{base_name}.7z.01"
-                            else:
-                                first_part_extensionless = f"{base_name}1"
-                                first_part_formatted = f"{base_name}.7z.1"
-                            
-                            # Try both extensionless and formatted versions
-                            first_part_candidates = [
-                                os.path.join(dirname, first_part_extensionless),
-                                os.path.join(dirname, first_part_formatted)
-                            ]
-                            
-                            archive_type = None
-                            for first_part_path in first_part_candidates:
-                                if os.path.exists(first_part_path):
-                                    first_info = detect_archive_info(first_part_path)
-                                    if first_info and first_info['type']:
-                                        archive_type = first_info['type']
-                                        break
-                            
-                            if archive_type:
-                                # Format part number based on original length
-                                if digit_count == 3:
-                                    formatted_part = f"{int(part_number):03d}"
-                                elif digit_count == 2:
-                                    formatted_part = f"{int(part_number):02d}"
-                                else:
-                                    formatted_part = part_number
-                                
-                                # Reconstruct filename with proper format
-                                new_filename = f"{base_name}.{archive_type}.{formatted_part}"
-                                return os.path.join(dirname, new_filename)
-                
-                # Only try the first matching pattern
-                break
-        
-        # For extensionless files that don't match part patterns, 
-        # or have too short base names, try existing detection
+        # For extensionless files that don't match part patterns, try general detection
         true_ext = detect_archive_extension(file_path)
         if true_ext:
             new_filename = f"{filename}.{true_ext}"
             return os.path.join(dirname, new_filename)
     else:
-        # Fall back to existing detection method for files with extensions
+        # Check if file already has proper multi-part archive format
+        if _is_already_multipart_format(filename):
+            return file_path  # Don't rename files that already have proper format
+        
+        # Try to detect and fix incorrect extensions for files with extensions
         true_ext = detect_archive_extension(file_path)
         if true_ext:
             name, current_ext = get_archive_base_name(file_path)
             potential_new_name = f"{name}.{true_ext}"
             potential_new_path = os.path.join(dirname, potential_new_name)
             
-            # If this would result in a different filename, use it
+            # Only rename if this would result in a different filename
             if potential_new_path != file_path:
                 return potential_new_path
     

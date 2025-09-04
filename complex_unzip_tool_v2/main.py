@@ -176,7 +176,7 @@ def extract_files(paths: List[str], use_recycle_bin: bool = True) -> None:
                     cleanup_archives=True,
                     loading_indicator=loader,
                     active_progress_bars=[extraction_progress],
-                    use_recycle_bin=use_recycle_bin
+                    use_recycle_bin=False
                 )
                 
                 loader.stop()
@@ -255,14 +255,14 @@ def extract_files(paths: List[str], use_recycle_bin: bool = True) -> None:
                         except Exception as e:
                             print_warning(f"Could not remove temp folder 无法删除临时文件夹: {e}", 2)
 
-                        # Remove the subfolder for group belongs, if not the current folder
+                        # Remove the subfolder for group belongs, if not related to output folder
                         try:
                             # Get the directory containing the archive files
                             archive_dir = os.path.dirname(group.mainArchiveFile)
-                            current_working_dir = os.getcwd()
                             
-                            # Only remove if it's not the current working directory and it's empty after file removal
-                            if os.path.abspath(archive_dir) != os.path.abspath(current_working_dir):
+                            # Only remove if it's not the output folder and doesn't contain the output folder
+                            if (os.path.abspath(archive_dir) != os.path.abspath(output_folder) and 
+                                not os.path.abspath(output_folder).startswith(os.path.abspath(archive_dir) + os.sep)):
                                 # Check if directory is empty (or only contains hidden files/folders)
                                 remaining_items = [item for item in os.listdir(archive_dir) 
                                                  if not item.startswith('.') and item != const.OUTPUT_FOLDER]
@@ -275,7 +275,7 @@ def extract_files(paths: List[str], use_recycle_bin: bool = True) -> None:
                                     print_info("Archive subfolder kept (contains other files) 档案子文件夹保留（包含其他文件）:", 2)
                                     print_file_path(os.path.basename(archive_dir), 3)
                             else:
-                                print_info("Archive subfolder is current directory, not removed 档案子文件夹是当前目录，未删除", 2)
+                                print_info("Archive subfolder contains output folder, not removed 档案子文件夹包含输出文件夹，未删除", 2)
                         except Exception as e:
                             print_warning(f"Could not remove archive subfolder 无法删除档案子文件夹: {e}", 2)
 
@@ -359,7 +359,7 @@ def extract_files(paths: List[str], use_recycle_bin: bool = True) -> None:
                     cleanup_archives=True,
                     loading_indicator=loader,
                     active_progress_bars=[multipart_progress],
-                    use_recycle_bin=use_recycle_bin
+                    use_recycle_bin=False
                 )
                 
                 loader.stop()
@@ -420,14 +420,14 @@ def extract_files(paths: List[str], use_recycle_bin: bool = True) -> None:
                             except Exception as e:
                                 print_warning(f"Could not remove temp folder 无法删除临时文件夹: {e}", 2)
 
-                            # Remove the subfolder for group belongs, if not the current folder
+                            # Remove the subfolder for group belongs, if not related to output folder
                             try:
                                 # Get the directory containing the archive files
                                 archive_dir = os.path.dirname(group.mainArchiveFile)
-                                current_working_dir = os.getcwd()
                                 
-                                # Only remove if it's not the current working directory and it's empty after file removal
-                                if os.path.abspath(archive_dir) != os.path.abspath(current_working_dir):
+                                # Only remove if it's not the output folder and doesn't contain the output folder
+                                if (os.path.abspath(archive_dir) != os.path.abspath(output_folder) and 
+                                    not os.path.abspath(output_folder).startswith(os.path.abspath(archive_dir) + os.sep)):
                                     # Check if directory is empty (or only contains hidden files/folders)
                                     remaining_items = [item for item in os.listdir(archive_dir) 
                                                      if not item.startswith('.') and item != const.OUTPUT_FOLDER]
@@ -440,7 +440,7 @@ def extract_files(paths: List[str], use_recycle_bin: bool = True) -> None:
                                         print_info("Archive subfolder kept (contains other files) 档案子文件夹保留（包含其他文件）:", 2)
                                         print_file_path(os.path.basename(archive_dir), 3)
                                 else:
-                                    print_info("Archive subfolder is current directory, not removed 档案子文件夹是当前目录，未删除", 2)
+                                    print_info("Archive subfolder contains output folder, not removed 档案子文件夹包含输出文件夹，未删除", 2)
                             except Exception as e:
                                 print_warning(f"Could not remove archive subfolder 无法删除档案子文件夹: {e}", 2)
 

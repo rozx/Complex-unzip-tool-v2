@@ -13,6 +13,7 @@ from .rich_utils import (
     print_success
 )
 from .rich_utils import console
+from .file_utils import safe_remove
 
 # Custom exception classes
 class ArchiveError(Exception):
@@ -750,7 +751,7 @@ def extract_nested_archives(
                 # Delete the processed archive file if cleanup is enabled and it's not the original
                 if cleanup_archives and current_archive != archive_path:
                     try:
-                        from .file_utils import safe_remove
+                        
                         safe_remove(current_archive, use_recycle_bin=use_recycle_bin)
                         if use_recycle_bin:
                             print_success(f"Moved nested archive to recycle bin 已将嵌套档案移至回收站: {os.path.basename(current_archive)}", 2)
