@@ -6,7 +6,7 @@ import sys
 import shutil
 import tempfile
 import typer
-from typing import List, Dict, Optional, Union
+from typing import List, Dict, Optional, Union, Tuple
 from .rich_utils import (
     print_nested_extraction_header, print_extraction_process_header,
     print_extracting_archive, print_password_attempt, print_password_failed,
@@ -64,6 +64,54 @@ def _get_default_7z_path() -> str:
     
     return seven_zip_path
 
+def _decode_subprocess_output(stdout_bytes: bytes, stderr_bytes: bytes) -> Tuple[str, str]:
+    """
+    Safely decode subprocess output with multiple encoding fallbacks.
+    
+    Args:
+        stdout_bytes (bytes): Raw stdout bytes from subprocess
+        stderr_bytes (bytes): Raw stderr bytes from subprocess
+        
+    Returns:
+        tuple[str, str]: Decoded stdout and stderr strings
+    """
+    stdout = ""
+    stderr = ""
+    
+    # Try UTF-8 first
+    try:
+        stdout = stdout_bytes.decode('utf-8', errors='replace')
+        stderr = stderr_bytes.decode('utf-8', errors='replace')
+        return stdout, stderr
+    except (UnicodeDecodeError, AttributeError):
+        pass
+    
+    # Fallback to latin-1
+    try:
+        stdout = stdout_bytes.decode('latin-1', errors='replace')
+        stderr = stderr_bytes.decode('latin-1', errors='replace')
+        return stdout, stderr
+    except Exception:
+        pass
+    
+    # Fallback to cp1252 (Windows-1252)
+    try:
+        stdout = stdout_bytes.decode('cp1252', errors='replace')
+        stderr = stderr_bytes.decode('cp1252', errors='replace')
+        return stdout, stderr
+    except Exception:
+        pass
+    
+    # Final fallback - convert bytes to string representation
+    try:
+        stdout = str(stdout_bytes, errors='replace')
+        stderr = str(stderr_bytes, errors='replace')
+    except Exception:
+        stdout = str(stdout_bytes)
+        stderr = str(stderr_bytes)
+    
+    return stdout, stderr
+
 def readArchiveContentWith7z(
     archive_path: str, 
     password: Optional[str] = "",
@@ -112,26 +160,30 @@ def readArchiveContentWith7z(
     cmd.extend([f"-p{password}"])
     
     try:
-        # Execute 7z command
+        # Execute 7z command with proper encoding handling
         result = subprocess.run(
             cmd,
             capture_output=True,
-            text=True,
-            check=True,
+            text=False,  # Use bytes to avoid encoding issues
+            check=False,  # Don't raise exception on non-zero return code
         )
 
+        # Decode output safely using helper function
+        stdout, stderr = _decode_subprocess_output(result.stdout, result.stderr)
+
         if result.returncode != 0:
-            raise ArchiveError(f"7z command failed ({result.returncode}): {result.stderr.strip()}")
+            raise ArchiveError(f"7z command failed ({result.returncode}): {stderr.strip()}")
 
         # Parse output
         try:
-            files_info = _parse7zListOutput(result.stdout)
+            files_info = _parse7zListOutput(stdout)
             return files_info
         except Exception as e:
             raise ArchiveParsingError(f"Failed to parse 7z output: {str(e)}")
         
     except subprocess.CalledProcessError as e:
-        stderr_lower = e.stderr.lower()
+        # This shouldn't happen with check=False, but just in case
+        stderr_lower = str(e.stderr).lower()
 
         if "wrong password" in stderr_lower or "cannot open encrypted archive" in stderr_lower:
             raise ArchivePasswordError(f"Incorrect password or password required for: {archive_path}")
@@ -289,7 +341,7 @@ def extractArchiveWith7z(
     except OSError as e:
         raise ArchiveError(f"Failed to create output directory: {e}")
     
-    # Build command
+    # Build command - 7z can handle SFX files directly without special flags
     cmd = [seven_zip_path, "x", archive_path, f"-o{output_path}"]
     
     # Add password if provided
@@ -306,21 +358,29 @@ def extractArchiveWith7z(
         cmd.extend(specific_files)
     
     try:
-        # Execute 7z command
+        # Execute 7z command with proper encoding handling
         result = subprocess.run(
             cmd,
             capture_output=True,
-            text=True,
-            check=True,
+            text=False,  # Use bytes to avoid encoding issues
+            check=False,  # Don't raise exception on non-zero return code
         )
+        
+        # Decode output safely using helper function
+        stdout, stderr = _decode_subprocess_output(result.stdout, result.stderr)
 
         if result.returncode != 0:
-            raise ArchiveError(f"7z extraction failed ({result.returncode}): {result.stderr.strip()}")
+            raise ArchiveError(f"7z extraction failed ({result.returncode}): {stderr.strip()}")
 
         return True
         
     except subprocess.CalledProcessError as e:
-        stderr_lower = e.stderr.lower()
+        # This shouldn't happen since we use check=False, but handle it just in case
+        if hasattr(e, 'stderr') and e.stderr:
+            _, stderr = _decode_subprocess_output(b'', e.stderr)
+        else:
+            stderr = str(e)
+        stderr_lower = stderr.lower()
 
         # Check for Windows path-related errors
         if ("cannot create folder" in stderr_lower or 
@@ -383,19 +443,22 @@ def _extractWithSanitizedPaths(
         result = subprocess.run(
             temp_cmd,
             capture_output=True,
-            text=True,
+            text=False,  # Use bytes to avoid encoding issues
             check=False,  # Don't raise exception on non-zero return
         )
         
+        # Decode output safely using helper function
+        stdout, stderr = _decode_subprocess_output(result.stdout, result.stderr)
+        
         if result.returncode != 0:
             # If still failing, it's likely a password or corruption issue
-            stderr_lower = result.stderr.lower()
+            stderr_lower = stderr.lower()
             if "wrong password" in stderr_lower or "cannot open encrypted archive" in stderr_lower:
                 raise ArchivePasswordError(f"Incorrect password or password required for: {archive_path}")
             elif "data error" in stderr_lower or "crc failed" in stderr_lower:
                 raise ArchiveCorruptedError(f"Archive appears to be corrupted: {archive_path}")
             else:
-                raise ArchiveError(f"7z extraction error ({result.returncode}): {result.stderr.strip()}")
+                raise ArchiveError(f"7z extraction error ({result.returncode}): {stderr.strip()}")
         
         # Now move files from temp directory to final destination with sanitized names
         try:
@@ -732,9 +795,11 @@ def extract_nested_archives(
         password_required = False
         
         # Try all provided passwords first
+        if passwords_to_try:
+            print_info(f"🔐 Trying {len(passwords_to_try)} passwords 尝试 {len(passwords_to_try)} 个密码...", 1)
+        
         for pwd in passwords_to_try:
             try:
-                print_password_attempt(pwd)
                 success = extractArchiveWith7z(
                     archive_path=archive_file,
                     output_path=extract_to,
@@ -748,7 +813,6 @@ def extract_nested_archives(
                     return True, pwd
                     
             except ArchivePasswordError:
-                print_password_failed(pwd)
                 password_required = True  # Mark that this is a valid archive that needs password
                 continue
                 
@@ -769,8 +833,7 @@ def extract_nested_archives(
                     print_info(f"Skipping remaining passwords for this archive 跳过此档案的剩余密码", 2)
                     return False, ""
                 else:
-                    # Other archive errors might be password-related, continue
-                    print_error(f"Extraction failed with password 使用密码提取失败 {'(empty)' if pwd == '' else pwd}: {str(e)}", 1)
+                    # Other archive errors might be password-related, continue with next password
                     continue
                     
             except Exception as e:
@@ -781,6 +844,9 @@ def extract_nested_archives(
         
         # Only prompt user for passwords if we confirmed this is a valid archive that requires password
         if interactive and not skip_all_prompts and password_required:
+            if passwords_to_try:
+                print_warning(f"None of the {len(passwords_to_try)} provided passwords worked 提供的 {len(passwords_to_try)} 个密码都无效", 1)
+                
             while True:
                 user_password = _promptUserForPassword(archive_name, active_progress_bars)
                 
@@ -809,7 +875,8 @@ def extract_nested_archives(
                         return True, user_password
                         
                 except ArchivePasswordError:
-                    print_error("User password is incorrect 用户密码不正确", 1)
+                    # Don't count password failures as errors - use warning instead
+                    print_password_failed(user_password)
                     
                     # Stop loading indicator for user input
                     if loading_indicator and hasattr(loading_indicator, 'stop'):
@@ -880,7 +947,7 @@ def extract_nested_archives(
             if password_required:
                 print_warning(f"Archive requires password but user chose to skip 档案需要密码但用户选择跳过: {archive_name}", 1)
             else:
-                print_error(f"Failed to extract archive 提取档案失败: {archive_name}", 1)
+                print_warning(f"Failed to extract archive 提取档案失败: {archive_name}", 1)
         
         return False, ""
     
@@ -974,10 +1041,10 @@ def extract_nested_archives(
                     print_info(f"在深度 {depth} 未发现更多嵌套档案", 3)
             
             else:
-                error_msg = f"Failed to extract 提取失败: {current_archive} (tried all passwords 尝试了所有密码)"
-                result['errors'].append(error_msg)
-                result['success'] = False
-                print_error(error_msg, 2)
+                # Extraction failed - but this could be due to password issues, which are not "errors"
+                # Only add to errors if it's a system/technical error, not password-related
+                print_warning(f"Could not extract 无法提取: {current_archive} (tried all available passwords 尝试了所有可用密码)", 2)
+                # Note: This is not added to errors list as it's likely a password issue, not a system error
                 
         except Exception as e:
             error_msg = f"Error extracting 提取错误 {current_archive}: {e}"

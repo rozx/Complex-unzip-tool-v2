@@ -8,10 +8,11 @@ from send2trash import send2trash
 from click import group
 
 from .rich_utils import print_error, print_success, print_warning
-from .const import MULTI_PART_PATTERNS, IGNORED_FILES
+from .const import MULTI_PART_PATTERNS, IGNORED_FILES, OUTPUT_FOLDER
 from ..classes.ArchiveGroup import ArchiveGroup
 from .utils import get_string_similarity
 from .archive_extension_utils import detect_archive_extension
+from .cloaked_file_detector import CloakedFileDetector
 
 
 def get_archive_base_name(file_path: str) -> tuple[str, str]:
@@ -45,6 +46,9 @@ def read_dir(file_paths: list[str]) -> list[str]:
         if os.path.isdir(path):
             # Read files from directory
             for root, dirs, files in os.walk(path):
+                # Skip the output folder and any subdirectories within it
+                dirs[:] = [d for d in dirs if d != OUTPUT_FOLDER]
+                
                 for filename in files:
                     if filename not in IGNORED_FILES:
                         result.append(os.path.join(root, filename))
@@ -174,10 +178,53 @@ def _have_matching_multipart_pattern(file_path1: str, file_path2: str) -> bool:
     return False
 
 
+def _is_likely_archive(file_path: str) -> bool:
+    """
+    Pre-filter to determine if a file is likely to be a valid archive.
+    This helps skip obviously non-archive files early to avoid unnecessary processing.
+    用于判断文件是否可能是有效档案的预过滤器。
+    """
+    try:
+        filename = os.path.basename(file_path)
+        
+        # Check common archive extensions first (fast path)
+        common_archive_exts = {'.7z', '.zip', '.rar', '.tar', '.gz', '.bz2', '.xz', 
+                             '.cab', '.iso', '.dmg', '.pkg', '.deb', '.rpm'}
+        file_ext = os.path.splitext(filename.lower())[1]
+        if file_ext in common_archive_exts:
+            return True
+        
+        # Check for multipart archive patterns
+        for pattern in MULTI_PART_PATTERNS:
+            if re.search(pattern, filename, re.IGNORECASE):
+                return True
+        
+        # For files without clear extensions or suspicious files, use signature detection
+        # But only for files that might be SFX or cloaked archives
+        if not file_ext or file_ext in {'.exe', '.bin', '.dat', '.tmp'}:
+            # Use the enhanced signature detection
+            detected_type = detect_archive_extension(file_path)
+            return detected_type is not None
+        
+        # For other file types, assume they're not archives
+        return False
+        
+    except Exception:
+        # If there's any error, err on the side of caution and include the file
+        return True
+
+
 def create_groups_by_name(file_paths: list[str]) -> list[ArchiveGroup]:
     """Create Archive Groups by name 按名称创建档案组"""
     groups: list[ArchiveGroup] = []
+    skipped_files_count = 0
+    
     for path in file_paths:
+        # Pre-filter: Skip files that are clearly not archives
+        if not _is_likely_archive(path):
+            skipped_files_count += 1
+            continue
+            
         # get base name and directory name using the new function
         name, ext = get_archive_base_name(path)
         dir_name = os.path.dirname(path).split(os.path.sep)[-1]
@@ -187,15 +234,29 @@ def create_groups_by_name(file_paths: list[str]) -> list[ArchiveGroup]:
         found_group = False
         for group in groups:
             if _should_group_files(group_name, group.name, path, group.files[0] if group.files else ""):
-                group.add_file(path)
-                found_group = True
-                break
+                try:
+                    group.add_file(path)
+                    found_group = True
+                    break
+                except ValueError as e:
+                    # Archive signature validation failed - remove the group silently
+                    groups.remove(group)
+                    skipped_files_count += 1
+                    break
                 
 
         if not found_group:
             new_group = ArchiveGroup(group_name)
-            new_group.add_file(path)
-            groups.append(new_group)
+            try:
+                new_group.add_file(path)
+                groups.append(new_group)
+            except ValueError as e:
+                # Archive signature validation failed - count it silently
+                skipped_files_count += 1
+
+    # Show summary of skipped files if any
+    if skipped_files_count > 0:
+        print_warning(f"⚠ Skipped {skipped_files_count} file(s) with invalid archive signatures")
 
     # and finally sort it by name
     for group in groups:
@@ -203,247 +264,61 @@ def create_groups_by_name(file_paths: list[str]) -> list[ArchiveGroup]:
 
     return groups
 
-def uncloak_file_extension_for_groups(groups: list[ArchiveGroup]) -> None:
-    """Uncloak file extensions for groups 为组揭示文件扩展名"""
+def uncloak_file_extension_for_groups(groups: list[ArchiveGroup], rules_file_path: str = None) -> None:
+    """
+    Uncloak file extensions for groups using rule-based detection.
+    使用基于规则的检测为组揭示文件扩展名。
+    
+    Args:
+        groups: List of ArchiveGroup objects to process
+        rules_file_path: Path to JSON rules file (optional, uses default if not provided)
+    """
+    # Use default rules file if not provided
+    if rules_file_path is None:
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        config_dir = os.path.join(os.path.dirname(current_dir), "config")
+        rules_file_path = os.path.join(config_dir, "cloaked_file_rules.json")
+    
+    # Initialize the detector
+    detector = CloakedFileDetector(rules_file_path)
     
     for group in groups:
         for i, file in enumerate(group.files):
             original_file = file
-            new_path = _uncloak_single_file(file)
+            new_path = detector.uncloak_file(file)
             
             if new_path != original_file:
-                rename_file(original_file, new_path)
-                group.files[i] = new_path
-                if group.mainArchiveFile == original_file:
-                    group.mainArchiveFile = new_path
-
-def _format_part_number(part_number: str, digit_count: int) -> str:
-    """
-    Format part number with proper zero-padding based on original digit count.
-    根据原始数字计数格式化部分编号，使用适当的零填充。
-    
-    Args:
-        part_number: The part number as string
-        digit_count: Original number of digits (1, 2, or 3)
-    
-    Returns:
-        Formatted part number with proper padding
-    """
-    if digit_count == 3:
-        return f"{int(part_number):03d}"
-    elif digit_count == 2:
-        return f"{int(part_number):02d}"
-    else:
-        return part_number
-
-
-def _generate_first_part_candidates(base_name: str, digit_count: int, dirname: str) -> list[str]:
-    """
-    Generate candidate paths for the first part of a multi-part archive.
-    为多部分档案的第一部分生成候选路径。
-    
-    Args:
-        base_name: Base name without part number
-        digit_count: Number of digits in part numbering
-        dirname: Directory path
-    
-    Returns:
-        List of candidate file paths to check
-    """
-    if digit_count == 3:
-        first_part_extensionless = f"{base_name}001"
-        first_part_formatted = f"{base_name}.7z.001"
-    elif digit_count == 2:
-        first_part_extensionless = f"{base_name}01"
-        first_part_formatted = f"{base_name}.7z.01"
-    else:
-        first_part_extensionless = f"{base_name}1"
-        first_part_formatted = f"{base_name}.7z.1"
-    
-    return [
-        os.path.join(dirname, first_part_extensionless),
-        os.path.join(dirname, first_part_formatted)
-    ]
-
-
-def _detect_archive_type_from_first_part(base_name: str, digit_count: int, dirname: str) -> str | None:
-    """
-    Try to detect archive type by finding and examining the first part of a multi-part archive.
-    通过查找和检查多部分档案的第一部分来尝试检测档案类型。
-    
-    Args:
-        base_name: Base name without part number
-        digit_count: Number of digits in part numbering
-        dirname: Directory path
-    
-    Returns:
-        Archive type if detected, None otherwise
-    """
-    from .archive_extension_utils import detect_archive_info
-    
-    first_part_candidates = _generate_first_part_candidates(base_name, digit_count, dirname)
-    
-    for first_part_path in first_part_candidates:
-        if os.path.exists(first_part_path):
-            first_info = detect_archive_info(first_part_path)
-            if first_info and first_info['type']:
-                return first_info['type']
-    
-    return None
-
-
-def _handle_extensionless_file_with_parts(file_path: str, filename: str, dirname: str) -> str:
-    """
-    Handle extensionless files that might be archive parts with embedded part numbers.
-    处理可能是带有嵌入部分编号的档案部分的无扩展名文件。
-    
-    Examples:
-        "3729457aaa001" -> "3729457aaa.7z.001"
-        "archive002" -> "archive.7z.002"
-    
-    Args:
-        file_path: Full path to the file
-        filename: Just the filename without directory
-        dirname: Directory path
-    
-    Returns:
-        New file path with proper extension, or original if no changes needed
-    """
-    from .archive_extension_utils import detect_archive_info
-    from .regex import PART_NUMBER_PATTERNS
-    
-    for pattern, digit_count in PART_NUMBER_PATTERNS:
-        part_match = re.search(pattern, filename)
-        if part_match:
-            part_number = part_match.group(1)
-            base_name = filename[:-digit_count]  # Everything except the digits
-            
-            # Skip if base name is too short (likely not a real filename)
-            if len(base_name) < 2:
-                continue
-            
-            # Try to detect archive type by file signature first
-            if os.path.exists(file_path):
-                info = detect_archive_info(file_path)
-                if info and info['type']:
-                    archive_type = info['type']
+                if os.path.exists(new_path):
+                    group.files[i] = new_path
+                    if group.mainArchiveFile == original_file:
+                        group.mainArchiveFile = new_path
                 else:
-                    # If current file doesn't have signature, try to find first part
-                    current_part_num = int(part_number)
-                    if current_part_num > 1:
-                        archive_type = _detect_archive_type_from_first_part(base_name, digit_count, dirname)
-                    else:
-                        archive_type = None
-                
-                if archive_type:
-                    formatted_part = _format_part_number(part_number, digit_count)
-                    new_filename = f"{base_name}.{archive_type}.{formatted_part}"
-                    return os.path.join(dirname, new_filename)
-            
-            # Only try the first matching pattern
-            break
-    
-    return file_path
+                    print_warning(f"⚠ Failed to rename file '{original_file}' to '{new_path}'. File does not exist. Group not updated.")
 
 
-def _is_already_multipart_format(filename: str) -> bool:
+def uncloak_file_extensions(file_paths: list[str], rules_file_path: str = None) -> list[str]:
     """
-    Check if a file already has proper multi-part archive format.
-    检查文件是否已经具有正确的多部分档案格式。
-    
-    Examples of files that should NOT be renamed:
-        "单词表.xls.001" -> True (already proper format)
-        "document.pdf.002" -> True (already proper format)
-        "archive.txt" -> False (not a part file)
+    Uncloak file extensions for a list of file paths using rule-based detection.
+    使用基于规则的检测为文件路径列表解除文件扩展名隐藏。
     
     Args:
-        filename: The filename to check
-    
-    Returns:
-        True if file already has proper multi-part format, False otherwise
-    """
-    from .regex import MULTIPART_EXTENSION_PATTERNS
-    
-    for pattern in MULTIPART_EXTENSION_PATTERNS:
-        if re.search(pattern, filename):
-            return True
-    return False
-
-
-def _uncloak_single_file(file_path: str) -> str:
-    """
-    Uncloak a single file's extension, handling various cloaking patterns.
-    解除单个文件扩展名的隐藏，处理各种隐藏模式。
-    
-    This function handles two main scenarios:
-    1. Extensionless files that might be archives with embedded part numbers
-       无扩展名文件，可能是带有嵌入部分编号的档案
-       Example: "3729457aaa001" -> "3729457aaa.7z.001"
-    
-    2. Files with extensions that need archive type detection
-       需要档案类型检测的带扩展名文件
-       Example: "archive.bin" -> "archive.7z" (if .bin is actually a 7z file)
-    
-    Args:
-        file_path: Full path to the file to uncloak
-    
-    Returns:
-        New file path with proper extension, or original path if no changes needed
-    """
-    filename = os.path.basename(file_path)
-    dirname = os.path.dirname(file_path)
-    
-    if '.' not in filename:
-        # Handle extensionless files that might be archives with part numbers
-        new_path = _handle_extensionless_file_with_parts(file_path, filename, dirname)
-        if new_path != file_path:
-            return new_path
+        file_paths: List of file paths to process
+        rules_file_path: Path to JSON rules file (optional, uses default if not provided)
         
-        # For extensionless files that don't match part patterns, try general detection
-        true_ext = detect_archive_extension(file_path)
-        if true_ext:
-            new_filename = f"{filename}.{true_ext}"
-            return os.path.join(dirname, new_filename)
-    else:
-        # Check if file already has proper multi-part archive format
-        if _is_already_multipart_format(filename):
-            return file_path  # Don't rename files that already have proper format
-        
-        # Try to detect and fix incorrect extensions for files with extensions
-        true_ext = detect_archive_extension(file_path)
-        if true_ext:
-            name, current_ext = get_archive_base_name(file_path)
-            potential_new_name = f"{name}.{true_ext}"
-            potential_new_path = os.path.join(dirname, potential_new_name)
-            
-            # Only rename if this would result in a different filename
-            if potential_new_path != file_path:
-                return potential_new_path
-    
-    # If no changes needed, return original path
-    return file_path
-
-def uncloak_file_extensions(file_paths: list[str]) -> list[str]:
+    Returns:
+        The updated file paths list with proper extensions.
     """
-    Uncloak file extensions for a list of file paths before creating groups.
-    为文件路径列表揭示文件扩展名，在创建组之前进行。
-    Returns the updated file paths list with proper extensions.
-    """
-    updated_paths = []
+    # Use default rules file if not provided
+    if rules_file_path is None:
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        config_dir = os.path.join(os.path.dirname(current_dir), "config")
+        rules_file_path = os.path.join(config_dir, "cloaked_file_rules.json")
     
-    for file_path in file_paths:
-        if os.path.exists(file_path):
-            new_path = _uncloak_single_file(file_path)
-            
-            if new_path != file_path:
-                # Rename the actual file
-                rename_file(file_path, new_path)
-                updated_paths.append(new_path)
-            else:
-                updated_paths.append(file_path)
-        else:
-            # If file doesn't exist, keep original path
-            updated_paths.append(file_path)
+    # Initialize the detector
+    detector = CloakedFileDetector(rules_file_path)
+    
+    # Process all files
+    updated_paths = detector.uncloak_files(file_paths)
     
     return updated_paths
 

@@ -1,0 +1,67 @@
+{
+  "rules": [
+    {
+      "name": "cloaked_7z_multipart",
+      "filename_pattern": "^(.+)\\.7z.+$",
+      "ext_pattern": "^(\\d{3})$",
+      "priority": 100,
+      "matching_type": "both",
+      "type": "7z",
+      "enabled": true
+    },
+    {
+      "name": "cloaked_rar_multipart", 
+      "filename_pattern": "^(.+)\\.rar.+$",
+      "ext_pattern": "^(r\\d{2})$",
+      "priority": 100,
+      "matching_type": "both",
+      "type": "rar",
+      "enabled": true
+    },
+    {
+      "name": "cloaked_zip_multipart",
+      "filename_pattern": "^(.+)\\.zip.+$",
+      "ext_pattern": "^(z\\d{2}|\\d{3})$",
+      "priority": 100,
+      "matching_type": "both", 
+      "type": "zip",
+      "enabled": true
+    },
+    {
+      "name": "cloaked_multipart_with_disguise",
+      "filename_pattern": "^(.+)\\.(7z|rar|zip).+$",
+      "ext_pattern": "^(\\d{2,3}|r\\d{2}|z\\d{2})$",
+      "priority": 95,
+      "matching_type": "both",
+      "type": "auto",
+      "enabled": true
+    },
+    {
+      "name": "cloaked_extensionless_with_disguise",
+      "filename_pattern": "^([^.]+)$",
+      "ext_pattern": "^(\\d{3})$",
+      "priority": 90,
+      "matching_type": "both",
+      "type": "7z",
+      "enabled": true
+    },
+    {
+      "name": "cloaked_extensionless_direct_digits",
+      "filename_pattern": "^(.+)(\\d{3})$",
+      "ext_pattern": "",
+      "priority": 10,
+      "matching_type": "both",
+      "type": "7z",
+      "enabled": true
+    },
+    {
+      "name": "generic_cloaked_multipart",
+      "filename_pattern": "^(.+)$",
+      "ext_pattern": "^(\\d{1,3})$",
+      "priority": 80,
+      "matching_type": "both",
+      "type": "7z",
+      "enabled": true
+    }
+  ]
+}
