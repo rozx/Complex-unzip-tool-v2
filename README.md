@@ -45,6 +45,7 @@ Complex Unzip Tool v2 is a robust and intelligent archive extraction utility tai
 - **⚡ High Performance | 高性能**: Efficient extraction with progress tracking | 高效提取并支持进度跟踪
 - **🛡️ Error Recovery | 错误恢复**: Robust error handling and recovery mechanisms | 强大的错误处理和恢复机制
 - **🔧 Batch Processing | 批量处理**: Handle multiple files and folders in one operation | 在一次操作中处理多个文件和文件夹
+- **🗂️ Safe File Deletion | 安全文件删除**: Original archives are moved to Recycle Bin by default instead of permanent deletion | 原始档案默认移动到回收站而非永久删除
 
 ## 📋 Requirements | 系统要求
 
@@ -148,6 +149,20 @@ poetry run main "C:\archive1.zip" "C:\archive2.rar"
 # Show version information | 显示版本信息
 complex-unzip-tool-v2.exe --version  # For standalone | 独立版本
 poetry run main --version           # For development | 开发版本
+
+# Permanently delete original files instead of moving to recycle bin | 永久删除原始文件而不是移动到回收站
+complex-unzip-tool-v2.exe --permanent-delete "C:\archive.zip"  # For standalone | 独立版本
+poetry run main --permanent-delete "C:\archive.zip"           # For development | 开发版本
+```
+
+**🗂️ File Deletion Behavior | 文件删除行为**
+
+By default, original archive files are moved to the **Recycle Bin** after successful extraction, allowing you to recover them if needed.
+
+默认情况下，原始档案文件在成功提取后会被移动到**回收站**，如果需要可以恢复它们。
+
+- **Default behavior | 默认行为**: Archives are moved to Recycle Bin | 档案被移动到回收站
+- **Permanent deletion | 永久删除**: Use `--permanent-delete` flag to permanently delete files | 使用 `--permanent-delete` 标志永久删除文件
 
 # Show help | 显示帮助
 complex-unzip-tool-v2.exe --help    # For standalone | 独立版本

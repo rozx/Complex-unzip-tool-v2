@@ -398,7 +398,8 @@ def extract_nested_archives(
     password_list: Optional[List[str]] = None,
     interactive: bool = True,
     loading_indicator = None,
-    active_progress_bars: Optional[List] = None
+    active_progress_bars: Optional[List] = None,
+    use_recycle_bin: bool = True
 ) -> Dict[str, Union[bool, List[str]]]:
     """
     Recursively extract archives within archives until no more archives are found.
@@ -749,8 +750,12 @@ def extract_nested_archives(
                 # Delete the processed archive file if cleanup is enabled and it's not the original
                 if cleanup_archives and current_archive != archive_path:
                     try:
-                        os.remove(current_archive)
-                        print_success(f"Cleaned up archive 已清理档案: {os.path.basename(current_archive)}", 2)
+                        from .file_utils import safe_remove
+                        safe_remove(current_archive, use_recycle_bin=use_recycle_bin)
+                        if use_recycle_bin:
+                            print_success(f"Moved nested archive to recycle bin 已将嵌套档案移至回收站: {os.path.basename(current_archive)}", 2)
+                        else:
+                            print_success(f"Cleaned up archive 已清理档案: {os.path.basename(current_archive)}", 2)
                     except OSError as e:
                         error_msg = f"Failed to delete 删除失败 {current_archive}: {e}"
                         result['errors'].append(error_msg)

@@ -3,10 +3,11 @@ import re
 import shutil
 import struct
 import typer
+from send2trash import send2trash
 
 from click import group
 
-from .rich_utils import print_error, print_success
+from .rich_utils import print_error, print_success, print_warning
 from .const import MULTI_PART_PATTERNS, IGNORED_FILES
 from ..classes.ArchiveGroup import ArchiveGroup
 from .utils import get_string_similarity
@@ -65,6 +66,31 @@ def rename_file(old_path: str, new_path: str) -> None:
         os.rename(old_path, new_path)
     except Exception as e:
         print_error(f"Error renaming file 重命名文件错误 {old_path} to {new_path}: {e}")
+
+def safe_remove(file_path: str, use_recycle_bin: bool = True) -> bool:
+    """
+    Safely remove a file, optionally moving it to recycle bin instead of permanent deletion.
+    安全删除文件，可选择移动到回收站而不是永久删除。
+    
+    Args:
+        file_path (str): Path to the file to remove
+        use_recycle_bin (bool): If True, move to recycle bin; if False, permanently delete
+        
+    Returns:
+        bool: True if successful, False otherwise
+    """
+    try:
+        if os.path.exists(file_path):
+            if use_recycle_bin:
+                send2trash(file_path)
+                return True
+            else:
+                os.remove(file_path)
+                return True
+        return False
+    except Exception as e:
+        print_error(f"Error removing file 删除文件错误 {file_path}: {e}")
+        return False
 
 def _should_group_files(group_name1: str, group_name2: str, file_path1: str, file_path2: str) -> bool:
     """

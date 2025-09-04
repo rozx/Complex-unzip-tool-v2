@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "complex-unzip-tool-v2"
-version = "1.0.1"
+version = "1.0.2"
 description = "A powerful tool for extracting complex archive files with password support and multipart handling"
 authors = ["Rozx <lisida900710@gmail.com>"]
 readme = "README.md"
@@ -10,6 +10,7 @@ packages = [{include = "complex_unzip_tool_v2"}]
 python = ">=3.11,<3.15"
 typer = "^0.17.3"
 rich = "^14.1.0"
+send2trash = "^1.8.3"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^7.4.0"

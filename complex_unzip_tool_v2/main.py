@@ -32,7 +32,8 @@ def _ask_for_user_input_and_exit() -> None:
 def main_callback(
     ctx: typer.Context,
     paths: Annotated[Optional[List[str]], typer.Argument(help="Archive paths to extract 要提取的档案路径")] = None,
-    version: bool = typer.Option(False, "--version", "-v", help="Show version information 显示版本信息")
+    version: bool = typer.Option(False, "--version", "-v", help="Show version information 显示版本信息"),
+    permanent_delete: bool = typer.Option(False, "--permanent-delete", "-pd", help="Permanently delete original files instead of moving to recycle bin 永久删除原始文件而不是移动到回收站")
 ) -> None:
     """Complex Unzip Tool v2 - Advanced Archive Extraction Utility 复杂解压工具v2 - 高级档案提取实用程序"""
     if version:
@@ -44,7 +45,7 @@ def main_callback(
     if ctx.invoked_subcommand is None:
         if paths:
             # Call extract_files directly instead of extract command
-            extract_files(paths)
+            extract_files(paths, use_recycle_bin=not permanent_delete)
         else:
             # Show help when no paths are provided
             print_general(ctx.get_help())
@@ -57,11 +58,14 @@ def version() -> None:
     print_version(__version__)
     _ask_for_user_input_and_exit()
 
-def extract(paths: Annotated[List[str], typer.Argument(help="Paths to the archives to extract 要提取的档案路径")]) -> None:
+def extract(
+    paths: Annotated[List[str], typer.Argument(help="Paths to the archives to extract 要提取的档案路径")],
+    permanent_delete: bool = typer.Option(False, "--permanent-delete", "-pd", help="Permanently delete original files instead of moving to recycle bin 永久删除原始文件而不是移动到回收站")
+) -> None:
     """Extract files from an archive 从档案中提取文件"""
-    extract_files(paths)
+    extract_files(paths, use_recycle_bin=not permanent_delete)
 
-def extract_files(paths: List[str]) -> None:
+def extract_files(paths: List[str], use_recycle_bin: bool = True) -> None:
     """Shared extraction logic 共享提取逻辑"""
     
     # Header with fancy border
@@ -169,7 +173,8 @@ def extract_files(paths: List[str]) -> None:
                     max_depth=10,
                     cleanup_archives=True,
                     loading_indicator=loader,
-                    active_progress_bars=[extraction_progress]
+                    active_progress_bars=[extraction_progress],
+                    use_recycle_bin=use_recycle_bin
                 )
                 
                 loader.stop()
@@ -230,8 +235,11 @@ def extract_files(paths: List[str]) -> None:
                         # Remove the original archive file
                         try:
                             if os.path.exists(group.mainArchiveFile):
-                                os.remove(group.mainArchiveFile)
-                                print_success("Removed original archive 已删除原始档案:", 2)
+                                file_utils.safe_remove(group.mainArchiveFile, use_recycle_bin=use_recycle_bin)
+                                if use_recycle_bin:
+                                    print_success("Moved original archive to recycle bin 已将原始档案移至回收站:", 2)
+                                else:
+                                    print_success("Removed original archive 已删除原始档案:", 2)
                                 print_file_path(os.path.basename(group.mainArchiveFile), 3)
                         except Exception as e:
                             print_warning(f"Could not remove original archive 无法删除原始档案:", 2)
@@ -348,7 +356,8 @@ def extract_files(paths: List[str]) -> None:
                     max_depth=10,
                     cleanup_archives=True,
                     loading_indicator=loader,
-                    active_progress_bars=[multipart_progress]
+                    active_progress_bars=[multipart_progress],
+                    use_recycle_bin=use_recycle_bin
                 )
                 
                 loader.stop()
@@ -389,11 +398,14 @@ def extract_files(paths: List[str]) -> None:
 
                             print_processing_separator()
                             # Remove the original archive file
-                            print_info(f"Removing {len(group.files)} archive parts 正在删除 {len(group.files)} 个档案部分...", 2)
+                            if use_recycle_bin:
+                                print_info(f"Moving {len(group.files)} archive parts to recycle bin 正在将 {len(group.files)} 个档案部分移至回收站...", 2)
+                            else:
+                                print_info(f"Removing {len(group.files)} archive parts 正在删除 {len(group.files)} 个档案部分...", 2)
                             try:
                                 for archive_file in group.files:
                                     if os.path.exists(archive_file):
-                                        os.remove(archive_file)
+                                        file_utils.safe_remove(archive_file, use_recycle_bin=use_recycle_bin)
                                         print_success(f"✓ {os.path.basename(archive_file)}", 3)
                             except Exception as e:
                                 print_warning(f"Could not remove some archive parts 无法删除某些档案部分: {e}", 2)
