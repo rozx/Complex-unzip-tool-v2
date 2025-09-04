@@ -1,6 +1,6 @@
 # Complex Unzip Tool v2 | 复杂解压工具
 
-[![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](https://github.com/rozx/Complex-unzip-tool-v2)
+![GitHub Release](https://img.shields.io/github/v/release/rozx/Complex-unzip-tool-v2)
 [![Python](https://img.shields.io/badge/python-3.11+-green.svg)](https://python.org)
 [![License](https://img.shields.io/badge/license-MIT-yellow.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Windows-lightgrey.svg)](https://github.com/rozx/Complex-unzip-tool-v2)
