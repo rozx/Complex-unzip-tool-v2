@@ -32,13 +32,13 @@ class CloakedFileRule:
         if self.matching_type not in ["both", "filename", "ext"]:
             raise ValueError(f"Invalid matching_type: {self.matching_type}")
         
-        if self.matching_type == "both" and not (self.filename_pattern and self.ext_pattern):
+        if self.matching_type == "both" and (not self.filename_pattern or self.ext_pattern is None):
             raise ValueError("Both filename_pattern and ext_pattern required for matching_type 'both'")
         
         if self.matching_type == "filename" and not self.filename_pattern:
             raise ValueError("filename_pattern required for matching_type 'filename'")
         
-        if self.matching_type == "ext" and not self.ext_pattern:
+        if self.matching_type == "ext" and self.ext_pattern is None:
             raise ValueError("ext_pattern required for matching_type 'ext'")
 
 
@@ -119,31 +119,54 @@ class CloakedFileDetector:
         original_ext = ""
 
         if rule.matching_type == "both":
-            # Match both filename and extension patterns
-            filename_match = re.match(rule.filename_pattern, name_part)
-            ext_match = re.match(rule.ext_pattern, ext_part) if ext_part else None
+            # For 'both' type, we need to be careful about what we match against
+            # If the rule expects no extension (empty ext_pattern), match against full filename
+            # Otherwise, match filename_pattern against name_part only
+            if rule.ext_pattern == "":
+                # Rule expects no extension, so match pattern against full filename
+                filename_match = re.match(rule.filename_pattern, filename)
+                ext_match = not ext_part  # True if no extension
+            else:
+                # Rule expects an extension, so match filename pattern against name part
+                filename_match = re.match(rule.filename_pattern, name_part)
+                ext_match = re.match(rule.ext_pattern, ext_part) if ext_part else False
             
             if filename_match and ext_match:
-                if len(filename_match.groups()) >= 1:
-                    base_name = filename_match.group(1)
-                if len(filename_match.groups()) >= 2:
-                    original_ext = filename_match.group(2)
-                if ext_match and len(ext_match.groups()) >= 1:
+                groups = filename_match.groups()
+                if len(groups) >= 1:
+                    base_name = groups[0]
+                if len(groups) >= 2:
+                    original_ext = groups[1]
+                
+                # Handle part number from extension if ext_pattern is not empty
+                if rule.ext_pattern != "" and isinstance(ext_match, re.Match) and len(ext_match.groups()) >= 1:
                     part_number = ext_match.group(1)
+                    
                 return (base_name, original_ext, part_number)
 
         elif rule.matching_type == "filename":
-            # Match filename pattern only
-            filename_match = re.match(rule.filename_pattern, name_part if name_part else filename)
+            # Match filename pattern only - use full filename for cloaked detection
+            filename_match = re.match(rule.filename_pattern, filename)
             
             if filename_match:
                 groups = filename_match.groups()
                 if len(groups) >= 1:
                     base_name = groups[0]
-                if len(groups) >= 2:
-                    part_number = groups[1]
-                if ext_part:
-                    original_ext = ext_part
+                    
+                # Handle different pattern structures
+                if rule.type == "auto" and len(groups) >= 3:
+                    # Pattern has (base_name, archive_type, part_number)
+                    original_ext = groups[1]  # Archive type from pattern
+                    part_number = groups[2]   # Part number
+                elif len(groups) >= 2:
+                    # Pattern has (base_name, part_number)
+                    original_ext = rule.type  # Use rule type
+                    part_number = groups[1]   # Part number
+                else:
+                    # Single group - just base name
+                    original_ext = rule.type
+                    part_number = ""
+                    
                 return (base_name, original_ext, part_number)
 
         elif rule.matching_type == "ext":
@@ -242,12 +265,14 @@ class CloakedFileDetector:
         else:
             return f"{base_name}.{rule.type}"  # Single file, not multipart
 
-        # Generate the new filename
-        if original_ext and original_ext != rule.type:
-            # Keep original extension if it's different from archive type
-            new_filename = f"{base_name}.{original_ext}.{rule.type}.{formatted_part}"
-        else:
-            new_filename = f"{base_name}.{rule.type}.{formatted_part}"
+        # Generate the new filename  
+        archive_type = original_ext if original_ext else rule.type
+        
+        # Don't use "auto" as the actual type - it should have been resolved to the real type
+        if archive_type == "auto":
+            archive_type = "7z"  # Default fallback
+        
+        new_filename = f"{base_name}.{archive_type}.{formatted_part}"
 
         return new_filename
 
