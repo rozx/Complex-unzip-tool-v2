@@ -25,7 +25,9 @@ app = typer.Typer(help="Complex Unzip Tool v2 - Advanced Archive Extraction Util
 
 def _ask_for_user_input_and_exit() -> None:
     """Ask for random user input before exiting the application."""
-    input("Press Enter to exit... 按回车键退出...")
+    # Only ask for input in standalone builds (PyInstaller frozen executables)
+    if getattr(sys, 'frozen', False):
+        input("Press Enter to exit... 按回车键退出...")
     sys.exit(0)
 
 @app.callback(invoke_without_command=True)
