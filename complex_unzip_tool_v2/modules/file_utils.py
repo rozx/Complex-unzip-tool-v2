@@ -288,9 +288,12 @@ def uncloak_file_extension_for_groups(groups: list[ArchiveGroup], rules_file_pat
             new_path = detector.uncloak_file(file)
             
             if new_path != original_file:
-                group.files[i] = new_path
-                if group.mainArchiveFile == original_file:
-                    group.mainArchiveFile = new_path
+                if os.path.exists(new_path):
+                    group.files[i] = new_path
+                    if group.mainArchiveFile == original_file:
+                        group.mainArchiveFile = new_path
+                else:
+                    print_warning(f"⚠ Failed to rename file '{original_file}' to '{new_path}'. File does not exist. Group not updated.")
 
 # =============================================================================
 # LEGACY FUNCTIONS REMOVED - REPLACED WITH RULE-BASED SYSTEM
