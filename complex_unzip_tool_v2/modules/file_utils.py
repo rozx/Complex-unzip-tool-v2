@@ -188,15 +188,28 @@ def create_groups_by_name(file_paths: list[str]) -> list[ArchiveGroup]:
         found_group = False
         for group in groups:
             if _should_group_files(group_name, group.name, path, group.files[0] if group.files else ""):
-                group.add_file(path)
-                found_group = True
-                break
+                try:
+                    group.add_file(path)
+                    found_group = True
+                    break
+                except ValueError as e:
+                    # Archive signature validation failed - remove the group and warn user
+                    print_warning(f"Archive signature validation failed for group '{group.name}' - removing group")
+                    print_warning(f"Error details: {str(e)}")
+                    groups.remove(group)
+                    break
                 
 
         if not found_group:
             new_group = ArchiveGroup(group_name)
-            new_group.add_file(path)
-            groups.append(new_group)
+            try:
+                new_group.add_file(path)
+                groups.append(new_group)
+            except ValueError as e:
+                # Archive signature validation failed - don't add the group and warn user
+                print_warning(f"Archive signature validation failed for new group '{group_name}' - skipping file")
+                print_warning(f"File: {os.path.basename(path)}")
+                print_warning(f"Error details: {str(e)}")
 
     # and finally sort it by name
     for group in groups:
