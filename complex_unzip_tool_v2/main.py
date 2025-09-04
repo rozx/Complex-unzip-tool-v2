@@ -9,7 +9,7 @@ from pathlib import Path
 
 from .modules import file_utils, archive_utils, const, password_util, archive_extension_utils
 from .modules.rich_utils import (
-    print_header, print_step, print_info, print_success, 
+    init_statistics, print_header, print_step, print_info, print_success, 
     print_warning, print_error, print_archive_group_summary,
     print_remaining_groups_warning, print_all_processed_success,
     print_final_completion, print_separator, create_spinner,
@@ -70,6 +70,9 @@ def extract(
 def extract_files(paths: List[str], use_recycle_bin: bool = True) -> None:
     """Shared extraction logic 共享提取逻辑"""
     
+    # Initialize statistics tracking
+    init_statistics()
+    
     # Header with fancy border
     print_header("🚀 Starting Complex Unzip Tool v2 启动复杂解压工具v2")
 
@@ -84,6 +87,7 @@ def extract_files(paths: List[str], use_recycle_bin: bool = True) -> None:
     os.makedirs(output_folder, exist_ok=True)
     print_success("Output folder created 输出文件夹已创建:")
     print_file_path(f"📂 {output_folder}")
+    print_minor_section_break()
 
     # Step 2: Load passwords 加载密码
     print_step(2, "🔑 Loading passwords 加载密码")
@@ -95,6 +99,7 @@ def extract_files(paths: List[str], use_recycle_bin: bool = True) -> None:
     loader.stop()
     
     print_success(f"Loaded {len(passwordBook.get_passwords())} unique passwords 已加载 {len(passwordBook.get_passwords())} 个唯一密码")
+    print_minor_section_break()
 
     # Step 3: Scanning files 扫描文件
     print_step(3, "📂 Scanning files 扫描文件")
@@ -150,7 +155,7 @@ def extract_files(paths: List[str], use_recycle_bin: bool = True) -> None:
     
     if single_archives:
         # Start extraction progress
-        extraction_progress = create_extraction_progress("Single Archives Processing / 单一档案处理")
+        extraction_progress = create_extraction_progress("Single Archives")
         extraction_progress.start(len(single_archives))
         
         for group in single_archives.copy():
@@ -220,7 +225,7 @@ def extract_files(paths: List[str], use_recycle_bin: bool = True) -> None:
                             print_info(f"正在将 {len(final_files)} 个剩余文件移动到输出文件夹...", 3)
                             
                             # Create file operation progress
-                            file_progress = create_file_operation_progress("Moving Files / 移动文件")
+                            file_progress = create_file_operation_progress("Moving Files")
                             file_progress.start(len(final_files))
                             
                             moved_files = file_utils.move_files_preserving_structure(
@@ -282,7 +287,7 @@ def extract_files(paths: List[str], use_recycle_bin: bool = True) -> None:
                         
                         # Remove the group from processing
                         groups.remove(group)
-                        extraction_progress.complete_group()
+                        extraction_progress.complete_group(success=True)
                         print_success("Processing completed 处理完成", 2)
                         print_minor_section_break()
                         
@@ -290,14 +295,14 @@ def extract_files(paths: List[str], use_recycle_bin: bool = True) -> None:
                         print_error("Expected list of files 期望文件列表", 2)
                         print_error(f"Got {type(final_files_raw)} for {group.name}", 3)
                         groups.remove(group)
-                        extraction_progress.complete_group()
+                        extraction_progress.complete_group(success=False)
                 
                 else:
                     print_error(f"Failed to extract 提取失败: {group.name}", 2)
                     if os.path.exists(extraction_temp_path):
                         shutil.rmtree(extraction_temp_path)
                     groups.remove(group)
-                    extraction_progress.complete_group()
+                    extraction_progress.complete_group(success=False)
                     print_minor_section_break()
                     
             except Exception as e:
@@ -311,7 +316,7 @@ def extract_files(paths: List[str], use_recycle_bin: bool = True) -> None:
                     pass
                 finally:
                     groups.remove(group)
-                    extraction_progress.complete_group()
+                    extraction_progress.complete_group(success=False)
                     print_minor_section_break()
                 continue
             
@@ -335,7 +340,7 @@ def extract_files(paths: List[str], use_recycle_bin: bool = True) -> None:
     
     if multipart_archives:
         # Start extraction progress for multipart archives
-        multipart_progress = create_extraction_progress("Multipart Archives Processing / 多部分档案处理")
+        multipart_progress = create_extraction_progress("Multipart Archives")
         multipart_progress.start(len(multipart_archives))
         
         for group in multipart_archives.copy():
@@ -385,7 +390,7 @@ def extract_files(paths: List[str], use_recycle_bin: bool = True) -> None:
                             print_info(f"正在将 {len(final_files)} 个文件移动到输出文件夹...", 3)
                             
                             # Create file operation progress
-                            file_progress = create_file_operation_progress("Moving Multipart Files / 移动多部分文件")
+                            file_progress = create_file_operation_progress("Moving Files")
                             file_progress.start(len(final_files))
                             
                             moved_files = file_utils.move_files_preserving_structure(
@@ -448,7 +453,7 @@ def extract_files(paths: List[str], use_recycle_bin: bool = True) -> None:
 
                             # Remove the group from processing
                             groups.remove(group)
-                            multipart_progress.complete_group()
+                            multipart_progress.complete_group(success=True)
                             print_success("Processing completed 处理完成", 2)
                             print_minor_section_break()
 
@@ -456,14 +461,14 @@ def extract_files(paths: List[str], use_recycle_bin: bool = True) -> None:
                         print_error("Expected list of files 期望文件列表", 2)
                         print_error(f"Got {type(final_files_raw)} for {group.name}", 3)
                         groups.remove(group)
-                        multipart_progress.complete_group()
+                        multipart_progress.complete_group(success=False)
                         print_minor_section_break()
                 else:
                     print_error(f"Failed to extract 提取失败: {group.name}", 2)
                     if os.path.exists(extraction_temp_path):
                         shutil.rmtree(extraction_temp_path)
                     groups.remove(group)
-                    multipart_progress.complete_group()
+                    multipart_progress.complete_group(success=False)
                     print_minor_section_break()
 
             except Exception as e:
@@ -477,7 +482,7 @@ def extract_files(paths: List[str], use_recycle_bin: bool = True) -> None:
                     pass
                 finally:
                     groups.remove(group)
-                    multipart_progress.complete_group()
+                    multipart_progress.complete_group(success=False)
                     print_minor_section_break()
                 continue
             
