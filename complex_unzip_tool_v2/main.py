@@ -25,14 +25,17 @@ app = typer.Typer(help="Complex Unzip Tool v2 - Advanced Archive Extraction Util
 
 def _ask_for_user_input_and_exit() -> None:
     """Ask for random user input before exiting the application."""
-    input("Press Enter to exit... 按回车键退出...")
+    # Only ask for input in standalone builds (PyInstaller frozen executables)
+    if getattr(sys, 'frozen', False):
+        input("Press Enter to exit... 按回车键退出...")
     sys.exit(0)
 
 @app.callback(invoke_without_command=True)
 def main_callback(
     ctx: typer.Context,
     paths: Annotated[Optional[List[str]], typer.Argument(help="Archive paths to extract 要提取的档案路径")] = None,
-    version: bool = typer.Option(False, "--version", "-v", help="Show version information 显示版本信息")
+    version: bool = typer.Option(False, "--version", "-v", help="Show version information 显示版本信息"),
+    permanent_delete: bool = typer.Option(False, "--permanent-delete", "-pd", help="Permanently delete original files instead of moving to recycle bin 永久删除原始文件而不是移动到回收站")
 ) -> None:
     """Complex Unzip Tool v2 - Advanced Archive Extraction Utility 复杂解压工具v2 - 高级档案提取实用程序"""
     if version:
@@ -44,7 +47,7 @@ def main_callback(
     if ctx.invoked_subcommand is None:
         if paths:
             # Call extract_files directly instead of extract command
-            extract_files(paths)
+            extract_files(paths, use_recycle_bin=not permanent_delete)
         else:
             # Show help when no paths are provided
             print_general(ctx.get_help())
@@ -57,11 +60,14 @@ def version() -> None:
     print_version(__version__)
     _ask_for_user_input_and_exit()
 
-def extract(paths: Annotated[List[str], typer.Argument(help="Paths to the archives to extract 要提取的档案路径")]) -> None:
+def extract(
+    paths: Annotated[List[str], typer.Argument(help="Paths to the archives to extract 要提取的档案路径")],
+    permanent_delete: bool = typer.Option(False, "--permanent-delete", "-pd", help="Permanently delete original files instead of moving to recycle bin 永久删除原始文件而不是移动到回收站")
+) -> None:
     """Extract files from an archive 从档案中提取文件"""
-    extract_files(paths)
+    extract_files(paths, use_recycle_bin=not permanent_delete)
 
-def extract_files(paths: List[str]) -> None:
+def extract_files(paths: List[str], use_recycle_bin: bool = True) -> None:
     """Shared extraction logic 共享提取逻辑"""
     
     # Header with fancy border
@@ -74,6 +80,7 @@ def extract_files(paths: List[str]) -> None:
         output_folder = os.path.join(paths[0], const.OUTPUT_FOLDER)
     else:
         output_folder = os.path.join(os.path.dirname(paths[0]), const.OUTPUT_FOLDER)
+
     os.makedirs(output_folder, exist_ok=True)
     print_success("Output folder created 输出文件夹已创建:")
     print_file_path(f"📂 {output_folder}")
@@ -100,46 +107,23 @@ def extract_files(paths: List[str]) -> None:
     loader.start()
     contents = file_utils.read_dir(paths)
     loader.stop()
-    
-    # Display scanning results with a nice table
-    from rich.console import Console
-    from rich.table import Table
-    from rich import box
-    
-    scan_console = Console()
-    scan_table = Table(show_header=True, box=box.ROUNDED)
-    scan_table.add_column("📁 Path Type / 路径类型", style="cyan", width=15)
-    scan_table.add_column("📊 Count / 数量", style="yellow", justify="center", width=10)
-    scan_table.add_column("📝 Details / 详情", style="dim", width=50)
-    
-    # Count different file types
-    archive_extensions = ['.zip', '.rar', '.7z', '.tar', '.gz', '.bz2', '.xz']
-    archive_files = [f for f in contents if any(str(f).lower().endswith(ext) for ext in archive_extensions)]
-    other_files = [f for f in contents if f not in archive_files]
-    
-    scan_table.add_row(
-        "Total Files / 总文件", 
-        f"[bold green]{len(contents)}[/bold green]",
-        f"[dim]All files found in scan / 扫描中发现的所有文件[/dim]"
-    )
-    scan_table.add_row(
-        "Archive Files / 档案", 
-        f"[bold blue]{len(archive_files)}[/bold blue]",
-        f"[dim]Recognized archive formats / 识别的档案格式[/dim]"
-    )
-    scan_table.add_row(
-        "Other Files / 其他", 
-        f"[bold magenta]{len(other_files)}[/bold magenta]",
-        f"[dim]Non-archive files / 非档案文件[/dim]"
-    )
-    
-    scan_console.print()
-    scan_console.print(scan_table)
+
     print_success(f"Scan completed! 扫描完成！")
     print_minor_section_break()
 
-    # Step 4: Create archive groups 创建档案组
-    print_step(4, "📋 Creating archive groups 创建档案组")
+    # Step 4: Uncloak file extensions 揭示文件扩展名
+    print_step(4, "🎭 Uncloaking file extensions 揭示文件扩展名")
+    
+    loader = create_spinner("Uncloaking file extensions 正在揭示文件扩展名...")
+    loader.start()
+    contents = file_utils.uncloak_file_extensions(contents)
+    loader.stop()
+    
+    print_success("File extensions uncloaked 文件扩展名已揭示")
+    print_minor_section_break()
+
+    # Step 5: Create archive groups 创建档案组
+    print_step(5, "📋 Creating archive groups 创建档案组")
     
     loader = create_spinner("Analyzing archive groups 正在分析档案组...")
     loader.start()
@@ -149,21 +133,15 @@ def extract_files(paths: List[str]) -> None:
     print_success(f"Created {len(groups)} archive groups 已创建 {len(groups)} 个档案组")
     print_minor_section_break()
 
-    # Step 5: Processing archive groups 处理档案组
-    print_step(5, "⚙️ Processing archive groups 处理档案组")
-    # Remove this line since print_step already handles the formatting
-
-    # Rename archive files to have the correct extensions
-    print_info("🎭 Uncloaking file extensions 正在揭示文件扩展名...")
-    file_utils.uncloak_file_extension_for_groups(groups)
-    print_minor_section_break()
+    # Step 6: Processing archive groups 处理档案组
+    print_step(6, "⚙️ Processing archive groups 处理档案组")
 
     # Display groups with fancy formatting - use rich function instead
     print_archive_group_summary(groups)
     print_minor_section_break()
 
-    # Step 6: Processing single archives first 首先处理单一档案
-    print_step(6, "🔧 Processing single archives first 首先处理单一档案")
+    # Step 7: Processing single archives first 首先处理单一档案
+    print_step(7, "🔧 Processing single archives first 首先处理单一档案")
     
     print_info("📝 Processing single archive to extract containers 处理单一档案以提取容器...")
 
@@ -196,7 +174,9 @@ def extract_files(paths: List[str]) -> None:
                     password_list=passwordBook.get_passwords(),
                     max_depth=10,
                     cleanup_archives=True,
-                    loading_indicator=loader
+                    loading_indicator=loader,
+                    active_progress_bars=[extraction_progress],
+                    use_recycle_bin=False
                 )
                 
                 loader.stop()
@@ -257,8 +237,11 @@ def extract_files(paths: List[str]) -> None:
                         # Remove the original archive file
                         try:
                             if os.path.exists(group.mainArchiveFile):
-                                os.remove(group.mainArchiveFile)
-                                print_success("Removed original archive 已删除原始档案:", 2)
+                                file_utils.safe_remove(group.mainArchiveFile, use_recycle_bin=use_recycle_bin)
+                                if use_recycle_bin:
+                                    print_success("Moved original archive to recycle bin 已将原始档案移至回收站:", 2)
+                                else:
+                                    print_success("Removed original archive 已删除原始档案:", 2)
                                 print_file_path(os.path.basename(group.mainArchiveFile), 3)
                         except Exception as e:
                             print_warning(f"Could not remove original archive 无法删除原始档案:", 2)
@@ -272,14 +255,14 @@ def extract_files(paths: List[str]) -> None:
                         except Exception as e:
                             print_warning(f"Could not remove temp folder 无法删除临时文件夹: {e}", 2)
 
-                        # Remove the subfolder for group belongs, if not the current folder
+                        # Remove the subfolder for group belongs, if not related to output folder
                         try:
                             # Get the directory containing the archive files
                             archive_dir = os.path.dirname(group.mainArchiveFile)
-                            current_working_dir = os.getcwd()
                             
-                            # Only remove if it's not the current working directory and it's empty after file removal
-                            if os.path.abspath(archive_dir) != os.path.abspath(current_working_dir):
+                            # Only remove if it's not the output folder and doesn't contain the output folder
+                            if (os.path.abspath(archive_dir) != os.path.abspath(output_folder) and 
+                                not os.path.abspath(output_folder).startswith(os.path.abspath(archive_dir) + os.sep)):
                                 # Check if directory is empty (or only contains hidden files/folders)
                                 remaining_items = [item for item in os.listdir(archive_dir) 
                                                  if not item.startswith('.') and item != const.OUTPUT_FOLDER]
@@ -292,7 +275,7 @@ def extract_files(paths: List[str]) -> None:
                                     print_info("Archive subfolder kept (contains other files) 档案子文件夹保留（包含其他文件）:", 2)
                                     print_file_path(os.path.basename(archive_dir), 3)
                             else:
-                                print_info("Archive subfolder is current directory, not removed 档案子文件夹是当前目录，未删除", 2)
+                                print_info("Archive subfolder contains output folder, not removed 档案子文件夹包含输出文件夹，未删除", 2)
                         except Exception as e:
                             print_warning(f"Could not remove archive subfolder 无法删除档案子文件夹: {e}", 2)
 
@@ -344,8 +327,8 @@ def extract_files(paths: List[str]) -> None:
     if user_provided_passwords:
         passwordBook.add_passwords(user_provided_passwords)
 
-    # Step 7: Then handle multipart archives 然后处理多部分档案
-    print_step(7, "🔗 Processing multipart archives 处理多部分档案")
+    # Step 8: Then handle multipart archives 然后处理多部分档案
+    print_step(8, "🔗 Processing multipart archives 处理多部分档案")
     
     # Get multipart archives for progress tracking
     multipart_archives = [group for group in groups if group.isMultiPart]
@@ -374,7 +357,9 @@ def extract_files(paths: List[str]) -> None:
                     password_list=passwordBook.get_passwords(),
                     max_depth=10,
                     cleanup_archives=True,
-                    loading_indicator=loader
+                    loading_indicator=loader,
+                    active_progress_bars=[multipart_progress],
+                    use_recycle_bin=False
                 )
                 
                 loader.stop()
@@ -415,11 +400,14 @@ def extract_files(paths: List[str]) -> None:
 
                             print_processing_separator()
                             # Remove the original archive file
-                            print_info(f"Removing {len(group.files)} archive parts 正在删除 {len(group.files)} 个档案部分...", 2)
+                            if use_recycle_bin:
+                                print_info(f"Moving {len(group.files)} archive parts to recycle bin 正在将 {len(group.files)} 个档案部分移至回收站...", 2)
+                            else:
+                                print_info(f"Removing {len(group.files)} archive parts 正在删除 {len(group.files)} 个档案部分...", 2)
                             try:
                                 for archive_file in group.files:
                                     if os.path.exists(archive_file):
-                                        os.remove(archive_file)
+                                        file_utils.safe_remove(archive_file, use_recycle_bin=use_recycle_bin)
                                         print_success(f"✓ {os.path.basename(archive_file)}", 3)
                             except Exception as e:
                                 print_warning(f"Could not remove some archive parts 无法删除某些档案部分: {e}", 2)
@@ -432,14 +420,14 @@ def extract_files(paths: List[str]) -> None:
                             except Exception as e:
                                 print_warning(f"Could not remove temp folder 无法删除临时文件夹: {e}", 2)
 
-                            # Remove the subfolder for group belongs, if not the current folder
+                            # Remove the subfolder for group belongs, if not related to output folder
                             try:
                                 # Get the directory containing the archive files
                                 archive_dir = os.path.dirname(group.mainArchiveFile)
-                                current_working_dir = os.getcwd()
                                 
-                                # Only remove if it's not the current working directory and it's empty after file removal
-                                if os.path.abspath(archive_dir) != os.path.abspath(current_working_dir):
+                                # Only remove if it's not the output folder and doesn't contain the output folder
+                                if (os.path.abspath(archive_dir) != os.path.abspath(output_folder) and 
+                                    not os.path.abspath(output_folder).startswith(os.path.abspath(archive_dir) + os.sep)):
                                     # Check if directory is empty (or only contains hidden files/folders)
                                     remaining_items = [item for item in os.listdir(archive_dir) 
                                                      if not item.startswith('.') and item != const.OUTPUT_FOLDER]
@@ -452,7 +440,7 @@ def extract_files(paths: List[str]) -> None:
                                         print_info("Archive subfolder kept (contains other files) 档案子文件夹保留（包含其他文件）:", 2)
                                         print_file_path(os.path.basename(archive_dir), 3)
                                 else:
-                                    print_info("Archive subfolder is current directory, not removed 档案子文件夹是当前目录，未删除", 2)
+                                    print_info("Archive subfolder contains output folder, not removed 档案子文件夹包含输出文件夹，未删除", 2)
                             except Exception as e:
                                 print_warning(f"Could not remove archive subfolder 无法删除档案子文件夹: {e}", 2)
 
@@ -506,8 +494,8 @@ def extract_files(paths: List[str]) -> None:
     if user_provided_passwords:
         passwordBook.add_passwords(user_provided_passwords)
 
-    # Step 8: Final summary 最终摘要
-    print_step(8, "📊 Final summary 最终摘要")
+    # Step 9: Final summary 最终摘要
+    print_step(9, "📊 Final summary 最终摘要")
     
     # Show remaining unable to process files
     if groups:

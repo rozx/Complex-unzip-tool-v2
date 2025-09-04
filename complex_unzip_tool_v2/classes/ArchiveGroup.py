@@ -16,7 +16,11 @@ class ArchiveGroup:
             self.isMultiPart = True
 
         # check if the archive is the first part of the multipart
-        if re.search(first_part_regex, file) or not self.mainArchiveFile:
+        # prioritize first part over any existing main archive
+        if re.search(first_part_regex, file):
+            self.set_main_archive(file)
+        elif not self.mainArchiveFile:
+            # only set as main archive if no main archive is set yet
             self.set_main_archive(file)
 
     def set_main_archive(self, archive: str):

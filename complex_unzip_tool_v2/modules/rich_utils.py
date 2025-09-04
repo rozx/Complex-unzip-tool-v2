@@ -94,53 +94,6 @@ def print_archive_group_summary(groups: List[Any]):
     if not groups:
         return
     
-    console.print()
-    console.print(Panel(
-        "[bold bright_cyan]📦 Archive Groups Summary / 档案组摘要[/bold bright_cyan]",
-        box=box.ROUNDED,
-        style="cyan",
-        title="[bold white]Analysis Results[/bold white]",
-        title_align="center",
-        width=78,
-        padding=(1, 2)
-    ))
-    
-    # Create main statistics table
-    stats_table = Table(show_header=True, box=box.MINIMAL_DOUBLE_HEAD)
-    stats_table.add_column("📊 Metric / 指标", style="bold cyan", width=22)
-    stats_table.add_column("📈 Value / 值", style="bold white", justify="center", width=12)
-    stats_table.add_column("📝 Details / 详情", style="dim", width=36)
-    
-    total_files = sum(len(group.files) for group in groups)
-    multipart_count = sum(1 for group in groups if group.isMultiPart)
-    single_count = len(groups) - multipart_count
-    
-    stats_table.add_row(
-        "Total Groups / 总组数", 
-        f"[bold yellow]{len(groups)}[/bold yellow]",
-        f"[dim]Archive collections found / 发现的档案集合[/dim]"
-    )
-    stats_table.add_row(
-        "Total Files / 总文件数", 
-        f"[bold green]{total_files}[/bold green]",
-        f"[dim]Individual archive files / 单个档案文件[/dim]"
-    )
-    stats_table.add_row(
-        "Single Archives / 单一档案", 
-        f"[bold blue]{single_count}[/bold blue]",
-        f"[dim]Standalone archive files / 独立档案文件[/dim]"
-    )
-    stats_table.add_row(
-        "Multipart Archives / 多部分档案", 
-        f"[bold magenta]{multipart_count}[/bold magenta]",
-        f"[dim]Split archive collections / 分割档案集合[/dim]"
-    )
-    
-    # Add manual padding to better center the table within the 78-char panel
-    console.print("      ", end="")  # Add 6 spaces for better centering
-    console.print(stats_table)
-    console.print()
-    
     # Create groups tree
     tree = Tree(
         "[bold bright_blue]📂 Archive Groups Structure / 档案组结构[/bold bright_blue]",
@@ -347,6 +300,25 @@ def print_final_completion(output_location: str):
     console.print(Align.center(celebration_text))
     console.print()
 
+# Simple global variable to track active progress display
+_active_progress_display = None
+
+def set_active_progress(progress_instance):
+    """Set the currently active progress display, stopping any previous one."""
+    global _active_progress_display
+    if _active_progress_display and hasattr(_active_progress_display, 'progress') and _active_progress_display.progress:
+        try:
+            _active_progress_display.progress.stop()
+        except:
+            pass
+    _active_progress_display = progress_instance
+
+def clear_active_progress():
+    """Clear the currently active progress display."""
+    global _active_progress_display
+    _active_progress_display = None
+
+
 class RichSpinner:
     """A rich-based spinner for long operations with Chinese text."""
     
@@ -363,6 +335,7 @@ class RichSpinner:
             console=console,
             transient=True
         )
+        set_active_progress(self)
         self.progress.start()
         self.task = self.progress.add_task(self.message, total=None)
     
@@ -370,6 +343,7 @@ class RichSpinner:
         """Stop the spinner."""
         if self.progress:
             self.progress.stop()
+            clear_active_progress()
 
 
 class ExtractionProgress:
@@ -395,6 +369,7 @@ class ExtractionProgress:
             console=console,
             expand=True
         )
+        set_active_progress(self)
         self.progress.start()
         self.overall_task = self.progress.add_task(
             f"[bold]{self.title}[/bold]", 
@@ -429,6 +404,7 @@ class ExtractionProgress:
         """Stop the progress tracker."""
         if self.progress:
             self.progress.stop()
+            clear_active_progress()
 
 
 class FileOperationProgress:
@@ -450,6 +426,7 @@ class FileOperationProgress:
             console=console,
             expand=True
         )
+        set_active_progress(self)
         self.progress.start()
         self.task = self.progress.add_task(
             f"[bold]{self.operation} / 文件操作[/bold]",
@@ -467,6 +444,7 @@ class FileOperationProgress:
         """Stop the progress tracker."""
         if self.progress:
             self.progress.stop()
+            clear_active_progress()
 
 
 def create_extraction_progress(title: str = "Extraction Progress / 提取进度") -> ExtractionProgress:
