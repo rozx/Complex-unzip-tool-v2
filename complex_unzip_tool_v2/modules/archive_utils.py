@@ -3,6 +3,8 @@ import subprocess
 import json
 import os
 import sys
+import shutil
+import tempfile
 import typer
 from typing import List, Dict, Optional, Union
 from .rich_utils import (
@@ -14,6 +16,7 @@ from .rich_utils import (
 )
 from .rich_utils import console
 from .file_utils import safe_remove
+from .utils import sanitize_path, sanitize_filename
 
 # Custom exception classes
 class ArchiveError(Exception):
@@ -319,7 +322,15 @@ def extractArchiveWith7z(
     except subprocess.CalledProcessError as e:
         stderr_lower = e.stderr.lower()
 
-        if "wrong password" in stderr_lower or "cannot open encrypted archive" in stderr_lower:
+        # Check for Windows path-related errors
+        if ("cannot create folder" in stderr_lower or 
+            "cannot open output file" in stderr_lower or
+            "the system cannot find the path specified" in stderr_lower):
+            
+            print_warning(f"Path-related extraction error detected, trying alternative extraction method...", 2)
+            return _extractWithSanitizedPaths(archive_path, output_path, password, seven_zip_path, overwrite, specific_files)
+
+        elif "wrong password" in stderr_lower or "cannot open encrypted archive" in stderr_lower:
             raise ArchivePasswordError(f"Incorrect password or password required for: {archive_path}")
         elif "data error" in stderr_lower or "crc failed" in stderr_lower:
             raise ArchiveCorruptedError(f"Archive appears to be corrupted: {archive_path}")
@@ -335,6 +346,150 @@ def extractArchiveWith7z(
     
     except FileNotFoundError:
         raise SevenZipNotFoundError(f"7z executable not found at: {seven_zip_path}")
+
+
+def _extractWithSanitizedPaths(
+    archive_path: str,
+    output_path: str,
+    password: Optional[str] = "",
+    seven_zip_path: Optional[str] = None,
+    overwrite: bool = True,
+    specific_files: Optional[List[str]] = None
+) -> bool:
+    """
+    Extract archive using a temporary directory with sanitized paths.
+    
+    This is a fallback method when the direct extraction fails due to invalid
+    Windows filenames or path length issues.
+    """
+    temp_dir = None
+    
+    try:
+        # Create a temporary directory for extraction
+        temp_dir = tempfile.mkdtemp(prefix="complex_unzip_temp_")
+        print_info(f"Using temporary extraction directory: {temp_dir}", 3)
+        
+        # Try extracting to temp directory first
+        temp_cmd = [seven_zip_path, "x", archive_path, f"-o{temp_dir}"]
+        temp_cmd.extend([f"-p{password}"])
+        if overwrite:
+            temp_cmd.append("-y")
+        else:
+            temp_cmd.append("-aos")
+        if specific_files:
+            temp_cmd.extend(specific_files)
+        
+        # Execute extraction to temp directory
+        result = subprocess.run(
+            temp_cmd,
+            capture_output=True,
+            text=True,
+            check=False,  # Don't raise exception on non-zero return
+        )
+        
+        if result.returncode != 0:
+            # If still failing, it's likely a password or corruption issue
+            stderr_lower = result.stderr.lower()
+            if "wrong password" in stderr_lower or "cannot open encrypted archive" in stderr_lower:
+                raise ArchivePasswordError(f"Incorrect password or password required for: {archive_path}")
+            elif "data error" in stderr_lower or "crc failed" in stderr_lower:
+                raise ArchiveCorruptedError(f"Archive appears to be corrupted: {archive_path}")
+            else:
+                raise ArchiveError(f"7z extraction error ({result.returncode}): {result.stderr.strip()}")
+        
+        # Now move files from temp directory to final destination with sanitized names
+        try:
+            _moveAndSanitizeFiles(temp_dir, output_path)
+            print_success("Successfully extracted with sanitized file paths", 2)
+            return True
+        except Exception as e:
+            raise ArchiveError(f"Failed to move extracted files: {e}")
+        
+    except Exception as e:
+        # Re-raise specific archive exceptions, wrap others
+        if isinstance(e, (ArchivePasswordError, ArchiveCorruptedError, ArchiveUnsupportedError, ArchiveNotFoundError, ArchiveError)):
+            raise
+        else:
+            raise ArchiveError(f"Extraction failed: {e}")
+        
+    finally:
+        # Clean up temporary directory
+        if temp_dir and os.path.exists(temp_dir):
+            try:
+                shutil.rmtree(temp_dir)
+            except OSError:
+                pass  # Ignore cleanup errors
+
+
+def _moveAndSanitizeFiles(source_dir: str, target_dir: str) -> None:
+    """
+    Move files from source to target directory, sanitizing names as needed.
+    """
+    if not os.path.exists(source_dir):
+        return
+    
+    # Ensure target directory exists
+    os.makedirs(target_dir, exist_ok=True)
+    
+    # Process all files and directories
+    for root, dirs, files in os.walk(source_dir):
+        rel_path = os.path.relpath(root, source_dir)
+        
+        # Determine target subdirectory
+        if rel_path != ".":
+            sanitized_rel_path = sanitize_path(rel_path)
+            target_subdir = os.path.join(target_dir, sanitized_rel_path)
+        else:
+            target_subdir = target_dir
+        
+        # Handle directory conflicts by adding counter if needed
+        if target_subdir != target_dir and os.path.exists(target_subdir):
+            counter = 1
+            base_target_subdir = target_subdir
+            while os.path.exists(target_subdir):
+                parent_dir = os.path.dirname(base_target_subdir)
+                dir_name = os.path.basename(base_target_subdir)
+                target_subdir = os.path.join(parent_dir, f"{dir_name}_{counter}")
+                counter += 1
+            
+            if counter > 1:
+                print_info(f"Directory conflict resolved: {os.path.basename(base_target_subdir)} → {os.path.basename(target_subdir)}", 3)
+        
+        # Create target directory
+        os.makedirs(target_subdir, exist_ok=True)
+        
+        # Move files with sanitized names
+        for file in files:
+            source_file = os.path.join(root, file)
+            sanitized_filename = sanitize_filename(file)
+            target_file = os.path.join(target_subdir, sanitized_filename)
+            
+            # Handle file name conflicts by adding counter
+            counter = 1
+            base_target = target_file
+            while os.path.exists(target_file):
+                name, ext = os.path.splitext(base_target)
+                target_file = f"{name}_{counter}{ext}"
+                counter += 1
+            
+            try:
+                # Use copy2 + remove instead of move to avoid cross-device issues
+                shutil.copy2(source_file, target_file)
+                os.remove(source_file)
+                
+                if sanitized_filename != file or counter > 1:
+                    print_info(f"Moved file: {file} → {os.path.basename(target_file)}", 3)
+                    
+            except OSError as e:
+                # If copy fails, try a more robust approach
+                try:
+                    with open(source_file, 'rb') as src, open(target_file, 'wb') as dst:
+                        shutil.copyfileobj(src, dst)
+                    os.remove(source_file)
+                    print_info(f"Moved file (fallback): {file} → {os.path.basename(target_file)}", 3)
+                except OSError as e2:
+                    print_warning(f"Failed to move file {file}: {e2}", 2)
+                    # Don't raise exception, just continue with other files
 
 
 def extractSpecificFilesWith7z(
@@ -596,13 +751,33 @@ def extract_nested_archives(
                 print_password_failed(pwd)
                 password_required = True  # Mark that this is a valid archive that needs password
                 continue
+                
             except (ArchiveCorruptedError, ArchiveUnsupportedError, ArchiveNotFoundError) as e:
-                # These are archive-related errors but not password issues
+                # These are archive-related errors that should stop password attempts immediately
                 print_error(f"Archive error 档案错误: {str(e)}", 1)
+                print_info(f"Skipping remaining passwords for this archive 跳过此档案的剩余密码", 2)
                 return False, ""
+                
+            except ArchiveError as e:
+                # Generic archive errors - check if it's a path-related error that should stop
+                error_msg = str(e).lower()
+                if any(keyword in error_msg for keyword in [
+                    "path", "file name", "directory", "cannot create", 
+                    "access denied", "permission", "disk full", "not enough space"
+                ]):
+                    print_error(f"File system error 文件系统错误: {str(e)}", 1)
+                    print_info(f"Skipping remaining passwords for this archive 跳过此档案的剩余密码", 2)
+                    return False, ""
+                else:
+                    # Other archive errors might be password-related, continue
+                    print_error(f"Extraction failed with password 使用密码提取失败 {'(empty)' if pwd == '' else pwd}: {str(e)}", 1)
+                    continue
+                    
             except Exception as e:
-                print_error(f"Extraction failed with password 使用密码提取失败 {'(empty)' if pwd == '' else pwd}: {str(e)}", 1)
-                continue
+                # Unexpected errors - these could be system issues, stop trying passwords
+                print_error(f"Unexpected error 意外错误: {str(e)}", 1)
+                print_info(f"Skipping remaining passwords for this archive 跳过此档案的剩余密码", 2)
+                return False, ""
         
         # Only prompt user for passwords if we confirmed this is a valid archive that requires password
         if interactive and not skip_all_prompts and password_required:
@@ -673,8 +848,32 @@ def extract_nested_archives(
                     if not continue_prompt:
                         return False, ""
                     continue
+                    
+                except (ArchiveCorruptedError, ArchiveUnsupportedError, ArchiveNotFoundError) as e:
+                    # These are archive-related errors that should stop user password attempts
+                    print_error(f"Archive error 档案错误: {str(e)}", 1)
+                    print_info(f"Cannot continue with this archive 无法继续处理此档案", 2)
+                    return False, ""
+                    
+                except ArchiveError as e:
+                    # Generic archive errors - check if it's a path-related error that should stop
+                    error_msg = str(e).lower()
+                    if any(keyword in error_msg for keyword in [
+                        "path", "file name", "directory", "cannot create", 
+                        "access denied", "permission", "disk full", "not enough space"
+                    ]):
+                        print_error(f"File system error 文件系统错误: {str(e)}", 1)
+                        print_info(f"Cannot continue with this archive 无法继续处理此档案", 2)
+                        return False, ""
+                    else:
+                        # Other archive errors might be password-related, continue
+                        print_error(f"Extraction failed with user password 使用用户密码提取失败: {str(e)}", 1)
+                        print_info(f"Cannot continue with this archive 无法继续处理此档案", 2)
+                        return False, ""
+                        
                 except Exception as e:
-                    print_error(f"Extraction failed 提取失败: {str(e)}", 1)
+                    print_error(f"Unexpected error 意外错误: {str(e)}", 1)
+                    print_info(f"Cannot continue with this archive 无法继续处理此档案", 2)
                     return False, ""
         else:
             # If no password was required but extraction still failed, show appropriate message
