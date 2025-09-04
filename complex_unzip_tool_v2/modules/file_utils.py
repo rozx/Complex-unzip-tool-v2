@@ -295,21 +295,6 @@ def uncloak_file_extension_for_groups(groups: list[ArchiveGroup], rules_file_pat
                 else:
                     print_warning(f"⚠ Failed to rename file '{original_file}' to '{new_path}'. File does not exist. Group not updated.")
 
-# =============================================================================
-# LEGACY FUNCTIONS REMOVED - REPLACED WITH RULE-BASED SYSTEM
-# =============================================================================
-# The following functions have been refactored and moved to CloakedFileDetector:
-# - _format_part_number
-# - _generate_first_part_candidates
-# - _detect_archive_type_from_first_part  
-# - _handle_extensionless_file_with_parts
-# - _is_already_multipart_format
-# - _uncloak_single_file
-#
-# These functions provided complex multi-part cloaked file detection but have been
-# replaced with a cleaner, more maintainable rule-based system in cloaked_file_detector.py
-# The new system uses JSON configuration files to define detection rules.
-# =============================================================================
 
 def uncloak_file_extensions(file_paths: list[str], rules_file_path: str = None) -> list[str]:
     """
