@@ -6,7 +6,7 @@ import sys
 import shutil
 import tempfile
 import typer
-from typing import List, Dict, Optional, Union
+from typing import List, Dict, Optional, Union, Tuple
 from .rich_utils import (
     print_nested_extraction_header, print_extraction_process_header,
     print_extracting_archive, print_password_attempt, print_password_failed,
@@ -64,6 +64,54 @@ def _get_default_7z_path() -> str:
     
     return seven_zip_path
 
+def _decode_subprocess_output(stdout_bytes: bytes, stderr_bytes: bytes) -> Tuple[str, str]:
+    """
+    Safely decode subprocess output with multiple encoding fallbacks.
+    
+    Args:
+        stdout_bytes (bytes): Raw stdout bytes from subprocess
+        stderr_bytes (bytes): Raw stderr bytes from subprocess
+        
+    Returns:
+        tuple[str, str]: Decoded stdout and stderr strings
+    """
+    stdout = ""
+    stderr = ""
+    
+    # Try UTF-8 first
+    try:
+        stdout = stdout_bytes.decode('utf-8', errors='replace')
+        stderr = stderr_bytes.decode('utf-8', errors='replace')
+        return stdout, stderr
+    except (UnicodeDecodeError, AttributeError):
+        pass
+    
+    # Fallback to latin-1
+    try:
+        stdout = stdout_bytes.decode('latin-1', errors='replace')
+        stderr = stderr_bytes.decode('latin-1', errors='replace')
+        return stdout, stderr
+    except Exception:
+        pass
+    
+    # Fallback to cp1252 (Windows-1252)
+    try:
+        stdout = stdout_bytes.decode('cp1252', errors='replace')
+        stderr = stderr_bytes.decode('cp1252', errors='replace')
+        return stdout, stderr
+    except Exception:
+        pass
+    
+    # Final fallback - convert bytes to string representation
+    try:
+        stdout = str(stdout_bytes, errors='replace')
+        stderr = str(stderr_bytes, errors='replace')
+    except Exception:
+        stdout = str(stdout_bytes)
+        stderr = str(stderr_bytes)
+    
+    return stdout, stderr
+
 def readArchiveContentWith7z(
     archive_path: str, 
     password: Optional[str] = "",
@@ -120,17 +168,8 @@ def readArchiveContentWith7z(
             check=False,  # Don't raise exception on non-zero return code
         )
 
-        # Decode output safely
-        try:
-            stdout = result.stdout.decode('utf-8', errors='replace')
-            stderr = result.stderr.decode('utf-8', errors='replace')
-        except (UnicodeDecodeError, AttributeError):
-            try:
-                stdout = result.stdout.decode('latin-1', errors='replace')
-                stderr = result.stderr.decode('latin-1', errors='replace')
-            except:
-                stdout = str(result.stdout, errors='replace')
-                stderr = str(result.stderr, errors='replace')
+        # Decode output safely using helper function
+        stdout, stderr = _decode_subprocess_output(result.stdout, result.stderr)
 
         if result.returncode != 0:
             raise ArchiveError(f"7z command failed ({result.returncode}): {stderr.strip()}")
@@ -327,26 +366,8 @@ def extractArchiveWith7z(
             check=False,  # Don't raise exception on non-zero return code
         )
         
-        # Decode output safely with multiple fallbacks
-        stdout = ""
-        stderr = ""
-        
-        try:
-            stdout = result.stdout.decode('utf-8', errors='replace')
-            stderr = result.stderr.decode('utf-8', errors='replace')
-        except (UnicodeDecodeError, AttributeError):
-            # Fallback to latin1 if utf-8 fails
-            try:
-                stdout = result.stdout.decode('latin-1', errors='replace')
-                stderr = result.stderr.decode('latin-1', errors='replace')
-            except:
-                # Final fallback - convert bytes to string representation
-                try:
-                    stdout = result.stdout.decode('cp1252', errors='replace')
-                    stderr = result.stderr.decode('cp1252', errors='replace')
-                except:
-                    stdout = str(result.stdout)
-                    stderr = str(result.stderr)
+        # Decode output safely using helper function
+        stdout, stderr = _decode_subprocess_output(result.stdout, result.stderr)
 
         if result.returncode != 0:
             raise ArchiveError(f"7z extraction failed ({result.returncode}): {stderr.strip()}")
@@ -355,9 +376,9 @@ def extractArchiveWith7z(
         
     except subprocess.CalledProcessError as e:
         # This shouldn't happen since we use check=False, but handle it just in case
-        try:
-            stderr = e.stderr.decode('utf-8', errors='replace') if hasattr(e, 'stderr') and e.stderr else str(e)
-        except:
+        if hasattr(e, 'stderr') and e.stderr:
+            _, stderr = _decode_subprocess_output(b'', e.stderr)
+        else:
             stderr = str(e)
         stderr_lower = stderr.lower()
 
@@ -426,17 +447,8 @@ def _extractWithSanitizedPaths(
             check=False,  # Don't raise exception on non-zero return
         )
         
-        # Decode output safely
-        try:
-            stdout = result.stdout.decode('utf-8', errors='replace')
-            stderr = result.stderr.decode('utf-8', errors='replace')
-        except (UnicodeDecodeError, AttributeError):
-            try:
-                stdout = result.stdout.decode('latin-1', errors='replace')
-                stderr = result.stderr.decode('latin-1', errors='replace')
-            except:
-                stdout = str(result.stdout, errors='replace')
-                stderr = str(result.stderr, errors='replace')
+        # Decode output safely using helper function
+        stdout, stderr = _decode_subprocess_output(result.stdout, result.stderr)
         
         if result.returncode != 0:
             # If still failing, it's likely a password or corruption issue

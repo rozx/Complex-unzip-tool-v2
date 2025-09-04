@@ -160,15 +160,34 @@ class CloakedFileDetector:
                 if len(groups) >= 1:
                     base_name = groups[0]
                     
-                # Handle different pattern structures
+                # Handle different pattern structures with validation
                 if rule.type == "auto" and len(groups) >= 3:
                     # Pattern has (base_name, archive_type, part_number)
-                    original_ext = groups[1]  # Archive type from pattern
-                    part_number = groups[2]   # Part number
+                    potential_ext = groups[1].strip() if groups[1] else ""
+                    potential_part = groups[2].strip() if groups[2] else ""
+                    
+                    # Validate archive type (should be alphanumeric, 2-4 chars typically)
+                    if potential_ext and re.match(r'^[a-zA-Z0-9]{2,4}$', potential_ext):
+                        original_ext = potential_ext
+                    else:
+                        original_ext = rule.type
+                    
+                    # Validate part number (should be numeric)
+                    if potential_part and (potential_part.isdigit() or re.match(r'^\d+$', potential_part)):
+                        part_number = potential_part
+                    else:
+                        part_number = ""
+                        
                 elif len(groups) >= 2:
                     # Pattern has (base_name, part_number)
+                    potential_part = groups[1].strip() if groups[1] else ""
                     original_ext = rule.type  # Use rule type
-                    part_number = groups[1]   # Part number
+                    
+                    # Validate part number (should be numeric)
+                    if potential_part and (potential_part.isdigit() or re.match(r'^\d+$', potential_part)):
+                        part_number = potential_part
+                    else:
+                        part_number = ""
                 else:
                     # Single group - just base name
                     original_ext = rule.type
