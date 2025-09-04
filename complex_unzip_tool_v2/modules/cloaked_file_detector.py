@@ -135,12 +135,19 @@ class CloakedFileDetector:
                 groups = filename_match.groups()
                 if len(groups) >= 1:
                     base_name = groups[0]
-                if len(groups) >= 2:
-                    original_ext = groups[1]
                 
-                # Handle part number from extension if ext_pattern is not empty
-                if rule.ext_pattern != "" and isinstance(ext_match, re.Match) and len(ext_match.groups()) >= 1:
-                    part_number = ext_match.group(1)
+                # For empty ext_pattern, the part number should come from filename groups
+                if rule.ext_pattern == "":
+                    if len(groups) >= 2:
+                        part_number = groups[1]  # Part number from filename pattern
+                    # original_ext stays empty for extensionless files
+                else:
+                    if len(groups) >= 2:
+                        original_ext = groups[1]
+                    
+                    # Handle part number from extension if ext_pattern is not empty
+                    if isinstance(ext_match, re.Match) and len(ext_match.groups()) >= 1:
+                        part_number = ext_match.group(1)
                     
                 return (base_name, original_ext, part_number)
 
@@ -207,7 +214,7 @@ class CloakedFileDetector:
                 
                 # Generate new filename based on rule
                 new_filename = self._generate_new_filename(
-                    base_name, original_ext, part_number, rule
+                    base_name, original_ext, part_number, rule, file_path
                 )
                 
                 if new_filename and new_filename != filename:
@@ -239,7 +246,7 @@ class CloakedFileDetector:
         return bool(re.match(pattern, filename, re.IGNORECASE))
 
     def _generate_new_filename(self, base_name: str, original_ext: str, 
-                              part_number: str, rule: CloakedFileRule) -> Optional[str]:
+                              part_number: str, rule: CloakedFileRule, file_path: str = None) -> Optional[str]:
         """
         Generate new filename based on matched rule.
         基于匹配的规则生成新文件名。
@@ -268,9 +275,20 @@ class CloakedFileDetector:
         # Generate the new filename  
         archive_type = original_ext if original_ext else rule.type
         
-        # Don't use "auto" as the actual type - it should have been resolved to the real type
+        # If archive_type is "auto", try to detect the actual type from file signature
         if archive_type == "auto":
-            archive_type = "7z"  # Default fallback
+            # Try to detect actual archive type from file signature
+            try:
+                if file_path and os.path.exists(file_path):
+                    detected_type = detect_archive_extension(file_path)
+                    if detected_type:
+                        archive_type = detected_type
+                    else:
+                        archive_type = "7z"  # Default fallback if detection fails
+                else:
+                    archive_type = "7z"  # Default fallback if no file path
+            except:
+                archive_type = "7z"  # Default fallback on error
         
         new_filename = f"{base_name}.{archive_type}.{formatted_part}"
 

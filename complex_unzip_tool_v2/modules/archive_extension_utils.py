@@ -327,6 +327,7 @@ def _detectBySignature(filepath: str) -> str | None:
             if len(header) < 4:
                 return None
             
+            # Check for standard archive signatures first
             # 7z signature
             if header.startswith(b'7z\xbc\xaf\x27\x1c'):
                 return '7z'
@@ -370,6 +371,64 @@ def _detectBySignature(filepath: str) -> str | None:
             # ISO signature (CD001 at offset 32769, but we'll check a simpler pattern)
             if b'CD001' in header:
                 return 'iso'
+            
+            # Check for self-extracting archives (SFX)
+            # If it's an executable file, search for embedded archive signatures
+            if header.startswith(b'MZ'):  # PE executable signature
+                f.seek(0)
+                # Read more data to search for embedded archive signatures
+                # SFX archives typically have the archive data after the executable stub
+                chunk_size = 8192
+                search_limit = min(1024 * 1024, f.seek(0, 2))  # Search first 1MB or file size
+                f.seek(0)
+                
+                # Skip the PE header and DOS stub to avoid false positives
+                # Most SFX archives have the embedded data after the executable section
+                pe_header_size = 1024  # Skip first 1KB which contains PE headers
+                f.seek(pe_header_size)
+                
+                archive_signatures_found = []
+                pos = pe_header_size
+                
+                while pos < search_limit:
+                    chunk = f.read(chunk_size)
+                    if len(chunk) == 0:
+                        break
+                    
+                    # Search for archive signatures in the chunk
+                    # 7z signature
+                    if b'7z\xbc\xaf\x27\x1c' in chunk:
+                        archive_signatures_found.append('7z')
+                    
+                    # RAR signatures
+                    if b'Rar!\x1a\x07\x00' in chunk or b'Rar!\x1a\x07\x01\x00' in chunk:
+                        archive_signatures_found.append('rar')
+                    
+                    # ZIP signature (look for central directory signature too for better confidence)
+                    if b'PK\x03\x04' in chunk:
+                        # Also check for central directory signature for higher confidence
+                        if b'PK\x01\x02' in chunk or b'PK\x05\x06' in chunk:
+                            archive_signatures_found.append('zip')
+                        else:
+                            # Just local file header, could be a false positive
+                            # Check if we have more ZIP-like structure
+                            zip_count = chunk.count(b'PK\x03\x04')
+                            if zip_count >= 2:  # Multiple entries suggest real ZIP
+                                archive_signatures_found.append('zip')
+                    
+                    # CAB signature (common in SFX)
+                    if b'MSCF' in chunk:
+                        archive_signatures_found.append('cab')
+                    
+                    pos += chunk_size - 32  # Larger overlap to catch split signatures
+                    f.seek(pos)
+                
+                # Only return archive type if we found strong evidence
+                if archive_signatures_found:
+                    # Return the most common signature found, or the first one
+                    from collections import Counter
+                    signature_counts = Counter(archive_signatures_found)
+                    return signature_counts.most_common(1)[0][0]
                 
     except (IOError, OSError):
         pass
