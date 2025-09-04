@@ -109,23 +109,28 @@ def print_archive_group_summary(groups: List[Any]):
     if not groups:
         return
     
-    console.print(f"[cyan]Found {len(groups)} archive groups:[/cyan]")
+    console.print(f"[cyan]📋 Found {len(groups)} archive groups 找到 {len(groups)} 个档案组:[/cyan]")
     
     for i, group in enumerate(groups, 1):
-        group_type = "multipart" if group.isMultiPart else "single"
+        if group.isMultiPart:
+            icon = "📚"
+            group_type = "multipart 多部分"
+        else:
+            icon = "📄"
+            group_type = "single 单一"
         file_count = len(group.files) if hasattr(group, 'files') else 0
-        console.print(f"  [white]{i}.[/white] [bold]{group.name}[/bold] ({group_type}, {file_count} files)")
+        console.print(f"  {icon} [white]{i}.[/white] [bold]{group.name}[/bold] ({group_type}, {file_count} files 文件)")
 
 def print_extraction_header(archive_name: str):
     """Print extraction header for an archive."""
-    console.print(f"[yellow]→[/yellow] Extracting: [bold]{archive_name}[/bold]")
+    console.print(f"[yellow]🔧 Extracting 正在提取:[/yellow] [bold]{archive_name}[/bold]")
 
 def print_nested_extraction_header(input_path: str, output_path: str, num_passwords: int, max_depth: int):
     """Print nested extraction process header."""
-    console.print(f"[blue]•[/blue] Input: [cyan]{input_path}[/cyan]")
-    console.print(f"[blue]•[/blue] Output: [cyan]{output_path}[/cyan]")
-    console.print(f"[blue]•[/blue] Passwords available: [yellow]{num_passwords}[/yellow]")
-    console.print(f"[blue]•[/blue] Max depth: [magenta]{max_depth}[/magenta]")
+    console.print(f"[blue]📥 Input 输入:[/blue] [cyan]{input_path}[/cyan]")
+    console.print(f"[blue]📤 Output 输出:[/blue] [cyan]{output_path}[/cyan]")
+    console.print(f"[blue]🔑 Passwords available 可用密码:[/blue] [yellow]{num_passwords}[/yellow]")
+    console.print(f"[blue]🔍 Max depth 最大深度:[/blue] [magenta]{max_depth}[/magenta]")
 
 def print_extraction_process_header():
     """Print extraction process section header."""
@@ -134,36 +139,42 @@ def print_extraction_process_header():
 def print_extracting_archive(filename: str, depth: int):
     """Print extracting archive message."""
     depth_indicator = "  " * depth
-    console.print(f"    {depth_indicator}[cyan]→[/cyan] {filename} (depth {depth})")
+    console.print(f"    {depth_indicator}[cyan]📦 {filename} (depth {depth} 深度 {depth})[/cyan]")
 
 def print_password_attempt(password: str, indent: int = 0):
     """Print password attempt message."""
     indent_str = "  " * indent
-    display_pwd = "(empty)" if not password else password
-    console.print(f"{indent_str}[blue]Trying password:[/blue] {display_pwd}")
+    display_pwd = "(empty 空)" if not password else password
+    console.print(f"{indent_str}[blue]🔐 Trying password 尝试密码:[/blue] {display_pwd}")
 
 def print_password_failed(password: str, indent: int = 0):
     """Print password failed message."""
     indent_str = "  " * indent
-    display_pwd = "(empty)" if not password else password
-    console.print(f"{indent_str}[red]✗ Wrong password:[/red] {display_pwd}")
+    display_pwd = "(empty 空)" if not password else password
+    console.print(f"{indent_str}[red]❌ Wrong password 密码错误:[/red] {display_pwd}")
 
 def print_password_success(password: str, indent: int = 0):
     """Print password success message."""
     indent_str = "  " * indent
-    display_pwd = "(empty)" if not password else password
-    console.print(f"{indent_str}[green]✓ Success with password:[/green] {display_pwd}")
+    display_pwd = "(empty 空)" if not password else password
+    console.print(f"{indent_str}[green]✅ Success with password 密码成功:[/green] {display_pwd}")
 
 def print_extraction_summary(status: str, archives_extracted: int, final_files: int, errors: int):
     """Print extraction summary."""
-    status_color = "green" if status == "SUCCESS" else "red"
-    status_icon = "✓" if status == "SUCCESS" else "✗"
+    if status == "SUCCESS":
+        status_color = "green"
+        status_icon = "✅"
+        status_text = "SUCCESS 成功"
+    else:
+        status_color = "red"
+        status_icon = "❌"
+        status_text = "FAILED 失败"
     
-    console.print(f"[{status_color}]{status_icon} Status:[/{status_color}] [{status_color}]{status}[/{status_color}]")
-    console.print(f"[blue]• Archives extracted:[/blue] {archives_extracted}")
-    console.print(f"[green]• Final files:[/green] {final_files}")
+    console.print(f"[{status_color}]{status_icon} Status 状态:[/{status_color}] [{status_color}]{status_text}[/{status_color}]")
+    console.print(f"[blue]📦 Archives extracted 提取档案:[/blue] {archives_extracted}")
+    console.print(f"[green]📄 Final files 最终文件:[/green] {final_files}")
     if errors > 0:
-        console.print(f"[red]• Errors:[/red] {errors}")
+        console.print(f"[red]⚠ Errors 错误:[/red] {errors}")
 
 def print_final_completion(output_location: str):
     """Print final completion message with comprehensive statistics."""
@@ -410,7 +421,7 @@ def print_empty_line():
 
 def print_version(version: str):
     """Print version information."""
-    console.print(f"[bold cyan]Complex Unzip Tool v2 {version}[/bold cyan]")
+    console.print(f"[bold cyan]🚀 Complex Unzip Tool v2 {version} 复杂解压工具v2[/bold cyan]")
 
 def print_general(message: str, indent: int = 0):
     """Print a general message."""
@@ -423,9 +434,9 @@ def print_error_summary(errors: List[str]):
         return
     
     console.print()
-    console.print("[red]Errors encountered:[/red]")
+    console.print("[red]❌ Errors encountered 遇到的错误:[/red]")
     for i, error in enumerate(errors[:10], 1):  # Show first 10 errors
-        console.print(f"  {i}. [red]{error}[/red]")
+        console.print(f"  {i}. [red]⚠ {error}[/red]")
     if len(errors) > 10:
-        console.print(f"  ... and {len(errors) - 10} more errors")
+        console.print(f"  ... and {len(errors) - 10} more errors 更多错误")
     console.print()

@@ -8,7 +8,7 @@ from send2trash import send2trash
 from click import group
 
 from .rich_utils import print_error, print_success, print_warning
-from .const import MULTI_PART_PATTERNS, IGNORED_FILES
+from .const import MULTI_PART_PATTERNS, IGNORED_FILES, OUTPUT_FOLDER
 from ..classes.ArchiveGroup import ArchiveGroup
 from .utils import get_string_similarity
 from .archive_extension_utils import detect_archive_extension
@@ -46,6 +46,10 @@ def read_dir(file_paths: list[str]) -> list[str]:
         if os.path.isdir(path):
             # Read files from directory
             for root, dirs, files in os.walk(path):
+                # Skip directories that match OUTPUT_FOLDER name
+                # 跳过与OUTPUT_FOLDER名称匹配的目录
+                dirs[:] = [d for d in dirs if d != OUTPUT_FOLDER]
+                
                 for filename in files:
                     if filename not in IGNORED_FILES:
                         result.append(os.path.join(root, filename))
