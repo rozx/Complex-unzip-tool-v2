@@ -1,4 +1,4 @@
-# Complex Unzip Tool v2 | 复杂解压工具
+# Complex Unzip Tool v2| 复杂解压工具
 
 ![GitHub Release](https://img.shields.io/github/v/release/rozx/Complex-unzip-tool-v2)
 [![Python](https://img.shields.io/badge/python-3.11+-green.svg)](https://python.org)
@@ -30,6 +30,29 @@ Complex Unzip Tool v2 is a robust and intelligent archive extraction utility tai
 
 受启发自：https://github.com/TR-Supowe/Complex-Unzip-Tool
 
+## 🆕 What's New in v1.1.0 | v1.1.0 新功能
+
+### 🎭 Advanced Cloaked File Detection | 高级隐藏文件检测
+- **Rule-based detection system | 基于规则的检测系统**: New JSON configuration system (`cloaked_file_rules.json`) for flexible pattern matching | 新的 JSON 配置系统 (`cloaked_file_rules.json`) 用于灵活的模式匹配
+- **Enhanced pattern recognition | 增强的模式识别**: Improved ability to detect and rename obfuscated archive files | 改进了检测和重命名混淆档案文件的能力
+- **Priority-based processing | 基于优先级的处理**: Rules are processed in priority order for optimal detection accuracy | 规则按优先级顺序处理，以获得最佳检测准确性
+- **Multi-format support | 多格式支持**: Enhanced support for disguised 7z, rar, and zip archives | 增强对伪装的 7z、rar 和 zip 档案的支持
+
+### 📊 Improved User Experience | 改进的用户体验
+- **Enhanced statistics tracking | 增强的统计跟踪**: Real-time progress monitoring with detailed metrics and counters | 具有详细指标和计数器的实时进度监控
+- **Better output formatting | 更好的输出格式**: Improved visual feedback with enhanced Rich formatting | 通过增强的 Rich 格式改进视觉反馈
+- **Multilingual improvements | 多语言改进**: Enhanced message handling and display for better localization | 增强的消息处理和显示，以获得更好的本地化
+
+### 🛡️ Robustness Enhancements | 稳健性增强
+- **Enhanced archive validation | 增强的档案验证**: Improved validation in ArchiveGroup with better error handling | ArchiveGroup 中改进的验证，具有更好的错误处理
+- **Optimized file reading | 优化的文件读取**: Enhanced file reading logic for better performance and reliability | 增强的文件读取逻辑，以获得更好的性能和可靠性
+- **Improved error recovery | 改进的错误恢复**: Better handling of edge cases and error conditions | 更好地处理边缘情况和错误条件
+
+### 🔧 Technical Improvements | 技术改进
+- **Code organization | 代码组织**: Better separation of concerns and modular design | 更好的关注点分离和模块化设计
+- **Performance optimizations | 性能优化**: Faster processing through optimized algorithms | 通过优化算法实现更快的处理
+- **Configuration flexibility | 配置灵活性**: JSON-based configuration allows for easy customization | 基于 JSON 的配置允许轻松自定义
+
 ## ✨ Features | 主要特性
 
 - **🖱️ Drag & Drop Support | 拖拽支持**: Simply drag files or folders onto the executable for instant processing | 将文件或文件夹拖拽到可执行文件上即可立即处理
@@ -37,13 +60,20 @@ Complex Unzip Tool v2 is a robust and intelligent archive extraction utility tai
 - **🔐 Smart Password Management | 智能密码管理**: Automatically tries multiple passwords from a password book | 自动从密码本中尝试多个密码
 - **📦 Multipart Archive Support | 多部分档案支持**: Handles split archives (.001/.002, .part1/.part2, .rar/.r01) | 处理分割档案 (.001/.002, .part1/.part2, .rar/.r01)
 - **🔍 Missing Part Detection | 缺失部分检测**: Automatically finds and reconstructs incomplete multipart archives | 自动查找并重建不完整的多部分档案
-- **🎭 Filename Uncloaking | 文件名解隐**: Reveals obfuscated filenames like "aaa.7deletemez.0aaaa0bbb1" → "aaa.7z.001" | 揭示混淆文件名，如 "aaa.7deletemez.0aaaa0bbb1" → "aaa.7z.001"
+- **🎭 Advanced Filename Uncloaking | 高级文件名解隐**: 
+  - **Rule-based detection system | 基于规则的检测系统**: Uses JSON configuration for flexible pattern matching | 使用 JSON 配置进行灵活的模式匹配
+  - **Enhanced pattern recognition | 增强的模式识别**: Reveals complex obfuscated filenames with improved accuracy | 以更高的准确性揭示复杂的混淆文件名
+  - **Multi-format support | 多格式支持**: Supports various disguised archive formats (7z, rar, zip) | 支持各种伪装的档案格式 (7z, rar, zip)
+  - **Priority-based processing | 基于优先级的处理**: Applies detection rules in order of priority for optimal results | 按优先级顺序应用检测规则以获得最佳结果
 - **🏗️ Nested Archive Extraction | 嵌套档案提取**: Recursively extracts archives within archives | 递归提取档案中的档案
-- **🎯 Intelligent Grouping | 智能分组**: Automatically groups related archive files with cross-reference detection | 自动分组相关档案文件，支持交叉引用检测
-- **📊 Rich Progress Display | 丰富的进度显示**: Beautiful command-line interface with progress bars | 美观的命令行界面和进度条
-- **🌐 Multilingual Support | 多语言支持**: English and Chinese interface | 中英文界面
-- **⚡ High Performance | 高性能**: Efficient extraction with progress tracking | 高效提取并支持进度跟踪
-- **🛡️ Error Recovery | 错误恢复**: Robust error handling and recovery mechanisms | 强大的错误处理和恢复机制
+- **🎯 Intelligent Grouping | 智能分组**: Enhanced archive grouping with improved validation and cross-reference detection | 增强的档案分组，具有改进的验证和交叉引用检测
+- **📊 Rich Progress Display | 丰富的进度显示**: 
+  - **Enhanced statistics tracking | 增强的统计跟踪**: Real-time progress monitoring with detailed metrics | 具有详细指标的实时进度监控
+  - **Improved output formatting | 改进的输出格式**: Beautiful command-line interface with better visual feedback | 美观的命令行界面，具有更好的视觉反馈
+  - **Multilingual support improvements | 多语言支持改进**: Enhanced English and Chinese interface with better localization | 增强的中英文界面，具有更好的本地化
+- **🌐 Enhanced Multilingual Support | 增强的多语言支持**: Improved message handling and display for better user experience | 改进的消息处理和显示，以获得更好的用户体验
+- **⚡ High Performance | 高性能**: Optimized file reading and processing logic for faster extraction | 优化的文件读取和处理逻辑，提供更快的提取速度
+- **🛡️ Robust Error Recovery | 强大的错误恢复**: Enhanced error handling mechanisms with better validation | 增强的错误处理机制，具有更好的验证
 - **🔧 Batch Processing | 批量处理**: Handle multiple files and folders in one operation | 在一次操作中处理多个文件和文件夹
 - **🗂️ Safe File Deletion | 安全文件删除**: Original archives are moved to Recycle Bin by default instead of permanent deletion | 原始档案默认移动到回收站而非永久删除
 
@@ -309,9 +339,12 @@ Complex-unzip-tool-v2/
 │   ├── classes/                  # Core classes | 核心类
 │   │   ├── ArchiveGroup.py       # Archive grouping logic | 档案分组逻辑
 │   │   └── PasswordBook.py       # Password management | 密码管理
+│   ├── config/                   # Configuration files | 配置文件
+│   │   └── cloaked_file_rules.json  # Cloaked file detection rules | 隐藏文件检测规则
 │   └── modules/                  # Utility modules | 实用模块
 │       ├── archive_extension_utils.py
 │       ├── archive_utils.py      # Archive extraction logic | 档案提取逻辑
+│       ├── cloaked_file_detector.py  # Advanced cloaked file detection | 高级隐藏文件检测
 │       ├── const.py              # Constants | 常量
 │       ├── file_utils.py         # File operations | 文件操作
 │       ├── password_util.py      # Password utilities | 密码工具
@@ -344,6 +377,10 @@ Complex-unzip-tool-v2/
 The tool uses intelligent defaults but can be customized | 工具使用智能默认设置，但可以自定义：
 
 - **Password File | 密码文件**: Edit `passwords.txt` to add your commonly used passwords | 编辑 `passwords.txt` 添加常用密码
+- **Cloaked File Detection | 隐藏文件检测**: Configure detection rules in `complex_unzip_tool_v2/config/cloaked_file_rules.json` | 在 `complex_unzip_tool_v2/config/cloaked_file_rules.json` 中配置检测规则
+  - **Rule priority | 规则优先级**: Higher priority rules are processed first | 优先级更高的规则先处理
+  - **Pattern matching | 模式匹配**: Customize filename and extension patterns for different archive types | 为不同档案类型自定义文件名和扩展名模式
+  - **Enable/disable rules | 启用/禁用规则**: Toggle specific detection rules as needed | 根据需要切换特定的检测规则
 - **7-Zip Path | 7-Zip 路径**: The tool uses the bundled 7z.exe by default | 工具默认使用捆绑的 7z.exe
 - **Output Directory | 输出目录**: Archives are extracted to their parent directory by default | 档案默认提取到其父目录
 
@@ -383,24 +420,36 @@ complex-unzip-tool-v2.exe "D:\Downloads\Archives\movie.part1.rar" "D:\Downloads\
 complex-unzip-tool-v2.exe "D:\incomplete_multipart_archives.7z.001" "D:\incomplete_multipart_archives.7z.002" "D:\003part_here.7z"
 ```
 
-#### Example 5: Filename uncloaking | 示例五：文件名解隐
+#### Example 5: Advanced filename uncloaking (New in v1.1.0) | 示例五：高级文件名解隐（v1.1.0 新功能）
 ```bash
-# Reveals obfuscated filenames like:
-# "aaa.7deletemez.0aaaa0bbb1" → "aaa.7z.001"
-# "document.pdfdeleteme.xyz123" → "document.pdf"
-# "video.mp4hiddentext.part1" → "video.mp4.part1"
-# 揭示混淆的文件名，例如：
-# "aaa.7deletemez.0aaaa0bbb1" → "aaa.7z.001"
-# "document.pdfdeleteme.xyz123" → "document.pdf"
-# "video.mp4hiddentext.part1" → "video.mp4.part1"
-complex-unzip-tool-v2.exe "D:\document.pdfdeleteme.xyz123"
+# Enhanced rule-based detection system reveals various obfuscation patterns:
+# 增强的基于规则的检测系统揭示各种混淆模式：
 
-# Works with various obfuscation patterns:
-# 适用于各种混淆模式：
-# - Random text insertion | 随机文本插入
-# - Character substitution | 字符替换
-# - Extension hiding | 扩展名隐藏
-complex-unzip-tool-v2.exe "D:\aaa.7deletemez.0aaaa0bbb1"
+# Complex multipart archives with disguised extensions:
+# 具有伪装扩展名的复杂多部分档案：
+# "movie.7z.deleteme.001" → "movie.7z.001"
+# "data.rar.hiddentext.r01" → "data.rar.r01"
+# "backup.zip.xyz123.z01" → "backup.zip.z01"
+complex-unzip-tool-v2.exe "D:\movie.7z.deleteme.001" "D:\movie.7z.deleteme.002"
+
+# Extensionless files with numeric patterns:
+# 具有数字模式的无扩展名文件：
+# "archive001" → "archive.7z.001" (auto-detected as 7z multipart)
+# "backup123" → "backup.7z.123"
+complex-unzip-tool-v2.exe "D:\archive001" "D:\archive002" "D:\archive003"
+
+# Mixed obfuscation patterns:
+# 混合混淆模式：
+# "document.pdf.fake.001" → "document.pdf.001"
+# "video.mp4.disguise.part1" → "video.mp4.part1"
+complex-unzip-tool-v2.exe "D:\document.pdf.fake.001"
+
+# The new system automatically:
+# 新系统自动：
+# - Applies rules based on priority | 基于优先级应用规则
+# - Detects archive type from patterns | 从模式检测档案类型
+# - Groups related parts together | 将相关部分分组在一起
+# - Handles complex naming schemes | 处理复杂的命名方案
 ```
 
 #### Example 6: Extract with custom password file | 示例六：使用自定义密码文件提取
