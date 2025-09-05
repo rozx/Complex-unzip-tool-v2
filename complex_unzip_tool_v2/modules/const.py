@@ -15,3 +15,19 @@ MULTI_PART_PATTERNS = [
     r'\.tar\.xz\.\d+$',      # .tar.xz.001, etc.
     r'\.\w+\.part\d+$',      # generic .ext.part1 format
 ]
+
+# Common filesystem/path error keywords from 7z outputs to detect path-related failures
+# 7z输出中常见的文件系统/路径错误关键词，用于检测路径相关故障
+PATH_ERROR_KEYWORDS = [
+    "cannot create folder",
+    "cannot open output file", 
+    "the system cannot find the path specified",
+    "path",
+    "file name",
+    "directory",
+    "cannot create",
+    "access denied",
+    "permission",
+    "disk full",
+    "not enough space",
+]

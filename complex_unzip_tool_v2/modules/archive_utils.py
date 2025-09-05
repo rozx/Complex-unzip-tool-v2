@@ -14,35 +14,108 @@ from .rich_utils import (
 from .rich_utils import console
 from .file_utils import safe_remove
 from .utils import sanitize_path, sanitize_filename
+from .const import PATH_ERROR_KEYWORDS
+from ..classes.ArchiveTypes import (
+    ArchiveError, ArchiveNotFoundError, SevenZipNotFoundError,
+    ArchivePasswordError, ArchiveCorruptedError, ArchiveUnsupportedError,
+    ArchiveParsingError, ArchiveFileInfo
+)
 
-# Custom exception classes
-class ArchiveError(Exception):
-    """Base exception for archive-related errors."""
-    pass
+# ------------------------------
+# 7-Zip helpers
+# ------------------------------
 
-class ArchiveNotFoundError(ArchiveError):
-    """Raised when the archive file is not found."""
-    pass
+def _resolve_seven_zip_path(seven_zip_path: Optional[str]) -> str:
+    """Return a valid path to 7z.exe, raising if it doesn't exist."""
+    path = seven_zip_path or _get_default_7z_path()
+    if not os.path.exists(path):
+        raise SevenZipNotFoundError(f"7z executable not found at: {path}")
+    return path
 
-class SevenZipNotFoundError(ArchiveError):
-    """Raised when 7z executable is not found."""
-    pass
+def _ensure_archive_exists(archive_path: str) -> None:
+    """Raise if the given archive path does not exist."""
+    if not os.path.exists(archive_path):
+        raise ArchiveNotFoundError(f"Archive not found: {archive_path}")
 
-class ArchivePasswordError(ArchiveError):
-    """Raised when password is incorrect or required."""
-    pass
+def _build_password_arg(password: Optional[str]) -> str:
+    """Always return a valid -p argument; empty string means no password."""
+    return f"-p{password or ''}"
 
-class ArchiveCorruptedError(ArchiveError):
-    """Raised when archive is corrupted or unreadable."""
-    pass
+def _build_7z_extract_cmd(
+    seven_zip_path: str,
+    password: Optional[str],
+    output_path: str,
+    archive_path: str,
+    overwrite: bool = True,
+    specific_files: Optional[List[str]] = None
+) -> List[str]:
+    """Build a standardized 7z extract command with consistent argument order."""
+    cmd = [seven_zip_path, "x", _build_password_arg(password), f"-o{output_path}"]
+    
+    if overwrite:
+        cmd.append("-y")
+    else:
+        cmd.append("-aos")
+    
+    cmd.append(archive_path)
+    
+    if specific_files:
+        cmd.extend(specific_files)
+    
+    return cmd
 
-class ArchiveUnsupportedError(ArchiveError):
-    """Raised when archive format is not supported."""
-    pass
+def _run_7z_cmd(cmd: List[str]) -> Tuple[str, str, int]:
+    """Run a 7z command returning decoded stdout, stderr and return code."""
+    result = subprocess.run(
+        cmd,
+        capture_output=True,
+        text=False,
+        check=False,
+    )
+    stdout, stderr = _decode_subprocess_output(result.stdout, result.stderr)
+    return stdout, stderr, result.returncode
 
-class ArchiveParsingError(ArchiveError):
-    """Raised when unable to parse 7z output."""
-    pass
+def _raise_for_7z_error(returncode: int, stderr: str, archive_path: str) -> None:
+    """Map 7z return/err output to specific exceptions or no-op if success."""
+    if returncode == 0:
+        return
+    err = (stderr or "").lower()
+    if "wrong password" in err or "cannot open encrypted archive" in err:
+        raise ArchivePasswordError(f"Incorrect password or password required for: {archive_path}")
+    if "data error" in err or "crc failed" in err:
+        raise ArchiveCorruptedError(f"Archive appears to be corrupted: {archive_path}")
+    if "unsupported method" in err or "unknown method" in err:
+        raise ArchiveUnsupportedError(f"Archive format not supported: {archive_path}")
+    if "cannot open file" in err:
+        raise ArchiveNotFoundError(f"Cannot open archive file: {archive_path}")
+    if "disk full" in err or "not enough space" in err:
+        raise ArchiveError(f"Insufficient disk space for extraction: {archive_path}")
+    # Generic fallback
+    raise ArchiveError(f"7z command failed ({returncode}): {stderr.strip()}")
+
+def is_valid_archive(
+    file_path: str,
+    password: Optional[str] = "",
+    seven_zip_path: Optional[str] = None,
+) -> bool:
+    """Check quickly if a file is a valid archive that 7z can open.
+
+    Returns True for valid (including password-protected) archives.
+    Returns False for non-archive/unreadable files.
+    """
+    try:
+        content = readArchiveContentWith7z(
+            archive_path=file_path,
+            password=password,
+            seven_zip_path=seven_zip_path,
+        )
+        return bool(content)
+    except ArchivePasswordError:
+        return True
+    except (ArchiveError, ArchiveCorruptedError, ArchiveUnsupportedError, ArchiveParsingError):
+        return False
+    except Exception:
+        return False
 
 def _get_default_7z_path() -> str:
     """
@@ -121,7 +194,7 @@ def readArchiveContentWith7z(
     archive_path: str, 
     password: Optional[str] = "",
     seven_zip_path: Optional[str] = None
-) -> List[Dict[str, Union[str, int]]]:
+) -> List[ArchiveFileInfo]:
     """
     Read archive content using 7z.exe with optional password support.
     
@@ -147,66 +220,28 @@ def readArchiveContentWith7z(
         ArchiveParsingError: If unable to parse 7z output
     """
     
-    # Set default 7z path if not provided
-    if seven_zip_path is None:
-        seven_zip_path = _get_default_7z_path()
-    
-    # Check if archive exists
-    if not os.path.exists(archive_path):
-        raise ArchiveNotFoundError(f"Archive not found: {archive_path}")
-    
-    # Check if 7z executable exists
-    if not os.path.exists(seven_zip_path):
-        raise SevenZipNotFoundError(f"7z executable not found at: {seven_zip_path}")
-    
+    # Resolve paths and validate inputs
+    seven_zip_path = _resolve_seven_zip_path(seven_zip_path)
+    _ensure_archive_exists(archive_path)
+
     # Build command
-    cmd = [seven_zip_path, "l", "-slt", archive_path]
+    cmd = [seven_zip_path, "l", "-slt", _build_password_arg(password), archive_path]
 
-    cmd.extend([f"-p{password}"])
-    
     try:
-        # Execute 7z command with proper encoding handling
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=False,  # Use bytes to avoid encoding issues
-            check=False,  # Don't raise exception on non-zero return code
-        )
+        stdout, stderr, code = _run_7z_cmd(cmd)
+        _raise_for_7z_error(code, stderr, archive_path)
 
-        # Decode output safely using helper function
-        stdout, stderr = _decode_subprocess_output(result.stdout, result.stderr)
-
-        if result.returncode != 0:
-            raise ArchiveError(f"7z command failed ({result.returncode}): {stderr.strip()}")
-
-        # Parse output
         try:
             files_info = _parse7zListOutput(stdout)
             return files_info
         except Exception as e:
             raise ArchiveParsingError(f"Failed to parse 7z output: {str(e)}")
-        
-    except subprocess.CalledProcessError as e:
-        # This shouldn't happen with check=False, but just in case
-        stderr_lower = str(e.stderr).lower()
-
-        if "wrong password" in stderr_lower or "cannot open encrypted archive" in stderr_lower:
-            raise ArchivePasswordError(f"Incorrect password or password required for: {archive_path}")
-        elif "data error" in stderr_lower or "crc failed" in stderr_lower:
-            raise ArchiveCorruptedError(f"Archive appears to be corrupted: {archive_path}")
-        elif "unsupported method" in stderr_lower or "unknown method" in stderr_lower:
-            raise ArchiveUnsupportedError(f"Archive format not supported: {archive_path}")
-        elif "cannot open file" in stderr_lower:
-            raise ArchiveNotFoundError(f"Cannot open archive file: {archive_path}")
-        else:
-            # Generic archive error for other cases
-            raise ArchiveError(f"7z error ({e.returncode}): {e.stderr.strip()}")
-    
     except FileNotFoundError:
+        # In case running the binary failed despite path existence checks
         raise SevenZipNotFoundError(f"7z executable not found at: {seven_zip_path}")
 
 
-def _parse7zListOutput(output: str) -> List[Dict[str, Union[str, int]]]:
+def _parse7zListOutput(output: str) -> List[ArchiveFileInfo]:
     """
     Parse 7z list command output into structured data.
     
@@ -265,7 +300,7 @@ def _parse7zListOutput(output: str) -> List[Dict[str, Union[str, int]]]:
     return files
 
 
-def _formatFileInfo(file_data: Dict[str, str]) -> Dict[str, Union[str, int]]:
+def _formatFileInfo(file_data: Dict[str, str]) -> ArchiveFileInfo:
     """
     Format raw file data into standardized structure.
     
@@ -328,17 +363,9 @@ def extractArchiveWith7z(
         ArchiveError: For other extraction errors
     """
     
-    # Set default 7z path if not provided
-    if seven_zip_path is None:
-        seven_zip_path = _get_default_7z_path()
-    
-    # Check if archive exists
-    if not os.path.exists(archive_path):
-        raise ArchiveNotFoundError(f"Archive not found: {archive_path}")
-    
-    # Check if 7z executable exists
-    if not os.path.exists(seven_zip_path):
-        raise SevenZipNotFoundError(f"7z executable not found at: {seven_zip_path}")
+    # Resolve paths and validate inputs
+    seven_zip_path = _resolve_seven_zip_path(seven_zip_path)
+    _ensure_archive_exists(archive_path)
     
     # Create output directory if it doesn't exist
     try:
@@ -346,69 +373,28 @@ def extractArchiveWith7z(
     except OSError as e:
         raise ArchiveError(f"Failed to create output directory: {e}")
     
-    # Build command - 7z can handle SFX files directly without special flags
-    cmd = [seven_zip_path, "x", archive_path, f"-o{output_path}"]
-    
-    # Add password if provided
-    cmd.extend([f"-p{password}"])
-    
-    # Add overwrite option
-    if overwrite:
-        cmd.append("-y")  # Yes to all prompts (overwrite)
-    else:
-        cmd.append("-aos")  # Skip existing files
-    
-    # Add specific files if provided
-    if specific_files:
-        cmd.extend(specific_files)
+    # Build command using centralized helper
+    cmd = _build_7z_extract_cmd(
+        seven_zip_path=seven_zip_path,
+        password=password,
+        output_path=output_path,
+        archive_path=archive_path,
+        overwrite=overwrite,
+        specific_files=specific_files
+    )
     
     try:
-        # Execute 7z command with proper encoding handling
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=False,  # Use bytes to avoid encoding issues
-            check=False,  # Don't raise exception on non-zero return code
-        )
-        
-        # Decode output safely using helper function
-        stdout, stderr = _decode_subprocess_output(result.stdout, result.stderr)
-
-        if result.returncode != 0:
-            raise ArchiveError(f"7z extraction failed ({result.returncode}): {stderr.strip()}")
-
+        stdout, stderr, code = _run_7z_cmd(cmd)
+        try:
+            _raise_for_7z_error(code, stderr, archive_path)
+        except ArchiveError as e:
+            # Detect path-related issues and fallback to sanitized path extraction
+            msg = str(e).lower()
+            if any(k in msg for k in PATH_ERROR_KEYWORDS):
+                print_warning("Path-related extraction error detected, trying alternative extraction method...", 2)
+                return _extractWithSanitizedPaths(archive_path, output_path, password, seven_zip_path, overwrite, specific_files)
+            raise
         return True
-        
-    except subprocess.CalledProcessError as e:
-        # This shouldn't happen since we use check=False, but handle it just in case
-        if hasattr(e, 'stderr') and e.stderr:
-            _, stderr = _decode_subprocess_output(b'', e.stderr)
-        else:
-            stderr = str(e)
-        stderr_lower = stderr.lower()
-
-        # Check for Windows path-related errors
-        if ("cannot create folder" in stderr_lower or 
-            "cannot open output file" in stderr_lower or
-            "the system cannot find the path specified" in stderr_lower):
-            
-            print_warning(f"Path-related extraction error detected, trying alternative extraction method...", 2)
-            return _extractWithSanitizedPaths(archive_path, output_path, password, seven_zip_path, overwrite, specific_files)
-
-        elif "wrong password" in stderr_lower or "cannot open encrypted archive" in stderr_lower:
-            raise ArchivePasswordError(f"Incorrect password or password required for: {archive_path}")
-        elif "data error" in stderr_lower or "crc failed" in stderr_lower:
-            raise ArchiveCorruptedError(f"Archive appears to be corrupted: {archive_path}")
-        elif "unsupported method" in stderr_lower or "unknown method" in stderr_lower:
-            raise ArchiveUnsupportedError(f"Archive format not supported: {archive_path}")
-        elif "cannot open file" in stderr_lower:
-            raise ArchiveNotFoundError(f"Cannot open archive file: {archive_path}")
-        elif "disk full" in stderr_lower or "not enough space" in stderr_lower:
-            raise ArchiveError(f"Insufficient disk space for extraction: {archive_path}")
-        else:
-            # Generic archive error for other cases
-            raise ArchiveError(f"7z extraction error ({e.returncode}): {e.stderr.strip()}")
-    
     except FileNotFoundError:
         raise SevenZipNotFoundError(f"7z executable not found at: {seven_zip_path}")
 
@@ -435,35 +421,19 @@ def _extractWithSanitizedPaths(
         print_info(f"Using temporary extraction directory: {temp_dir}", 3)
         
         # Try extracting to temp directory first
-        temp_cmd = [seven_zip_path, "x", archive_path, f"-o{temp_dir}"]
-        temp_cmd.extend([f"-p{password}"])
-        if overwrite:
-            temp_cmd.append("-y")
-        else:
-            temp_cmd.append("-aos")
-        if specific_files:
-            temp_cmd.extend(specific_files)
-        
-        # Execute extraction to temp directory
-        result = subprocess.run(
-            temp_cmd,
-            capture_output=True,
-            text=False,  # Use bytes to avoid encoding issues
-            check=False,  # Don't raise exception on non-zero return
+        temp_cmd = _build_7z_extract_cmd(
+            seven_zip_path=seven_zip_path,
+            password=password,
+            output_path=temp_dir,
+            archive_path=archive_path,
+            overwrite=overwrite,
+            specific_files=specific_files
         )
         
-        # Decode output safely using helper function
-        stdout, stderr = _decode_subprocess_output(result.stdout, result.stderr)
-        
-        if result.returncode != 0:
-            # If still failing, it's likely a password or corruption issue
-            stderr_lower = stderr.lower()
-            if "wrong password" in stderr_lower or "cannot open encrypted archive" in stderr_lower:
-                raise ArchivePasswordError(f"Incorrect password or password required for: {archive_path}")
-            elif "data error" in stderr_lower or "crc failed" in stderr_lower:
-                raise ArchiveCorruptedError(f"Archive appears to be corrupted: {archive_path}")
-            else:
-                raise ArchiveError(f"7z extraction error ({result.returncode}): {stderr.strip()}")
+        # Execute extraction to temp directory
+        stdout, stderr, code = _run_7z_cmd(temp_cmd)
+        if code != 0:
+            _raise_for_7z_error(code, stderr, archive_path)
         
         # Now move files from temp directory to final destination with sanitized names
         try:
@@ -675,29 +645,7 @@ def extract_nested_archives(
     if "" not in passwords_to_try:
         passwords_to_try.insert(0, "")
     
-    def _tryOpenAsArchive(file_path: str) -> bool:
-        """Try to open a file as an archive. Returns True if successful."""
-        try:
-            # Try to read the file as an archive with primary password
-            content = readArchiveContentWith7z(
-                archive_path=file_path,
-                password=password,
-                seven_zip_path=seven_zip_path
-            )
-            # If we can read content and it's not empty, it's a valid archive
-            return content is not None and len(content) > 0
-            
-        except (ArchivePasswordError):
-            # If password error, it means 7z recognized this as a valid archive format
-            # but couldn't access the content due to encryption - still a valid archive
-            return True
-                
-        except (ArchiveError, ArchiveCorruptedError, ArchiveUnsupportedError, ArchiveParsingError):
-            # Cannot read as archive
-            return False
-        except Exception:
-            # Any other error, treat as non-archive
-            return False
+    # Reuse generic helper for archive validation
     
     def _promptUserForPassword(archive_name: str, active_progress_bars: Optional[List] = None) -> Optional[str]:
         """
@@ -830,10 +778,7 @@ def extract_nested_archives(
             except ArchiveError as e:
                 # Generic archive errors - check if it's a path-related error that should stop
                 error_msg = str(e).lower()
-                if any(keyword in error_msg for keyword in [
-                    "path", "file name", "directory", "cannot create", 
-                    "access denied", "permission", "disk full", "not enough space"
-                ]):
+                if any(keyword in error_msg for keyword in PATH_ERROR_KEYWORDS):
                     print_error(f"File system error 文件系统错误: {str(e)}", 1)
                     print_info(f"Skipping remaining passwords for this archive 跳过此档案的剩余密码", 2)
                     return False, ""
@@ -894,7 +839,6 @@ def extract_nested_archives(
                                 progress_bar.stop()
                     
                     # Use simple input instead of typer.confirm for better compatibility
-                    from .rich_utils import console
                     console.print()
                     console.print("[bold yellow]Password incorrect 密码不正确[/bold yellow]")
                     
@@ -930,10 +874,7 @@ def extract_nested_archives(
                 except ArchiveError as e:
                     # Generic archive errors - check if it's a path-related error that should stop
                     error_msg = str(e).lower()
-                    if any(keyword in error_msg for keyword in [
-                        "path", "file name", "directory", "cannot create", 
-                        "access denied", "permission", "disk full", "not enough space"
-                    ]):
+                    if any(keyword in error_msg for keyword in PATH_ERROR_KEYWORDS):
                         print_error(f"File system error 文件系统错误: {str(e)}", 1)
                         print_info(f"Cannot continue with this archive 无法继续处理此档案", 2)
                         return False, ""
@@ -967,7 +908,7 @@ def extract_nested_archives(
         
         try:
             # First, verify that this is actually a valid archive before attempting extraction
-            if not _tryOpenAsArchive(current_archive):
+            if not is_valid_archive(current_archive, password=password, seven_zip_path=seven_zip_path):
                 error_msg = f"File is not a valid archive 文件不是有效档案: {current_archive}"
                 result['errors'].append(error_msg)
                 print_warning(error_msg, 2)
@@ -1007,7 +948,7 @@ def extract_nested_archives(
                     if file_path in result['extracted_archives']:
                         continue
                     
-                    if _tryOpenAsArchive(file_path):
+                    if is_valid_archive(file_path, password=password, seven_zip_path=seven_zip_path):
                         print_info(f"📦 Found nested archive 发现嵌套档案: {file_name}", 3)
                         nested_archives.append(file_path)
                     else:
