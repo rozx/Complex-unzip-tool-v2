@@ -86,10 +86,10 @@ def _decode_subprocess_output(stdout_bytes: bytes, stderr_bytes: bytes) -> Tuple
     except (UnicodeDecodeError, AttributeError):
         pass
     
-    # Fallback to latin-1
+    # Fallback to gbk
     try:
-        stdout = stdout_bytes.decode('latin-1', errors='replace')
-        stderr = stderr_bytes.decode('latin-1', errors='replace')
+        stdout = stdout_bytes.decode('gbk', errors='replace')
+        stderr = stderr_bytes.decode('gbk', errors='replace')
         return stdout, stderr
     except Exception:
         pass
