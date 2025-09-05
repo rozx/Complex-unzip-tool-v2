@@ -4,8 +4,10 @@ import importlib
 
 import complex_unzip_tool_v2.modules.archive_utils as au
 from complex_unzip_tool_v2.classes.ArchiveTypes import (
-    ArchivePasswordError, ArchiveCorruptedError, ArchiveUnsupportedError,
-    ArchiveFileInfo
+    ArchivePasswordError,
+    ArchiveCorruptedError,
+    ArchiveUnsupportedError,
+    ArchiveFileInfo,
 )
 
 
@@ -82,11 +84,18 @@ def test_build_7z_extract_cmd():
         output_path="/out",
         archive_path="archive.zip",
         overwrite=True,
-        specific_files=["file1.txt", "file2.txt"]
+        specific_files=["file1.txt", "file2.txt"],
     )
-    
+
     expected = [
-        "7z.exe", "x", "-psecret", "-o/out", "-y", "archive.zip", "file1.txt", "file2.txt"
+        "7z.exe",
+        "x",
+        "-psecret",
+        "-o/out",
+        "-y",
+        "archive.zip",
+        "file1.txt",
+        "file2.txt",
     ]
     assert cmd == expected
 
@@ -97,10 +106,8 @@ def test_build_7z_extract_cmd_no_overwrite():
         password="",
         output_path="/out",
         archive_path="archive.zip",
-        overwrite=False
+        overwrite=False,
     )
-    
-    expected = [
-        "7z.exe", "x", "-p", "-o/out", "-aos", "archive.zip"
-    ]
+
+    expected = ["7z.exe", "x", "-p", "-o/out", "-aos", "archive.zip"]
     assert cmd == expected

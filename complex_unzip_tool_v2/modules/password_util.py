@@ -17,6 +17,7 @@ def load_all_passwords(paths: list[str]) -> PasswordBook:
 
     return password_book
 
+
 def save_all_passwords(password_book: PasswordBook) -> None:
     """Save all passwords to all loaded files 将所有密码保存到所有加载的文件"""
     password_book.save_passwords()
