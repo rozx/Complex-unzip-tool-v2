@@ -94,6 +94,14 @@ def _decode_subprocess_output(stdout_bytes: bytes, stderr_bytes: bytes) -> Tuple
     except Exception:
         pass
     
+    # Fallback to gb2312
+    try:
+        stdout = stdout_bytes.decode('gb2312', errors='replace')
+        stderr = stderr_bytes.decode('gb2312', errors='replace')
+        return stdout, stderr
+    except Exception:
+        pass
+    
     # Fallback to cp1252 (Windows-1252)
     try:
         stdout = stdout_bytes.decode('cp1252', errors='replace')
