@@ -11,7 +11,6 @@ from rich.align import Align
 from rich import box
 from typing import List, Dict, Any, Optional
 import time
-import os
 from pathlib import Path
 
 # Initialize console with better width handling and proper encoding support
