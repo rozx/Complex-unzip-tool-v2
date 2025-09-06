@@ -147,7 +147,9 @@ def print_archive_group_summary(groups: List[Any]):
 
 def print_extraction_header(archive_name: str):
     """Print extraction header for an archive."""
-    console.print(f"[yellow]🔧 Extracting 正在提取:[/yellow] [bold]{archive_name}[/bold]")
+    console.print(
+        f"[yellow]🔧 Extracting 正在提取:[/yellow] [bold]{archive_name}[/bold]"
+    )
 
 
 def print_nested_extraction_header(
@@ -179,7 +181,9 @@ def print_password_attempt(password: str, indent: int = 0):
     """Print password attempt message."""
     indent_str = "  " * indent
     display_pwd = "(empty 空)" if not password else password
-    console.print(f"{indent_str}[blue]🔐 Trying password 尝试密码:[/blue] {display_pwd}")
+    console.print(
+        f"{indent_str}[blue]🔐 Trying password 尝试密码:[/blue] {display_pwd}"
+    )
 
 
 def print_password_failed(password: str, indent: int = 0):
@@ -261,7 +265,9 @@ def print_final_completion(output_location: str):
 
     if _stats["errors"]:
         table.add_row(
-            "❌ Errors 错误", str(len(_stats["errors"])), "Issues encountered 遇到的问题"
+            "❌ Errors 错误",
+            str(len(_stats["errors"])),
+            "Issues encountered 遇到的问题",
         )
 
     table.add_row("📂 Output Location 输出位置", "", "")
@@ -279,7 +285,9 @@ def print_final_completion(output_location: str):
             console.print(f"  ... and {len(_stats['errors']) - 5} more errors 更多错误")
 
     console.print()
-    console.print("[dim]Thank you for using Complex Unzip Tool v2! 感谢使用复杂解压工具v2![/dim]")
+    console.print(
+        "[dim]Thank you for using Complex Unzip Tool v2! 感谢使用复杂解压工具v2![/dim]"
+    )
 
 
 # Simple global variable to track active progress display
@@ -457,12 +465,16 @@ def create_spinner(message: str) -> RichSpinner:
 def print_remaining_groups_warning(groups: List[Any]):
     """Print warning about remaining unprocessed groups."""
     console.print()
-    console.print("[yellow]⚠ Some archives could not be processed 某些档案无法处理:[/yellow]")
+    console.print(
+        "[yellow]⚠ Some archives could not be processed 某些档案无法处理:[/yellow]"
+    )
 
     for i, group in enumerate(groups, 1):
         group_name = group.name if hasattr(group, "name") else str(group)
         group_type = (
-            "multipart 多部分" if getattr(group, "isMultiPart", False) else "single 单一"
+            "multipart 多部分"
+            if getattr(group, "isMultiPart", False)
+            else "single 单一"
         )
         file_count = len(getattr(group, "files", []))
 
@@ -480,7 +492,9 @@ def print_remaining_groups_warning(groups: List[Any]):
 
 def print_all_processed_success():
     """Print success message when all archives are processed."""
-    console.print("[green]✓ All archives processed successfully! 所有档案处理成功![/green]")
+    console.print(
+        "[green]✓ All archives processed successfully! 所有档案处理成功![/green]"
+    )
 
 
 def print_separator():
@@ -495,7 +509,12 @@ def print_empty_line():
 
 def print_version(version: str):
     """Print version information."""
-    console.print(f"[bold cyan]🚀 Complex Unzip Tool v2 {version} 复杂解压工具v2[/bold cyan]")
+    console.print(
+        f"[bold cyan]🚀 Complex Unzip Tool v2 {version} 复杂解压工具v2 by Rozx[/bold cyan]"
+    )
+    console.print(
+        f"[bold red]https://github.com/rozx/Complex-unzip-tool-v2[/bold cyan]"
+    )
 
 
 def print_general(message: str, indent: int = 0):
@@ -526,7 +545,9 @@ def print_password_failed_options(archive_name: str):
     console.print(
         f"[bold yellow]⚠️  All provided passwords failed for archive: {archive_name}[/bold yellow]"
     )
-    console.print(f"[dim yellow]   所有提供的密码对档案都失败了: {archive_name}[/dim yellow]")
+    console.print(
+        f"[dim yellow]   所有提供的密码对档案都失败了: {archive_name}[/dim yellow]"
+    )
     console.print()
     console.print("[bold bright_blue]Options 选项:[/bold bright_blue]")
     console.print("  [bold cyan]1.[/bold cyan] Enter a password 输入密码")
@@ -545,7 +566,9 @@ def print_invalid_choice():
 def print_continuing_extraction():
     """Print continuation message."""
     console.print()
-    console.print("[bold green]✓ Continuing with extraction... 继续提取...[/bold green]")
+    console.print(
+        "[bold green]✓ Continuing with extraction... 继续提取...[/bold green]"
+    )
 
 
 def print_password_incorrect():
