@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "complex-unzip-tool-v2"
-version = "1.1.0"
+version = "1.1.1"
 description = "A powerful tool for extracting complex archive files with password support and multipart handling"
 authors = ["Rozx <lisida900710@gmail.com>"]
 readme = "README.md"
