@@ -139,18 +139,25 @@ def _should_group_files(
         return True
 
     # Second check: Exact base name match (for files like 1.rar, 1.r00, 1.r01)
+    # But only if they're in the same directory (to avoid grouping identical files from different folders)
     if base1 == base2 and ext1 == ext2:
-        return True
+        # Check if they're in the same directory
+        dir1 = os.path.dirname(file_path1)
+        dir2 = os.path.dirname(file_path2)
+        if dir1 == dir2:
+            return True
 
-    # Third check: Only allow grouping if similarity is very high AND they share exact base name
+    # Third check: Only allow grouping if similarity is very high AND they share exact base name AND same directory
     similarity = get_string_similarity(group_name1, group_name2)
     if similarity >= 0.95:
-        # Extract just the filename parts without directory
+        # Extract directory and filename parts
+        dir1 = group_name1.split("-")[0] if "-" in group_name1 else ""
+        dir2 = group_name2.split("-")[0] if "-" in group_name2 else ""
         name1_only = group_name1.split("-")[-1] if "-" in group_name1 else group_name1
         name2_only = group_name2.split("-")[-1] if "-" in group_name2 else group_name2
 
-        # Only group if the file base names are identical
-        return name1_only == name2_only
+        # Only group if the file base names are identical AND they're in the same directory
+        return name1_only == name2_only and dir1 == dir2
 
     # For all other cases, don't group
     return False
@@ -200,9 +207,9 @@ def create_groups_by_name(file_paths: list[str]) -> list[ArchiveGroup]:
 
     for path in file_paths:
         # get base name and directory name using the new function
-        name = get_archive_base_name(path)
+        base_name, _ = get_archive_base_name(path)
         dir_name = os.path.dirname(path).split(os.path.sep)[-1]
-        group_name = f"{dir_name}-{name}"
+        group_name = f"{dir_name}-{base_name}"
 
         # Check if file belongs to an existing group using improved logic
         found_group = False
@@ -307,6 +314,21 @@ def add_file_to_groups(file: str, groups: list[ArchiveGroup]) -> ArchiveGroup | 
         if group.isMultiPart:
             main_archive_basename = os.path.basename(group.mainArchiveFile)
 
+            # First try exact multipart pattern matching
+            file_base_name, _ = get_archive_base_name(file_basename)
+            main_base_name, _ = get_archive_base_name(main_archive_basename)
+
+            # Check if both files have the same base name (for multipart archives)
+            if file_base_name == main_base_name:
+                # move file to group's main archive's location
+                new_path = os.path.join(
+                    os.path.dirname(group.mainArchiveFile), file_basename
+                )
+                shutil.move(file, new_path)
+                group.add_file(new_path)
+                return group
+
+            # Fallback to string similarity for edge cases
             if get_string_similarity(file_basename, main_archive_basename) >= 0.8:
                 # move file to group's main archive's location
                 new_path = os.path.join(
