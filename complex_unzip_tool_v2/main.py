@@ -178,7 +178,7 @@ def extract_files(paths: List[str], use_recycle_bin: bool = True) -> None:
 
     loader = create_spinner("Analyzing archive groups 正在分析档案组...")
     loader.start()
-    groups = file_utils.create_groups_by_name(contents, warning_callback=print_warning)
+    groups = file_utils.create_groups_by_name(contents)
     loader.stop()
 
     print_success(f"Created {len(groups)} archive groups 已创建 {len(groups)} 个档案组")
@@ -210,6 +210,29 @@ def extract_files(paths: List[str], use_recycle_bin: bool = True) -> None:
             extraction_progress.start_group(group.name, len(group.files))
 
             print_extraction_header(f"🗂️ Extracting single archive: {group.name}")
+
+            # Check if the main archive file exists
+            if not os.path.exists(group.mainArchiveFile):
+                print_error(
+                    f"Main archive file not found 主档案文件未找到: {os.path.basename(group.mainArchiveFile)}",
+                    2,
+                )
+
+                # Try to find an alternative main archive in the group
+                if group.try_set_alternative_main_archive():
+                    print_info(
+                        f"Using alternative main archive 使用备用主档案: {os.path.basename(group.mainArchiveFile)}",
+                        2,
+                    )
+                else:
+                    print_error(
+                        f"No valid archive files found in group 组中未找到有效档案文件: {group.name}",
+                        2,
+                    )
+                    groups.remove(group)
+                    extraction_progress.complete_group(success=False)
+                    print_minor_section_break()
+                    continue
 
             dir = os.path.dirname(group.mainArchiveFile)
             extraction_temp_path = os.path.join(dir, f"temp.{group.name}")
@@ -418,7 +441,80 @@ def extract_files(paths: List[str], use_recycle_bin: bool = True) -> None:
             except Exception as e:
                 print_error(f"Error processing 处理错误: {group.name}", 2)
                 print_error(f"Error details 错误详情: {e}", 3)
-                # Clean up temp folder if it exists
+
+                # Try alternative main archives if available
+                if group.try_set_alternative_main_archive():
+                    print_info(
+                        f"Trying alternative main archive 尝试备用主档案: {os.path.basename(group.mainArchiveFile)}",
+                        2,
+                    )
+
+                    # Update the extraction temp path for the new main archive
+                    new_dir = os.path.dirname(group.mainArchiveFile)
+                    new_extraction_temp_path = os.path.join(
+                        new_dir, f"temp.{group.name}"
+                    )
+
+                    # Clean up the old temp folder if it exists
+                    try:
+                        if os.path.exists(extraction_temp_path):
+                            shutil.rmtree(extraction_temp_path)
+                    except Exception:
+                        pass
+
+                    try:
+                        # Start loading indicator for extraction
+                        retry_loader = create_spinner(
+                            f"Retrying extraction with alternative archive 使用备用档案重新提取 {group.name}..."
+                        )
+                        retry_loader.start()
+
+                        retry_result = archive_utils.extract_nested_archives(
+                            archive_path=group.mainArchiveFile,
+                            output_path=new_extraction_temp_path,
+                            password_list=passwordBook.get_passwords(),
+                            max_depth=10,
+                            cleanup_archives=True,
+                            loading_indicator=retry_loader,
+                            active_progress_bars=[extraction_progress],
+                            use_recycle_bin=False,
+                        )
+
+                        retry_loader.stop()
+
+                        # Check if retry extraction was successful
+                        if retry_result and retry_result.get("success", False):
+                            print_success(
+                                f"Alternative archive extraction succeeded 备用档案提取成功: {group.name}",
+                                2,
+                            )
+                            extraction_progress.complete_group(success=True)
+                            print_minor_section_break()
+                            continue  # Skip the removal and continue with next group
+                        else:
+                            print_error(
+                                f"Alternative archive extraction also failed 备用档案提取也失败: {group.name}",
+                                2,
+                            )
+                            # Clean up temp folder if it exists
+                            if os.path.exists(new_extraction_temp_path):
+                                shutil.rmtree(new_extraction_temp_path)
+
+                    except Exception as retry_e:
+                        print_error(f"Error during retry 重试时出错: {retry_e}", 3)
+                        # Clean up temp folder if it exists
+                        if os.path.exists(new_extraction_temp_path):
+                            try:
+                                shutil.rmtree(new_extraction_temp_path)
+                            except Exception:
+                                pass
+                else:
+                    print_warning(
+                        f"No alternative archives available for group 组中没有备用档案: {group.name}",
+                        2,
+                    )
+
+                # Clean up original temp folder if it still exists
                 try:
                     if os.path.exists(extraction_temp_path):
                         shutil.rmtree(extraction_temp_path)
@@ -457,6 +553,29 @@ def extract_files(paths: List[str], use_recycle_bin: bool = True) -> None:
             multipart_progress.start_group(group.name, len(group.files))
 
             print_extraction_header(f"📚 Handling multipart archive: {group.name}")
+
+            # Check if the main archive file exists
+            if not os.path.exists(group.mainArchiveFile):
+                print_error(
+                    f"Main multipart archive file not found 主多部分档案文件未找到: {os.path.basename(group.mainArchiveFile)}",
+                    2,
+                )
+
+                # Try to find an alternative main archive in the group
+                if group.try_set_alternative_main_archive():
+                    print_info(
+                        f"Using alternative main multipart archive 使用备用主多部分档案: {os.path.basename(group.mainArchiveFile)}",
+                        2,
+                    )
+                else:
+                    print_error(
+                        f"No valid multipart archive files found in group 组中未找到有效多部分档案文件: {group.name}",
+                        2,
+                    )
+                    groups.remove(group)
+                    multipart_progress.complete_group(success=False)
+                    print_minor_section_break()
+                    continue
 
             dir = os.path.dirname(group.mainArchiveFile)
             extraction_temp_path = os.path.join(dir, f"temp.{group.name}")
@@ -644,7 +763,83 @@ def extract_files(paths: List[str], use_recycle_bin: bool = True) -> None:
             except Exception as e:
                 print_error(f"Error processing 处理错误: {group.name}", 2)
                 print_error(f"Error details 错误详情: {e}", 3)
-                # Clean up temp folder if it exists
+
+                # Try alternative main archives if available
+                if group.try_set_alternative_main_archive():
+                    print_info(
+                        f"Trying alternative main archive 尝试备用主档案: {os.path.basename(group.mainArchiveFile)}",
+                        2,
+                    )
+
+                    # Update the extraction temp path for the new main archive
+                    new_dir = os.path.dirname(group.mainArchiveFile)
+                    new_extraction_temp_path = os.path.join(
+                        new_dir, f"temp.{group.name}"
+                    )
+
+                    # Clean up the old temp folder if it exists
+                    try:
+                        if os.path.exists(extraction_temp_path):
+                            shutil.rmtree(extraction_temp_path)
+                    except Exception:
+                        pass
+
+                    try:
+                        # Start loading indicator for extraction
+                        retry_loader = create_spinner(
+                            f"Retrying multipart extraction 重新尝试多部分提取 {group.name}..."
+                        )
+                        retry_loader.start()
+
+                        retry_result = archive_utils.extract_nested_archives(
+                            archive_path=group.mainArchiveFile,
+                            output_path=new_extraction_temp_path,
+                            password_list=passwordBook.get_passwords(),
+                            max_depth=10,
+                            cleanup_archives=True,
+                            loading_indicator=retry_loader,
+                            active_progress_bars=[multipart_progress],
+                            use_recycle_bin=False,
+                        )
+
+                        retry_loader.stop()
+
+                        # Check if retry extraction was successful
+                        if retry_result and retry_result.get("success", False):
+                            print_success(
+                                f"Alternative multipart archive extraction succeeded 备用多部分档案提取成功: {group.name}",
+                                2,
+                            )
+                            multipart_progress.complete_group(success=True)
+                            print_minor_section_break()
+                            continue  # Skip the removal and continue with next group
+                        else:
+                            print_error(
+                                f"Alternative multipart archive extraction also failed 备用多部分档案提取也失败: {group.name}",
+                                2,
+                            )
+                            # Clean up temp folder if it exists
+                            if os.path.exists(new_extraction_temp_path):
+                                shutil.rmtree(new_extraction_temp_path)
+
+                    except Exception as retry_e:
+                        print_error(
+                            f"Error during multipart retry 多部分重试时出错: {retry_e}",
+                            3,
+                        )
+                        # Clean up temp folder if it exists
+                        if os.path.exists(new_extraction_temp_path):
+                            try:
+                                shutil.rmtree(new_extraction_temp_path)
+                            except Exception:
+                                pass
+                else:
+                    print_warning(
+                        f"No alternative multipart archives available for group 组中没有备用多部分档案: {group.name}",
+                        2,
+                    )
+
+                # Clean up original temp folder if it still exists
                 try:
                     if os.path.exists(extraction_temp_path):
                         shutil.rmtree(extraction_temp_path)

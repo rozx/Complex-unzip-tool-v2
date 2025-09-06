@@ -10,9 +10,6 @@ from complex_unzip_tool_v2.modules.const import (
 )
 from complex_unzip_tool_v2.classes.ArchiveGroup import ArchiveGroup
 from complex_unzip_tool_v2.modules.utils import get_string_similarity
-from complex_unzip_tool_v2.modules.archive_extension_utils import (
-    detect_archive_extension,
-)
 from complex_unzip_tool_v2.modules.cloaked_file_detector import CloakedFileDetector
 from complex_unzip_tool_v2.modules.regex import multipart_regex
 
@@ -197,68 +194,11 @@ def _have_matching_multipart_pattern(file_path1: str, file_path2: str) -> bool:
     return False
 
 
-def _is_likely_archive(file_path: str) -> bool:
-    """
-    Pre-filter to determine if a file is likely to be a valid archive.
-    This helps skip obviously non-archive files early to avoid unnecessary processing.
-    用于判断文件是否可能是有效档案的预过滤器。
-    """
-    try:
-        filename = os.path.basename(file_path)
-
-        # Check common archive extensions first (fast path)
-        common_archive_exts = {
-            ".7z",
-            ".zip",
-            ".rar",
-            ".tar",
-            ".gz",
-            ".bz2",
-            ".xz",
-            ".cab",
-            ".iso",
-            ".dmg",
-            ".pkg",
-            ".deb",
-            ".rpm",
-        }
-        file_ext = os.path.splitext(filename.lower())[1]
-        if file_ext in common_archive_exts:
-            return True
-
-        # Check for multipart archive patterns
-        for pattern in MULTI_PART_PATTERNS:
-            if re.search(pattern, filename, re.IGNORECASE):
-                return True
-
-        # For files without clear extensions or suspicious files, use signature detection
-        # But only for files that might be SFX or cloaked archives
-        if not file_ext or file_ext in {".exe", ".bin", ".dat", ".tmp"}:
-            # Use the enhanced signature detection
-            detected_type = detect_archive_extension(file_path)
-            return detected_type is not None
-
-        # For other file types, assume they're not archives
-        return False
-
-    except Exception:
-        # If there's any error, err on the side of caution and include the file
-        return True
-
-
-def create_groups_by_name(
-    file_paths: list[str], warning_callback=None
-) -> list[ArchiveGroup]:
+def create_groups_by_name(file_paths: list[str]) -> list[ArchiveGroup]:
     """Create Archive Groups by name 按名称创建档案组"""
     groups: list[ArchiveGroup] = []
-    skipped_files_count = 0
 
     for path in file_paths:
-        # Pre-filter: Skip files that are clearly not archives
-        if not _is_likely_archive(path):
-            skipped_files_count += 1
-            continue
-
         # get base name and directory name using the new function
         name = get_archive_base_name(path)
         dir_name = os.path.dirname(path).split(os.path.sep)[-1]
@@ -266,34 +206,18 @@ def create_groups_by_name(
 
         # Check if file belongs to an existing group using improved logic
         found_group = False
-        for group in groups[:]:  # Iterate through a copy of the list
+        for group in groups:
             if _should_group_files(
                 group_name, group.name, path, group.files[0] if group.files else ""
             ):
-                try:
-                    group.add_file(path)
-                    found_group = True
-                    break
-                except ValueError:
-                    # Archive signature validation failed - remove the group silently
-                    groups.remove(group)
-                    skipped_files_count += 1
-                    break
+                group.add_file(path)
+                found_group = True
+                break
 
         if not found_group:
             new_group = ArchiveGroup(group_name)
-            try:
-                new_group.add_file(path)
-                groups.append(new_group)
-            except ValueError:
-                # Archive signature validation failed - count it silently
-                skipped_files_count += 1
-
-    # Show summary of skipped files if any
-    if skipped_files_count > 0 and warning_callback:
-        warning_callback(
-            f"⚠ Skipped {skipped_files_count} file(s) with invalid archive signatures"
-        )
+            new_group.add_file(path)
+            groups.append(new_group)
 
     # and finally sort it by name
     for group in groups:
