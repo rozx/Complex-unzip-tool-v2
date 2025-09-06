@@ -1,9 +1,6 @@
 import re
 
 from complex_unzip_tool_v2.modules.regex import multipart_regex, first_part_regex
-from complex_unzip_tool_v2.modules.archive_extension_utils import (
-    detect_archive_extension,
-)
 
 
 class ArchiveGroup:
@@ -28,35 +25,50 @@ class ArchiveGroup:
             self.set_main_archive(file)
 
     def set_main_archive(self, archive: str):
-        # Verify the archive has a valid signature before setting as main
-        detected_type = detect_archive_extension(archive)
-        if not detected_type:
-            # Look for other files in the group with valid signatures
-            valid_archive = self._find_valid_archive_in_group()
-            if valid_archive:
-                self.mainArchiveFile = valid_archive
-                if re.search(multipart_regex, valid_archive):
-                    self.isMultiPart = True
-                return
-            else:
-                # No valid archive found in the group - throw error
-                raise ValueError(
-                    f"No valid archive signature found in group '{self.name}'. "
-                    f"Attempted main archive '{archive}' has no recognizable archive signature, "
-                    f"and no other files in the group have valid signatures."
-                )
-
-        # Archive has valid signature - set as main
+        # Set the archive as main - validation will happen during extraction
         self.mainArchiveFile = archive
         if re.search(multipart_regex, archive):
             self.isMultiPart = True
 
-    def _find_valid_archive_in_group(self) -> str:
+    def get_alternative_main_archives(self) -> list[str]:
         """
-        Look for a file in the current group that has a valid archive signature.
-        Returns the first valid archive found, or empty string if none found.
+        Get list of alternative files in the group that could be the main archive.
+        This is used when the default main archive fails extraction.
+        Returns files in priority order (first part files first, then others).
         """
+        alternatives = []
+
+        # First, try to find files that match first part patterns
+        first_part_files = []
+        other_files = []
+
         for file_path in self.files:
-            if detect_archive_extension(file_path):
-                return file_path
-        return ""
+            if file_path != self.mainArchiveFile:  # Skip current main archive
+                if re.search(first_part_regex, file_path):
+                    first_part_files.append(file_path)
+                else:
+                    other_files.append(file_path)
+
+        # Return first part files first, then other files
+        alternatives.extend(first_part_files)
+        alternatives.extend(other_files)
+
+        return alternatives
+
+    def try_set_alternative_main_archive(self) -> bool:
+        """
+        Try to set an alternative file as the main archive.
+        Only considers files that actually exist.
+        Returns True if an alternative was found and set, False otherwise.
+        """
+        import os
+
+        alternatives = self.get_alternative_main_archives()
+        for alternative in alternatives:
+            if os.path.exists(alternative):
+                # Found an existing alternative, set it as main
+                self.set_main_archive(alternative)
+                return True
+
+        # No existing alternatives found
+        return False

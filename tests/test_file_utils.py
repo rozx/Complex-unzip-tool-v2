@@ -294,45 +294,6 @@ class TestAreMultipartRelated:
         assert result is False
 
 
-class TestIsLikelyArchive:
-    """Tests for _is_likely_archive function."""
-
-    def test_common_archive_extensions(self):
-        """Test files with common archive extensions."""
-        assert fu._is_likely_archive("test.zip") is True
-        assert fu._is_likely_archive("archive.7z") is True
-        assert fu._is_likely_archive("data.rar") is True
-        assert fu._is_likely_archive("file.tar") is True
-
-    def test_multipart_archive_patterns(self):
-        """Test files with multipart patterns."""
-        with patch(
-            "complex_unzip_tool_v2.modules.file_utils.re.search", return_value=True
-        ):
-            assert fu._is_likely_archive("archive.7z.001") is True
-
-    def test_suspicious_files_with_detection(self):
-        """Test suspicious files that get detected as archives."""
-        with patch.object(fu, "detect_archive_extension", return_value="zip"):
-            assert fu._is_likely_archive("suspicious.exe") is True
-
-    def test_suspicious_files_without_detection(self):
-        """Test suspicious files that are not detected as archives."""
-        with patch.object(fu, "detect_archive_extension", return_value=None):
-            assert fu._is_likely_archive("suspicious.exe") is False
-
-    def test_regular_text_files(self):
-        """Test regular non-archive files."""
-        assert fu._is_likely_archive("document.txt") is False
-        assert fu._is_likely_archive("image.jpg") is False
-        assert fu._is_likely_archive("video.mp4") is False
-
-    def test_error_handling(self):
-        """Test error handling returns True as fallback."""
-        with patch("os.path.basename", side_effect=Exception("Error")):
-            assert fu._is_likely_archive("any_file.zip") is True
-
-
 class TestCreateGroupsByName:
     """Tests for create_groups_by_name function."""
 
@@ -355,45 +316,30 @@ class TestCreateGroupsByName:
         """Clean up test files."""
         shutil.rmtree(self.test_dir, ignore_errors=True)
 
-    @patch.object(fu, "_is_likely_archive", return_value=True)
-    def test_create_groups_basic(self, mock_is_likely):
+    def test_create_groups_basic(self):
         """Test basic group creation."""
         with patch.object(ArchiveGroup, "add_file"):
             groups = fu.create_groups_by_name(self.test_files)
             assert len(groups) == 3  # Each file should create its own group
 
-    @patch.object(fu, "_is_likely_archive", return_value=False)
-    def test_skip_non_archive_files(self, mock_is_likely):
-        """Test skipping non-archive files."""
-        warning_callback = Mock()
-        groups = fu.create_groups_by_name(self.test_files, warning_callback)
-        assert len(groups) == 0
-        warning_callback.assert_called_once()
-        assert "Skipped" in warning_callback.call_args[0][0]
+    def test_all_files_processed(self):
+        """Test that all files are processed as potential archives."""
+        groups = fu.create_groups_by_name(self.test_files)
+        assert len(groups) == 3  # All files should be processed
 
-    @patch.object(fu, "_is_likely_archive", return_value=True)
     @patch.object(fu, "_should_group_files", return_value=True)
-    def test_group_related_files(self, mock_should_group, mock_is_likely):
+    def test_group_related_files(self, mock_should_group):
         """Test grouping related files."""
         with patch.object(ArchiveGroup, "add_file"):
             groups = fu.create_groups_by_name(self.test_files)
             # Files should be grouped together due to mocked _should_group_files returning True
             assert len(groups) <= len(self.test_files)
 
-    @patch.object(fu, "_is_likely_archive", return_value=True)
-    def test_archive_validation_error(self, mock_is_likely):
-        """Test handling archive validation errors."""
-        warning_callback = Mock()
-
-        # Mock ArchiveGroup.add_file to raise ValueError (validation error)
-        with patch.object(
-            ArchiveGroup, "add_file", side_effect=ValueError("Invalid archive")
-        ):
-            groups = fu.create_groups_by_name(self.test_files, warning_callback)
-            assert (
-                len(groups) == 0
-            )  # All files should be skipped due to validation errors
-            warning_callback.assert_called_once()
+    def test_no_validation_errors(self):
+        """Test that no files are skipped due to validation (since validation is removed)."""
+        # All files should be processed without any validation errors
+        groups = fu.create_groups_by_name(self.test_files)
+        assert len(groups) > 0  # All files should result in groups
 
 
 class TestMoveFilesPreservingStructure:
@@ -508,35 +454,6 @@ class TestMoveFilesPreservingStructure:
 
             assert len(result) == 0  # No files successfully moved
             assert error_callback.call_count == 2  # Error called for each file
-
-
-class TestUnconvertedArchive:
-    """Tests for archive files signature and detection"""
-
-    def setup_method(self):
-        """Set up test with mock archive files."""
-        self.test_dir = tempfile.mkdtemp()
-
-    def teardown_method(self):
-        """Clean up test files."""
-        shutil.rmtree(self.test_dir, ignore_errors=True)
-
-    def test_zip_file_signature(self):
-        """Test ZIP file signature detection."""
-        zip_file = os.path.join(self.test_dir, "test.zip")
-        with open(zip_file, "wb") as f:
-            f.write(b"PK\x03\x04")  # ZIP file signature
-
-        assert fu._is_likely_archive(zip_file) is True
-
-    def test_invalid_archive_signature(self):
-        """Test invalid archive signature."""
-        fake_zip = os.path.join(self.test_dir, "fake.zip")
-        with open(fake_zip, "w") as f:
-            f.write("This is not a real ZIP file")
-
-        # Should still return True because of the .zip extension
-        assert fu._is_likely_archive(fake_zip) is True
 
 
 if __name__ == "__main__":

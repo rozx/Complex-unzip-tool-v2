@@ -427,6 +427,9 @@ def extractArchiveWith7z(
         stdout, stderr, code = _run_7z_cmd(cmd)
         try:
             _raise_for_7z_error(code, stderr, archive_path)
+        except ArchivePasswordError:
+            # Re-raise password errors immediately without path checking
+            raise
         except ArchiveError as e:
             # Detect path-related issues and fallback to sanitized path extraction
             msg = str(e).lower()
