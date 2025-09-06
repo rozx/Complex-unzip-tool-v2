@@ -1,5 +1,5 @@
 import os
-from ..classes.PasswordBook import PasswordBook
+from complex_unzip_tool_v2.classes.PasswordBook import PasswordBook
 
 
 def load_all_passwords(paths: list[str]) -> PasswordBook:

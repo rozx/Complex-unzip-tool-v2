@@ -271,10 +271,12 @@ def readArchiveContentWith7z(
             files_info = _parse7zListOutput(stdout)
             return files_info
         except Exception as e:
-            raise ArchiveParsingError(f"Failed to parse 7z output: {str(e)}")
-    except FileNotFoundError:
+            raise ArchiveParsingError(f"Failed to parse 7z output: {str(e)}") from e
+    except FileNotFoundError as exc:
         # In case running the binary failed despite path existence checks
-        raise SevenZipNotFoundError(f"7z executable not found at: {seven_zip_path}")
+        raise SevenZipNotFoundError(
+            f"7z executable not found at: {seven_zip_path}"
+        ) from exc
 
 
 def _parse7zListOutput(output: str) -> List[ArchiveFileInfo]:
@@ -409,7 +411,7 @@ def extractArchiveWith7z(
     try:
         os.makedirs(output_path, exist_ok=True)
     except OSError as e:
-        raise ArchiveError(f"Failed to create output directory: {e}")
+        raise ArchiveError(f"Failed to create output directory: {e}") from e
 
     # Build command using centralized helper
     cmd = _build_7z_extract_cmd(
@@ -1225,6 +1227,6 @@ def _cleanupEmptyDirectories(root_path: str) -> None:
                 except OSError:
                     # Directory not empty or other error, skip
                     pass
-    except Exception:
+    except (OSError, FileNotFoundError, PermissionError):
         # Ignore cleanup errors
         pass
