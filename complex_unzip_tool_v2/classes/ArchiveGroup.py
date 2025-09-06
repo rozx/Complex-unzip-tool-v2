@@ -1,6 +1,9 @@
 import re
-from ..modules.regex import multipart_regex, first_part_regex
-from ..modules.archive_extension_utils import detect_archive_extension
+
+from complex_unzip_tool_v2.modules.regex import multipart_regex, first_part_regex
+from complex_unzip_tool_v2.modules.archive_extension_utils import (
+    detect_archive_extension,
+)
 
 
 class ArchiveGroup:
@@ -37,10 +40,12 @@ class ArchiveGroup:
                 return
             else:
                 # No valid archive found in the group - throw error
-                raise ValueError(f"No valid archive signature found in group '{self.name}'. "
-                               f"Attempted main archive '{archive}' has no recognizable archive signature, "
-                               f"and no other files in the group have valid signatures.")
-        
+                raise ValueError(
+                    f"No valid archive signature found in group '{self.name}'. "
+                    f"Attempted main archive '{archive}' has no recognizable archive signature, "
+                    f"and no other files in the group have valid signatures."
+                )
+
         # Archive has valid signature - set as main
         self.mainArchiveFile = archive
         if re.search(multipart_regex, archive):
@@ -55,7 +60,3 @@ class ArchiveGroup:
             if detect_archive_extension(file_path):
                 return file_path
         return ""
-
-
-
-    

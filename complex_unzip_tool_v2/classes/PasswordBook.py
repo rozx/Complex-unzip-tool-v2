@@ -16,7 +16,7 @@ class PasswordBook:
                         self.local_entries.append(line.strip())
                     else:
                         self.dest_entries.append(line.strip())
-        except Exception as e:
+        except Exception:
             # doesnt matter if this fails
             pass
 
@@ -28,24 +28,24 @@ class PasswordBook:
         """Save passwords to local 将密码保存到本地"""
         if not self._has_changes and not force:
             return  # No changes to save
-            
+
         with open("passwords.txt", "w") as f:
             for entry in self.local_entries:
                 f.write(f"{entry}\n")
-        
+
         self._has_changes = False  # Reset change tracking after save
 
     def get_passwords(self) -> list[str]:
         """Get all passwords 获取所有密码"""
         return list(set(self.local_entries + self.dest_entries))
-    
+
     def add_password(self, password: str) -> None:
         """Add a single password 添加单个密码"""
         if password:
             original_length = len(self.local_entries)
             self.local_entries.append(password)
             self.local_entries = list(set(self.local_entries))
-            
+
             # Mark as changed only if a new password was actually added
             if len(self.local_entries) > original_length:
                 self._has_changes = True
@@ -56,7 +56,7 @@ class PasswordBook:
             original_length = len(self.local_entries)
             self.local_entries.extend(passwords)
             self.local_entries = list(set(self.local_entries))
-            
+
             # Mark as changed only if new passwords were actually added
             if len(self.local_entries) > original_length:
                 self._has_changes = True

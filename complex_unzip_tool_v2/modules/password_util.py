@@ -1,5 +1,5 @@
 import os
-from ..classes.PasswordBook import PasswordBook
+from complex_unzip_tool_v2.classes.PasswordBook import PasswordBook
 
 
 def load_all_passwords(paths: list[str]) -> PasswordBook:
@@ -16,6 +16,7 @@ def load_all_passwords(paths: list[str]) -> PasswordBook:
             password_book.load_passwords(os.path.join(dir, "passwords.txt"))
 
     return password_book
+
 
 def save_all_passwords(password_book: PasswordBook) -> None:
     """Save all passwords to all loaded files 将所有密码保存到所有加载的文件"""
