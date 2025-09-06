@@ -51,7 +51,7 @@ class TestCloakedFileRule:
     def test_both_type_missing_patterns(self):
         """Test that 'both' matching_type requires both patterns."""
         with pytest.raises(
-            ValueError, match="Both filename_pattern and ext_pattern required"
+            ValueError, match="filename_pattern and ext_pattern .* required"
         ):
             CloakedFileRule(
                 name="test_rule",

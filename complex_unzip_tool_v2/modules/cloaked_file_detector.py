@@ -40,10 +40,10 @@ class CloakedFileRule:
             raise ValueError(f"Invalid matching_type: {self.matching_type}")
 
         if self.matching_type == "both" and (
-            not self.filename_pattern or not self.ext_pattern
+            not self.filename_pattern or self.ext_pattern is None
         ):
             raise ValueError(
-                "Both filename_pattern and ext_pattern required for matching_type 'both'"
+                "filename_pattern and ext_pattern (can be empty string) required for matching_type 'both'"
             )
 
         if self.matching_type == "filename" and not self.filename_pattern:
