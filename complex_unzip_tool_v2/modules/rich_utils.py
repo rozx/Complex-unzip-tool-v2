@@ -513,7 +513,7 @@ def print_version(version: str):
         f"[bold cyan]🚀 Complex Unzip Tool v2 {version} 复杂解压工具v2 by Rozx[/bold cyan]"
     )
     console.print(
-        f"[bold red]https://github.com/rozx/Complex-unzip-tool-v2[/bold cyan]"
+        f"[bold red]https://github.com/rozx/Complex-unzip-tool-v2[/bold red]"
     )
 
 
