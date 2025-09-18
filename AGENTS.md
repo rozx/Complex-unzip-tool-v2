@@ -2,17 +2,17 @@
 
 This document defines how AI agents (and humans using them) should operate in this repository.
 
-Repo: `Complex-unzip-tool-v2`
-Primary language: Python (3.11)
-Package/Deps: Poetry (`pyproject.toml`, `poetry.lock`)
-Tests: `pytest` in `tests/`
-Bundling: scripts in `scripts/` and `7z/` binaries bundled for archive ops
-Default dev shell: Windows PowerShell
+- Repo: `Complex-unzip-tool-v2`
+- Primary language: Python (3.11)
+- Package/Deps: Poetry (`pyproject.toml`, `poetry.lock`)
+- Tests: `pytest` in `tests/`
+- Bundling: scripts in `scripts/` and `7z/` binaries bundled for archive ops
+- Default dev shell: Windows PowerShell
 
 ## Project Summary
 A command-line tool to unzip/extract various archive formats, including nested and password-protected archives, with cloaked file detection.
 - Handles multiple archive types (zip, rar, 7z, tar, etc.)
-- Supports nested archives (archives
+- Supports nested archives
 - Handles password-protected archives using a password book
 - Detects cloaked files based on configurable rules
 - Always extract single archive first to see if it contains other contained archives
@@ -37,10 +37,11 @@ A command-line tool to unzip/extract various archive formats, including nested a
 ## Quickstart Commands
 
 - Run in PowerShell:
-- 
+
 ```powershell
 # From repo root
 poetry run main
+```
 
 - Install dependencies (Poetry):
 
@@ -66,6 +67,7 @@ poetry run main --help
 ```powershell
 # Option A: via Poetry
 poetry run build
+```
 
 Note: The project bundles `7z/7z.exe`; code paths may assume this local binary.
 
