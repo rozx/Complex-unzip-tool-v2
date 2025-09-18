@@ -456,5 +456,106 @@ class TestMoveFilesPreservingStructure:
             assert error_callback.call_count == 2  # Error called for each file
 
 
+class TestAddFileToGroupsStrictMatching:
+    """Regression tests for add_file_to_groups strict matching behavior."""
+
+    def setup_method(self):
+        self.base_dir = tempfile.mkdtemp()
+        # Create two separate multipart groups with similar names but different bases
+        self.group1_dir = os.path.join(self.base_dir, "A100")
+        self.group2_dir = os.path.join(self.base_dir, "A101")
+        os.makedirs(self.group1_dir)
+        os.makedirs(self.group2_dir)
+
+        # Group1: base B100
+        self.g1_p1 = os.path.join(self.group1_dir, "B100.7z.001")
+        self.g1_p2 = os.path.join(self.group1_dir, "B100.7z.002")
+        # Group2: base B101
+        self.g2_p1 = os.path.join(self.group2_dir, "B101.7z.001")
+        self.g2_p2 = os.path.join(self.group2_dir, "B101.7z.002")
+
+        for p in [self.g1_p1, self.g1_p2, self.g2_p1, self.g2_p2]:
+            with open(p, "w") as f:
+                f.write("dummy")
+
+        # Build groups
+        self.groups = []
+        g1 = ArchiveGroup("A100-B100")
+        g1.add_file(self.g1_p1)
+        self.groups.append(g1)
+
+        g2 = ArchiveGroup("A101-B101")
+        g2.add_file(self.g2_p1)
+        self.groups.append(g2)
+
+    def teardown_method(self):
+        shutil.rmtree(self.base_dir, ignore_errors=True)
+
+    def test_exact_base_name_is_required(self):
+        """B100.7z.002 should join only B100 group, not B101 based on similarity."""
+        added = fu.add_file_to_groups(self.g1_p2, self.groups)
+        assert added is self.groups[0]
+        assert self.groups[0].files and any(
+            fp.endswith("B100.7z.002") for fp in self.groups[0].files
+        )
+        # Ensure it did not end up in the other group
+        assert not any(fp.endswith("B100.7z.002") for fp in self.groups[1].files)
+
+    def test_no_group_on_different_base(self):
+        """B101.7z.002 must not be added to B100 group despite similar naming."""
+        # Intentionally pass B101 part 2 when only B100 group exists in same dir list first
+        groups_local = [self.groups[0]]  # only B100 group
+        # Create a loose file resembling different base
+        loose = os.path.join(self.group1_dir, "B101.7z.002")
+        with open(loose, "w") as f:
+            f.write("dummy")
+
+        added = fu.add_file_to_groups(loose, groups_local)
+        assert added is None
+        # File should remain at original location
+        assert os.path.exists(loose)
+
+
+class TestAddFileToGroupsDirectoryAwareness:
+    """Tests ensuring grouping only occurs within the same directory tree."""
+
+    def setup_method(self):
+        self.base_dir = tempfile.mkdtemp()
+        # Create two separate sibling dirs
+        self.dir_a = os.path.join(self.base_dir, "FolderA")
+        self.dir_b = os.path.join(self.base_dir, "FolderB")
+        os.makedirs(self.dir_a)
+        os.makedirs(self.dir_b)
+
+        # Same basename across folders
+        self.a_p1 = os.path.join(self.dir_a, "Same.7z.001")
+        self.a_p2 = os.path.join(self.dir_a, "Same.7z.002")
+        self.b_p2 = os.path.join(self.dir_b, "Same.7z.002")
+
+        for p in [self.a_p1, self.a_p2, self.b_p2]:
+            with open(p, "w") as f:
+                f.write("dummy")
+
+        # Group uses FolderA main archive
+        self.group = ArchiveGroup("FolderA-Same")
+        self.group.add_file(self.a_p1)
+
+    def teardown_method(self):
+        shutil.rmtree(self.base_dir, ignore_errors=True)
+
+    def test_group_same_folder(self):
+        groups = [self.group]
+        added = fu.add_file_to_groups(self.a_p2, groups)
+        assert added is self.group
+        assert any(fp.endswith("Same.7z.002") for fp in self.group.files)
+
+    def test_do_not_group_different_folder(self):
+        groups = [self.group]
+        added = fu.add_file_to_groups(self.b_p2, groups)
+        assert added is None
+        # File should remain where it is
+        assert os.path.exists(self.b_p2)
+
+
 if __name__ == "__main__":
     pytest.main([__file__])
