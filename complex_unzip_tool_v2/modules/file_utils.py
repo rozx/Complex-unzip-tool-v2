@@ -312,27 +312,30 @@ def add_file_to_groups(file: str, groups: list[ArchiveGroup]) -> ArchiveGroup | 
 
     for group in groups:
         if group.isMultiPart:
-            main_archive_basename = os.path.basename(group.mainArchiveFile)
+            main_archive_path = group.mainArchiveFile
+            main_archive_basename = os.path.basename(main_archive_path)
 
-            # First try exact multipart pattern matching
+            # Only allow exact multipart base-name matching to avoid cross-group misclassification
             file_base_name, _ = get_archive_base_name(file_basename)
             main_base_name, _ = get_archive_base_name(main_archive_basename)
 
-            # Check if both files have the same base name (for multipart archives)
-            if file_base_name == main_base_name:
-                # move file to group's main archive's location
-                new_path = os.path.join(
-                    os.path.dirname(group.mainArchiveFile), file_basename
-                )
-                shutil.move(file, new_path)
-                group.add_file(new_path)
-                return group
+            # Additional constraint: file must be under the same directory tree as the group's main archive
+            try:
+                same_tree = os.path.commonpath(
+                    [
+                        os.path.abspath(file),
+                        os.path.abspath(os.path.dirname(main_archive_path)),
+                    ]
+                ) == os.path.abspath(os.path.dirname(main_archive_path))
+            except ValueError:
+                # If drives differ on Windows, they are not in the same tree
+                same_tree = False
 
-            # Fallback to string similarity for edge cases
-            if get_string_similarity(file_basename, main_archive_basename) >= 0.8:
+            # Check if both files have the same base name (for multipart archives) and are in same tree
+            if file_base_name == main_base_name and same_tree:
                 # move file to group's main archive's location
                 new_path = os.path.join(
-                    os.path.dirname(group.mainArchiveFile), file_basename
+                    os.path.dirname(main_archive_path), file_basename
                 )
                 shutil.move(file, new_path)
                 group.add_file(new_path)

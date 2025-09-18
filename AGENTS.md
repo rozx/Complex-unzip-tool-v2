@@ -37,11 +37,7 @@ A command-line tool to unzip/extract various archive formats, including nested a
 ## Quickstart Commands
 
 - Run in PowerShell:
-
-```powershell
-# From repo root
-poetry run main
-
+- 
 ```powershell
 # From repo root
 poetry run main
@@ -62,7 +58,7 @@ poetry run pytest -q
 - Smoke test the CLI:
 
 ```powershell
-poetry run python -m complex_unzip_tool_v2 --help
+poetry run main --help
 ```
 
 - Build (packaging helper):
