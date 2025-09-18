@@ -30,29 +30,6 @@ Complex Unzip Tool v2 is a robust and intelligent archive extraction utility tai
 
 受启发自：https://github.com/TR-Supowe/Complex-Unzip-Tool
 
-## 🆕 What's New in v1.1.0 | v1.1.0 新功能
-
-### 🎭 Advanced Cloaked File Detection | 高级隐藏文件检测
-- **Rule-based detection system | 基于规则的检测系统**: New JSON configuration system (`cloaked_file_rules.json`) for flexible pattern matching | 新的 JSON 配置系统 (`cloaked_file_rules.json`) 用于灵活的模式匹配
-- **Enhanced pattern recognition | 增强的模式识别**: Improved ability to detect and rename obfuscated archive files | 改进了检测和重命名混淆档案文件的能力
-- **Priority-based processing | 基于优先级的处理**: Rules are processed in priority order for optimal detection accuracy | 规则按优先级顺序处理，以获得最佳检测准确性
-- **Multi-format support | 多格式支持**: Enhanced support for disguised 7z, rar, and zip archives | 增强对伪装的 7z、rar 和 zip 档案的支持
-
-### 📊 Improved User Experience | 改进的用户体验
-- **Enhanced statistics tracking | 增强的统计跟踪**: Real-time progress monitoring with detailed metrics and counters | 具有详细指标和计数器的实时进度监控
-- **Better output formatting | 更好的输出格式**: Improved visual feedback with enhanced Rich formatting | 通过增强的 Rich 格式改进视觉反馈
-- **Multilingual improvements | 多语言改进**: Enhanced message handling and display for better localization | 增强的消息处理和显示，以获得更好的本地化
-
-### 🛡️ Robustness Enhancements | 稳健性增强
-- **Enhanced archive validation | 增强的档案验证**: Improved validation in ArchiveGroup with better error handling | ArchiveGroup 中改进的验证，具有更好的错误处理
-- **Optimized file reading | 优化的文件读取**: Enhanced file reading logic for better performance and reliability | 增强的文件读取逻辑，以获得更好的性能和可靠性
-- **Improved error recovery | 改进的错误恢复**: Better handling of edge cases and error conditions | 更好地处理边缘情况和错误条件
-
-### 🔧 Technical Improvements | 技术改进
-- **Code organization | 代码组织**: Better separation of concerns and modular design | 更好的关注点分离和模块化设计
-- **Performance optimizations | 性能优化**: Faster processing through optimized algorithms | 通过优化算法实现更快的处理
-- **Configuration flexibility | 配置灵活性**: JSON-based configuration allows for easy customization | 基于 JSON 的配置允许轻松自定义
-
 ## ✨ Features | 主要特性
 
 - **🖱️ Drag & Drop Support | 拖拽支持**: Simply drag files or folders onto the executable for instant processing | 将文件或文件夹拖拽到可执行文件上即可立即处理
@@ -302,12 +279,6 @@ The standalone executable can be distributed without any installation requiremen
 2. Add one password per line | 每行添加一个密码
 3. The tool will automatically detect and use this file | 工具会自动检测并使用此文件
 
-### For Development Environment | 开发环境
-
-1. Create or edit the `passwords.txt` file in the project root | 在项目根目录创建或编辑 `passwords.txt` 文件
-2. Add one password per line | 每行添加一个密码
-3. The tool will automatically try these passwords for protected archives | 工具会自动为受保护的档案尝试这些密码
-
 ### Password File Example | 密码文件示例
 
 Example `passwords.txt` | `passwords.txt` 示例:
@@ -327,62 +298,6 @@ guest
 - **Fast Processing | 快速处理**: Optimized password testing algorithm | 优化的密码测试算法
 - **Progress Tracking | 进度跟踪**: Shows which passwords are being tested | 显示正在测试的密码
 - **Success Caching | 成功缓存**: Remembers successful passwords for similar archives | 为相似档案记住成功的密码
-
-## 🏗️ Project Structure | 项目结构
-
-```
-Complex-unzip-tool-v2/
-├── complex_unzip_tool_v2/        # Main package | 主包
-│   ├── __init__.py               # Package initialization | 包初始化
-│   ├── __main__.py               # Entry point for python -m | python -m 入口点
-│   ├── main.py                   # Main CLI interface | 主 CLI 接口
-│   ├── classes/                  # Core classes | 核心类
-│   │   ├── ArchiveGroup.py       # Archive grouping logic | 档案分组逻辑
-│   │   └── PasswordBook.py       # Password management | 密码管理
-│   ├── config/                   # Configuration files | 配置文件
-│   │   └── cloaked_file_rules.json  # Cloaked file detection rules | 隐藏文件检测规则
-│   └── modules/                  # Utility modules | 实用模块
-│       ├── archive_extension_utils.py
-│       ├── archive_utils.py      # Archive extraction logic | 档案提取逻辑
-│       ├── cloaked_file_detector.py  # Advanced cloaked file detection | 高级隐藏文件检测
-│       ├── const.py              # Constants | 常量
-│       ├── file_utils.py         # File operations | 文件操作
-│       ├── password_util.py      # Password utilities | 密码工具
-│       ├── regex.py              # Regular expressions | 正则表达式
-│       ├── rich_utils.py         # UI formatting | UI 格式化
-│       └── utils.py              # General utilities | 通用工具
-├── scripts/                      # Build and utility scripts | 构建和实用脚本
-│   ├── build.py                  # Main build script | 主构建脚本
-│   ├── build.bat                 # Windows build batch file | Windows 构建批处理文件
-│   ├── standalone_main.py        # Standalone entry point | 独立入口点
-│   └── generate_icon.py          # Icon generation utility | 图标生成工具
-├── 7z/                           # 7-Zip binaries | 7-Zip 二进制文件
-│   ├── 7z.exe                    # 7-Zip executable | 7-Zip 可执行文件
-│   ├── 7z.dll                    # 7-Zip library | 7-Zip 库文件
-│   └── License.txt               # 7-Zip license | 7-Zip 许可证
-├── icons/                        # Application icons | 应用程序图标
-│   ├── app_icon.ico              # Windows icon | Windows 图标
-│   └── app_icon.svg              # Vector icon | 矢量图标
-├── dist/                         # Built executables | 构建的可执行文件
-│   └── complex-unzip-tool-v2.exe # Standalone executable | 独立可执行文件
-├── build/                        # Build artifacts | 构建产物
-├── passwords.txt                 # Password list | 密码列表
-├── pyproject.toml               # Poetry configuration | Poetry 配置
-├── build_standalone.spec        # PyInstaller spec file | PyInstaller 规范文件
-└── README.md                    # This file | 本文件
-```
-
-## 🔧 Configuration | 配置说明
-
-The tool uses intelligent defaults but can be customized | 工具使用智能默认设置，但可以自定义：
-
-- **Password File | 密码文件**: Edit `passwords.txt` to add your commonly used passwords | 编辑 `passwords.txt` 添加常用密码
-- **Cloaked File Detection | 隐藏文件检测**: Configure detection rules in `complex_unzip_tool_v2/config/cloaked_file_rules.json` | 在 `complex_unzip_tool_v2/config/cloaked_file_rules.json` 中配置检测规则
-  - **Rule priority | 规则优先级**: Higher priority rules are processed first | 优先级更高的规则先处理
-  - **Pattern matching | 模式匹配**: Customize filename and extension patterns for different archive types | 为不同档案类型自定义文件名和扩展名模式
-  - **Enable/disable rules | 启用/禁用规则**: Toggle specific detection rules as needed | 根据需要切换特定的检测规则
-- **7-Zip Path | 7-Zip 路径**: The tool uses the bundled 7z.exe by default | 工具默认使用捆绑的 7z.exe
-- **Output Directory | 输出目录**: Archives are extracted to their parent directory by default | 档案默认提取到其父目录
 
 
 ## 📝 Examples | 使用示例
