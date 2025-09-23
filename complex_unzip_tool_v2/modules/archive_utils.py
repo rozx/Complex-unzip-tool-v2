@@ -1188,7 +1188,12 @@ def extract_nested_archives(
         _cleanupEmptyDirectories(output_path)
 
         # Update final success status
-        result["success"] = result["success"] and len(result["errors"]) == 0
+        # Consider the run unsuccessful if no files/archives were actually extracted
+        # even when there are no system errors (e.g., all password attempts failed).
+        had_outputs = bool(result["final_files"]) or bool(result["extracted_archives"])
+        result["success"] = (
+            result["success"] and len(result["errors"]) == 0 and had_outputs
+        )
 
         # Show final summary
         status = "SUCCESS" if result["success"] else "PARTIAL/FAILED"
