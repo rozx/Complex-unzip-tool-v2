@@ -111,3 +111,35 @@ def test_build_7z_extract_cmd_no_overwrite():
 
     expected = ["7z.exe", "x", "-p", "-o/out", "-aos", "archive.zip"]
     assert cmd == expected
+
+
+def test_extract_nested_archives_returns_false_when_passwords_fail(
+    monkeypatch, tmp_path
+):
+    # Always treat the input as a valid archive so extraction is attempted
+    monkeypatch.setattr(au, "is_valid_archive", lambda *args, **kwargs: True)
+
+    # Simulate 7z extraction always failing due to wrong password
+    def fail_extract(*args, **kwargs):
+        raise ArchivePasswordError("wrong password")
+
+    monkeypatch.setattr(au, "extractArchiveWith7z", fail_extract)
+
+    archive_path = str(tmp_path / "protected.7z")
+    output_path = str(tmp_path / "out")
+
+    # Create a placeholder file to represent the archive (not actually used by the mocked functions)
+    (tmp_path / "protected.7z").write_bytes(b"dummy")
+
+    result = au.extract_nested_archives(
+        archive_path=archive_path,
+        output_path=output_path,
+        password_list=["a", "b"],  # passwords to try
+        interactive=False,  # do not prompt for input in tests
+        use_recycle_bin=False,
+    )
+
+    assert isinstance(result, dict)
+    assert result.get("success") is False
+    assert result.get("final_files") == []
+    assert result.get("extracted_archives") == []
