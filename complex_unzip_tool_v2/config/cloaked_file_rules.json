@@ -37,6 +37,15 @@
 			"enabled": true
 		},
 		{
+			"name": "cloaked_multipart_ext_digits_with_suffix",
+			"filename_pattern": "^(.+)\\.(7z|rar|zip)$",
+			"ext_pattern": "^(\\d{2,3}).+$",
+			"priority": 96,
+			"matching_type": "both",
+			"type": "auto",
+			"enabled": true
+		},
+		{
 			"name": "cloaked_extensionless_with_disguise",
 			"filename_pattern": "^([^.]+)$",
 			"ext_pattern": "^(\\d{3})$",
