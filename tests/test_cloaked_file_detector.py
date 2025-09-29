@@ -186,6 +186,34 @@ class TestCloakedFileDetector:
         rule_types = set(r.type for r in detector_with_real_config.rules)
         assert len(rule_types) > 1
 
+    @patch("os.path.exists")
+    @patch.object(CloakedFileDetector, "_verify_with_signature")
+    def test_chinese_suffix_digits_in_ext(
+        self, mock_verify, mock_exists, detector_with_real_config
+    ):
+        """Filenames like 'missedyou.7z.001删除' should normalize to 'missedyou.7z.001'."""
+        mock_exists.return_value = True
+        mock_verify.return_value = True
+        result = detector_with_real_config.detect_cloaked_file(
+            "/tmp/missedyou.7z.001删除"
+        )
+        assert result is not None
+        assert result.endswith("missedyou.7z.001")
+
+    @patch("os.path.exists")
+    @patch.object(CloakedFileDetector, "_verify_with_signature")
+    def test_chinese_suffix_other_parts(
+        self, mock_verify, mock_exists, detector_with_real_config
+    ):
+        """Filenames like 'missedyou.7z.002删除' should normalize to 'missedyou.7z.002'."""
+        mock_exists.return_value = True
+        mock_verify.return_value = True
+        result = detector_with_real_config.detect_cloaked_file(
+            "/tmp/missedyou.7z.002删除"
+        )
+        assert result is not None
+        assert result.endswith("missedyou.7z.002")
+
     def test_init_with_valid_rules_file(self, temp_rules_file):
         """Test initialization with valid rules file."""
         detector = CloakedFileDetector(temp_rules_file)
