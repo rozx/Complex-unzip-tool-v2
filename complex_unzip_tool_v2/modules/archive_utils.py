@@ -1040,15 +1040,35 @@ def extract_nested_archives(
             return
 
         try:
+            # If the file no longer exists (e.g., already processed and cleaned up in a deeper level),
+            # skip silently for nested levels. Only the top-level (depth 0) missing input is a hard error.
+            if not os.path.exists(current_archive):
+                if depth == 0:
+                    error_msg = f"Archive not found 档案未找到: {current_archive}"
+                    result["errors"].append(error_msg)
+                    print_warning(error_msg, 1)
+                else:
+                    print_info(
+                        f"Skipping missing nested archive 跳过缺失的嵌套档案: {os.path.basename(current_archive)}",
+                        2,
+                    )
+                return
+
             # First, verify that this is actually a valid archive before attempting extraction
             if not is_valid_archive(
                 current_archive, password=password, seven_zip_path=seven_zip_path
             ):
-                error_msg = (
-                    f"File is not a valid archive 文件不是有效档案: {current_archive}"
-                )
-                result["errors"].append(error_msg)
-                print_warning(error_msg, 2)
+                # For nested levels, do not treat non-archives as errors; they can appear
+                # due to concurrent processing/cleanup or false positives from signature scans.
+                if depth == 0:
+                    error_msg = f"File is not a valid archive 文件不是有效档案: {current_archive}"
+                    result["errors"].append(error_msg)
+                    print_warning(error_msg, 1)
+                else:
+                    print_info(
+                        f"Skipping non-archive at depth {depth} 跳过非档案: {os.path.basename(current_archive)}",
+                        2,
+                    )
                 return
 
             # Extract directly to the current output directory to preserve structure
@@ -1145,8 +1165,91 @@ def extract_nested_archives(
                         f"在深度 {depth} 发现 {len(nested_archives)} 个嵌套档案", 3
                     )
                     for nested_archive in nested_archives:
-                        # Extract nested archive in the same directory to preserve structure
-                        nested_output_dir = os.path.dirname(nested_archive)
+                        # Skip if already processed in a deeper recursion step
+                        if nested_archive in result["extracted_archives"]:
+                            print_info(
+                                f"Already processed nested archive 已处理嵌套档案: {os.path.basename(nested_archive)}",
+                                3,
+                            )
+                            continue
+                        # Skip if the file no longer exists (likely cleaned up already)
+                        if not os.path.exists(nested_archive):
+                            print_info(
+                                f"Nested archive missing after processing 嵌套档案缺失: {os.path.basename(nested_archive)}",
+                                3,
+                            )
+                            continue
+                        # Extract nested archive into its own subfolder to avoid collisions
+                        parent_dir = os.path.dirname(nested_archive)
+                        base_name = os.path.basename(nested_archive)
+
+                        # Derive folder name by stripping known archive suffixes
+                        def _derive_folder_name(filename: str) -> str:
+                            import re as _re
+
+                            name = filename
+                            # Iteratively strip extensions like .zip, .7z, .rar, .tar.gz, .001, .z01, .r00, .part1
+                            while True:
+                                name_no_ext, ext = os.path.splitext(name)
+                                ext_low = ext.lower()
+                                if not ext_low:
+                                    break
+                                # Numeric parts like .001
+                                if len(ext_low) == 4 and ext_low[1:].isdigit():
+                                    name = name_no_ext
+                                    continue
+                                # multipart like .z01/.r00/.a00/.c00
+                                if _re.fullmatch(r"\.[zrac][0-9]{2}", ext_low):
+                                    name = name_no_ext
+                                    continue
+                                # .partN
+                                if (
+                                    ext_low.startswith(".part")
+                                    and ext_low[5:].isdigit()
+                                ):
+                                    name = name_no_ext
+                                    continue
+                                # common archive extensions
+                                if ext_low in (
+                                    ".zip",
+                                    ".7z",
+                                    ".rar",
+                                    ".tar",
+                                    ".gz",
+                                    ".bz2",
+                                    ".xz",
+                                    ".iso",
+                                    ".img",
+                                    ".bin",
+                                    ".cab",
+                                    ".ace",
+                                    ".arj",
+                                    ".lzh",
+                                    ".lha",
+                                ):
+                                    name = name_no_ext
+                                    continue
+                                break
+                            return name
+
+                        folder_name = _derive_folder_name(base_name)
+                        folder_name = sanitize_filename(folder_name) or "archive"
+                        nested_output_dir_base = os.path.join(parent_dir, folder_name)
+
+                        # Ensure uniqueness if folder already exists
+                        nested_output_dir = nested_output_dir_base
+                        counter = 2
+                        while os.path.exists(nested_output_dir):
+                            nested_output_dir = f"{nested_output_dir_base}_{counter}"
+                            counter += 1
+
+                        # Create the directory before extraction
+                        try:
+                            os.makedirs(nested_output_dir, exist_ok=True)
+                        except OSError:
+                            # Fallback to parent dir if creation fails
+                            nested_output_dir = parent_dir
+
                         _extractRecursively(
                             nested_archive, nested_output_dir, depth + 1
                         )
