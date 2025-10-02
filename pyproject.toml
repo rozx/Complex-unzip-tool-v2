@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "complex-unzip-tool-v2"
-version = "1.1.5"
+version = "1.1.6"
 description = "A powerful tool for extracting complex archive files with password support and multipart handling"
 authors = ["Rozx <lisida900710@gmail.com>"]
 readme = "README.md"
@@ -24,6 +24,10 @@ pyinstaller = "^6.15.0"
 main = "complex_unzip_tool_v2.main:app"
 cuz = "complex_unzip_tool_v2.main:app"
 build = "scripts.build:main"
+bump = "scripts.version:bump_version"
+bump-patch = "scripts.version:bump_patch"
+bump-minor = "scripts.version:bump_minor"
+bump-major = "scripts.version:bump_major"
 
 [build-system]
 requires = ["poetry-core"]
