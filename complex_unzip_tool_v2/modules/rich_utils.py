@@ -12,6 +12,7 @@ from rich.progress import (
 from rich.table import Table
 from typing import List, Any, Optional
 import time
+from complex_unzip_tool_v2 import __version__
 
 # Initialize console with better width handling and proper encoding support
 console = Console(width=120, force_terminal=True)
@@ -286,8 +287,9 @@ def print_final_completion(output_location: str):
 
     console.print()
     console.print(
-        "[dim]Thank you for using Complex Unzip Tool v2! 感谢使用复杂解压工具v2![/dim]"
+        f"[dim]Thank you for using Complex Unzip Tool v2! 感谢使用复杂解压工具v2![/dim]"
     )
+    console.print(f"[dim]v{__version__} by Rozx[/dim]")
 
 
 # Simple global variable to track active progress display
@@ -512,9 +514,7 @@ def print_version(version: str):
     console.print(
         f"[bold cyan]🚀 Complex Unzip Tool v2 {version} 复杂解压工具v2 by Rozx[/bold cyan]"
     )
-    console.print(
-        f"[bold red]https://github.com/rozx/Complex-unzip-tool-v2[/bold red]"
-    )
+    console.print(f"[bold red]https://github.com/rozx/Complex-unzip-tool-v2[/bold red]")
 
 
 def print_general(message: str, indent: int = 0):

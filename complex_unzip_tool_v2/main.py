@@ -5,6 +5,7 @@ import shutil
 import sys
 import typer
 from typing import List, Optional, Annotated
+from . import __version__
 
 from .modules import (
     file_utils,
@@ -70,7 +71,6 @@ def main_callback(
 ) -> None:
     """Complex Unzip Tool v2 - Advanced Archive Extraction Utility 复杂解压工具v2 - 高级档案提取实用程序"""
     if version:
-        from . import __version__
 
         print_version(__version__)
         _ask_for_user_input_and_exit()
@@ -89,7 +89,6 @@ def main_callback(
 @app.command()
 def version() -> None:
     """Show version information 显示版本信息"""
-    from . import __version__
 
     print_version(__version__)
     _ask_for_user_input_and_exit()
@@ -118,7 +117,9 @@ def extract_files(paths: List[str], use_recycle_bin: bool = True) -> None:
     init_statistics()
 
     # Header with fancy border
-    print_header("🚀 Starting Complex Unzip Tool v2 启动复杂解压工具v2")
+    print_header(
+        f"🚀 Starting Complex Unzip Tool v2 启动复杂解压工具v2 v{__version__} By Rozx"
+    )
 
     # Step 1: Setup output folder 设置输出文件夹
     print_step(1, "📁 Setting up output folder 设置输出文件夹")
