@@ -1,11 +1,12 @@
 """Version bumping utilities using bump2version."""
+
 import subprocess
 import sys
 
 
 def run_bump2version(part: str, allow_dirty: bool = True) -> None:
     """Run bump2version command with specified part.
-    
+
     Args:
         part: Version part to bump (patch, minor, major)
         allow_dirty: Allow running with uncommitted changes
@@ -14,7 +15,7 @@ def run_bump2version(part: str, allow_dirty: bool = True) -> None:
     if allow_dirty:
         cmd.append("--allow-dirty")
     cmd.append(part)
-    
+
     try:
         subprocess.run(cmd, check=True)
         print(f"✓ Successfully bumped {part} version")
@@ -22,7 +23,10 @@ def run_bump2version(part: str, allow_dirty: bool = True) -> None:
         print(f"✗ Failed to bump version: {e}", file=sys.stderr)
         sys.exit(1)
     except FileNotFoundError:
-        print("✗ bump2version not found. Install with: poetry add bump2version", file=sys.stderr)
+        print(
+            "✗ bump2version not found. Install with: poetry add bump2version",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
 
@@ -32,16 +36,16 @@ def bump_version() -> None:
     print("1. patch (x.x.X)")
     print("2. minor (x.X.0)")
     print("3. major (X.0.0)")
-    
+
     choice = input("Enter choice (1-3): ").strip()
-    
+
     parts = {"1": "patch", "2": "minor", "3": "major"}
     part = parts.get(choice)
-    
+
     if not part:
         print("Invalid choice", file=sys.stderr)
         sys.exit(1)
-    
+
     run_bump2version(part)
 
 
