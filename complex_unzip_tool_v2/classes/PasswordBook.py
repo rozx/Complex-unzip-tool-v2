@@ -9,16 +9,50 @@ class PasswordBook:
 
     def load_passwords(self, path: str, is_local: bool = False) -> None:
         """Load passwords from a file 从文件加载密码"""
-        try:
-            with open(path, "r") as f:
-                for line in f:
-                    if is_local:
-                        self.local_entries.append(line.strip())
-                    else:
-                        self.dest_entries.append(line.strip())
-        except Exception:
-            # doesnt matter if this fails
-            pass
+        # Try multiple encodings to handle files containing Chinese characters or BOM
+        encodings = [
+            "utf-8-sig",  # handles BOM if present
+            "utf-8",
+            "gbk",
+            "gb2312",
+            "big5",
+            "utf-16",
+            "utf-16-le",
+            "utf-16-be",
+        ]
+        content_lines: list[str] = []
+        for enc in encodings:
+            try:
+                with open(path, "r", encoding=enc, errors="strict") as f:
+                    content_lines = f.readlines()
+                break
+            except (OSError, UnicodeError):
+                # Try next encoding
+                content_lines = []
+                continue
+
+        if not content_lines:
+            # Best-effort fallback that ignores decode errors
+            try:
+                with open(path, "r", encoding="utf-8", errors="ignore") as f:
+                    content_lines = f.readlines()
+            except OSError:
+                # File not found or unreadable; nothing to load
+                content_lines = []
+
+        if content_lines:
+            cleaned: list[str] = []
+            for line in content_lines:
+                token = line.strip().strip("\ufeff")  # remove BOM if any and trim
+                if not token:
+                    continue  # skip empty lines
+                cleaned.append(token)
+
+            if cleaned:
+                if is_local:
+                    self.local_entries.extend(cleaned)
+                else:
+                    self.dest_entries.extend(cleaned)
 
         # make sure passwords are unique
         self.local_entries = list(set(self.local_entries))
@@ -29,7 +63,7 @@ class PasswordBook:
         if not self._has_changes and not force:
             return  # No changes to save
 
-        with open("passwords.txt", "w") as f:
+        with open("passwords.txt", "w", encoding="utf-8") as f:
             for entry in self.local_entries:
                 f.write(f"{entry}\n")
 

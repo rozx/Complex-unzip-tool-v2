@@ -117,6 +117,111 @@ Note: The project bundles `7z/7z.exe`; code paths may assume this local binary.
 - Archive ops: centralize in `archive_utils.py` and `archive_extension_utils.py`.
 - Config-driven behavior (e.g., cloaked rules) should read from `config/`.
 
+## Passwords handling
+- Password discovery sources (in this order):
+  1) Target directory: `passwords.txt` located in the directory you pass to the CLI.
+  2) Tool root directory: `passwords.txt` at the repository root (next to `AGENTS.md`).
+
+- File format: one password per line; blank lines are ignored.
+
+- Encoding support when reading `passwords.txt`:
+  - Tries multiple encodings automatically: `utf-8-sig`, `utf-8`, `gbk`, `gb2312`, `big5`, `utf-16`, `utf-16-le`, `utf-16-be`.
+  - Falls back to UTF-8 with errors ignored if necessary.
+  - Byte Order Marks (BOM) are handled/stripped.
+
+- Saving behavior:
+  - When new passwords are learned during a run, they are saved to the local `passwords.txt` in UTF-8.
+  - Save only occurs when there are actual changes.
+
+## Renaming/Uncloaking rules
+The tool normalizes “cloaked” filenames before grouping/extracting. This is Step 4 in the CLI (“Uncloaking file extensions”).
+
+- Engine: `CloakedFileDetector` using rules from `complex_unzip_tool_v2/config/cloaked_file_rules.json`.
+- Goal: Convert disguised names (with trailing junk/suffixes) into proper archive names, including multipart suffixes.
+
+Safety guards (never rename these):
+- Files that already have a proper multipart format are left as-is, e.g.:
+  - `.7z.001`, `.7z.002`, ...
+  - `.r00`, `.r01`, ... (RAR continuation)
+  - `.z01`, `.z02`, ... (ZIP continuation)
+  - `.tar.gz.001`, `.tar.bz2.001`, `.tar.xz.001`
+  - `.part1.rar`, `.part2.rar`
+- Files that already end with a proper single archive extension are left as-is, e.g.:
+  - `.7z`, `.rar`, `.zip`, `.tar`, `.tgz`, `.tbz2`, `.txz`, `.gz`, `.bz2`, `.xz`, `.arj`, `.cab`, `.lzh`, `.lha`, `.ace`, `.iso`, `.img`, `.bin`.
+
+Rule schema (JSON):
+- `name`: identifier for the rule.
+- `matching_type`: one of `both`, `filename`, `ext`.
+  - `both`: `filename_pattern` matches the name, and `ext_pattern` matches the extension part (can be empty string to mean “no extension”).
+  - `filename`: only `filename_pattern` is used; can capture archive type and part number.
+  - `ext`: only `ext_pattern` is used (works on the last extension token).
+- `filename_pattern` / `ext_pattern`: regexes; capture groups feed the new name.
+- `priority`: larger values run first.
+- `type`: archive type hint (`7z`, `rar`, `zip`, `auto`, etc.).
+- `enabled`: toggle rule on/off.
+
+Resolution flow:
+1) Skip if filename is already proper (see “Safety guards”).
+2) Iterate rules by `priority` (desc). If a rule matches, build the new filename:
+   - Multipart part numbers are normalized to 3 digits (e.g., `1` -> `001`).
+   - If `type` is `auto`, we try to detect via `archive_extension_utils.detect_archive_extension`.
+3) Optional verification: the detector attempts to confirm the archive type via signature when possible; it’s lenient for cloaked files to avoid blocking normalization.
+4) Apply rename only if the new filename differs and passes the basic checks.
+
+Examples (intended outcomes):
+- `11111.7z删除` -> `11111.7z`
+- `11111.7z.00删1` -> `11111.7z.001`
+- `archive.zip.z0隐藏1` -> `archive.zip.z01`
+- `file.rar.r00删除` -> `file.rar.r00`
+
+Where to change rules:
+- Edit `complex_unzip_tool_v2/config/cloaked_file_rules.json`.
+- Use `priority` to order more specific rules above generic ones.
+- Set `enabled: false` to disable a rule without removing it.
+
+Testing:
+- See `tests/test_cloaked_file_detector.py` for unit tests covering rule matching and safety guards.
+- Run tests with `poetry run pytest -q`.
+
+## Nested multipart handling (inside containers)
+When extracting an archive that itself contains multipart archives (e.g., a .7z containing another multi-part set), the tool excludes continuation parts from the final outputs so they are not moved to the destination. Only the primary part is considered for further extraction.
+
+- Primary vs continuation identification:
+  - 7z volumes: primary is `.7z.001`; continuations are `.7z.002+`.
+  - TAR multipart: primary is `.tar.gz/.tar.bz2/.tar.xz.001`; continuations are `.002+`.
+  - RAR volumes: primary is `.rar` or `.part1.rar`; continuations are `.r00`, `.r01`, … and `.part2+.rar`.
+  - ZIP spanned: primary is `.zip`; continuations are `.z01`, `.z02`, …
+
+- Behavior:
+  - Continuation parts detected during nested extraction are skipped (not treated as nested archives and not added to `final_files`).
+  - Only the primary part is extracted recursively.
+  - After processing, the temporary extraction folder is removed, so any skipped continuation files inside that temp directory are cleaned up instead of being moved to the output folder.
+
+- Implementation:
+  - `complex_unzip_tool_v2/modules/archive_utils.py` → `extract_nested_archives()` filtering logic while iterating over extracted files.
+  - This logic runs only for nested contents. Top-level grouping/multipart processing remains unchanged.
+
+- Validation:
+  - CLI smoke: `poetry run main --help`.
+  - End-to-end: run against a directory where an outer archive contains a multipart set; only files from extracting the primary part should end up in the output directory, with continuation parts neither moved nor left behind.
+
+## Non-archive handling during nested scan
+The tool treats every file as a potential archive by default. During nested extraction, we probe files with 7‑Zip but avoid flagging regular files (e.g., .mp4) as corrupted by mapping 7‑Zip output appropriately and parsing list output robustly.
+
+- Behavior:
+  - All files are candidates for probing via 7‑Zip.
+  - If 7‑Zip prints messages like “Can not open file as archive”, “cannot open file as archive”, or “is not archive”, we treat this as unsupported/non‑archive (not corruption) and skip it.
+  - Regular files encountered during nested scanning therefore do not produce spurious corruption errors.
+
+- Implementation:
+  - `complex_unzip_tool_v2/modules/archive_utils.py` → `_raise_for_7z_error()` maps the above messages to `ArchiveUnsupportedError` (non‑archive/unsupported), not `ArchiveCorruptedError`.
+  - `_parse7zListOutput()` begins parsing after the dashed separator to remain compatible with varying 7‑Zip outputs.
+  - `is_valid_archive()` uses 7‑Zip listing plus the mapping above to determine if a file is an archive.
+
+- Validation:
+  - Unit tests: `poetry run pytest -q` should pass.
+  - Smoke: running against directories containing non‑archive files (e.g., .mp4) should not produce “corrupted archive” messages for those files.
+
 ## Common Local Paths
 - 7-Zip: `./7z/7z.exe`
 - Config: `complex_unzip_tool_v2/config/cloaked_file_rules.json`

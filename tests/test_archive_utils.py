@@ -1,4 +1,5 @@
 import builtins
+import os
 import types
 import importlib
 
@@ -59,6 +60,22 @@ def test_raise_for_7z_error_unsupported():
         assert False, "Expected ArchiveUnsupportedError"
 
 
+def test_raise_for_7z_error_not_archive_mapping():
+    # 7-Zip message variants for non-archive files should map to unsupported, not corrupted
+    messages = [
+        "Can not open file as archive",
+        "cannot open file as archive",
+        "is not archive",
+    ]
+    for msg in messages:
+        try:
+            au._raise_for_7z_error(2, msg, "file.mp4")
+        except ArchiveUnsupportedError:
+            pass
+        else:
+            assert False, f"Expected ArchiveUnsupportedError for message: {msg}"
+
+
 def test_is_valid_archive_false_on_garbage(monkeypatch):
     # Simulate readArchiveContentWith7z raising ArchiveUnsupportedError
     def fake_read(*args, **kwargs):
@@ -66,6 +83,58 @@ def test_is_valid_archive_false_on_garbage(monkeypatch):
 
     monkeypatch.setattr(au, "readArchiveContentWith7z", fake_read)
     assert au.is_valid_archive("not.zip") is False
+
+
+def test_is_valid_archive_false_on_not_archive_message(monkeypatch):
+    # Simulate 7z returning a "not an archive" error so that listing fails appropriately
+    monkeypatch.setattr(au, "_resolve_seven_zip_path", lambda *a, **k: "7z.exe")
+    monkeypatch.setattr(au, "_ensure_archive_exists", lambda *a, **k: None)
+
+    def fake_run(cmd):
+        _ = cmd
+        return ("", "Can not open file as archive", 2)
+
+    monkeypatch.setattr(au, "_run_7z_cmd", fake_run)
+    assert au.is_valid_archive("video.mp4") is False
+
+
+def test_extract_nested_archives_treats_non_archive_as_regular_file(
+    monkeypatch, tmp_path
+):
+    # Create placeholder archive and output paths
+    archive_path = str(tmp_path / "outer.7z")
+    output_path = str(tmp_path / "out")
+    (tmp_path / "outer.7z").write_bytes(b"dummy")
+
+    # is_valid_archive: True for the outer archive, False for anything inside (e.g., .mp4)
+    def fake_is_valid(path, *args, **kwargs):
+        _ = (args, kwargs)
+        return os.path.basename(path) == "outer.7z"
+
+    monkeypatch.setattr(au, "is_valid_archive", fake_is_valid)
+
+    # extractArchiveWith7z: create a dummy non-archive file in the extraction folder and report success
+    def fake_extract(archive_path: str, output_path: str, *args, **kwargs) -> bool:
+        _ = (archive_path, args, kwargs)
+        os.makedirs(output_path, exist_ok=True)
+        with open(os.path.join(output_path, "video.mp4"), "wb") as f:
+            f.write(b"video-bytes")
+        return True
+
+    monkeypatch.setattr(au, "extractArchiveWith7z", fake_extract)
+
+    # Run nested extraction (non-interactive)
+    result = au.extract_nested_archives(
+        archive_path=archive_path,
+        output_path=output_path,
+        interactive=False,
+        use_recycle_bin=False,
+    )
+
+    assert result.get("success") is True
+    assert result.get("errors") == []
+    finals = result.get("final_files")
+    assert any(p.endswith("video.mp4") for p in finals)
 
 
 def test_is_valid_archive_true_on_password_protected(monkeypatch):

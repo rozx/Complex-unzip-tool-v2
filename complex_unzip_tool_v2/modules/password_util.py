@@ -12,8 +12,8 @@ def load_all_passwords(paths: list[str]) -> PasswordBook:
             # load from directory
             password_book.load_passwords(os.path.join(path, "passwords.txt"))
         else:
-            dir = os.path.dirname(path)
-            password_book.load_passwords(os.path.join(dir, "passwords.txt"))
+            parent_dir = os.path.dirname(path)
+            password_book.load_passwords(os.path.join(parent_dir, "passwords.txt"))
 
     return password_book
 

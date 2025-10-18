@@ -4,6 +4,7 @@ import sys
 import shutil
 import tempfile
 from typing import List, Dict, Optional, Union, Tuple
+import re
 from complex_unzip_tool_v2.modules.rich_utils import (
     print_nested_extraction_header,
     print_extraction_process_header,
@@ -27,6 +28,7 @@ from complex_unzip_tool_v2.modules.rich_utils import (
 from complex_unzip_tool_v2.modules.file_utils import safe_remove
 from complex_unzip_tool_v2.modules.utils import sanitize_path, sanitize_filename
 from complex_unzip_tool_v2.modules.const import PATH_ERROR_KEYWORDS
+
 from complex_unzip_tool_v2.classes.ArchiveTypes import (
     ArchiveError,
     ArchiveNotFoundError,
@@ -103,6 +105,15 @@ def _raise_for_7z_error(returncode: int, stderr: str, archive_path: str) -> None
     if returncode == 0:
         return
     err = (stderr or "").lower()
+    # Treat "not an archive" style errors as unsupported/non-archive, not corruption
+    if (
+        "can not open file as archive" in err
+        or "cannot open file as archive" in err
+        or "is not archive" in err
+    ):
+        raise ArchiveUnsupportedError(
+            f"Not a supported archive type (likely not an archive): {archive_path}"
+        )
     if "wrong password" in err or "cannot open encrypted archive" in err:
         raise ArchivePasswordError(
             f"Incorrect password or password required for: {archive_path}"
@@ -294,13 +305,17 @@ def _parse7zListOutput(output: str) -> List[ArchiveFileInfo]:
 
     lines = output.split("\n")
     in_file_section = False
+    dash_count = 0
 
     for i, line in enumerate(lines):
         line = line.strip()
 
-        # Look for the start of file listing section (second ----------)
+        # The file listing section in `7z l -slt` often starts after a dashed line
+        # Accept the first dashed line to maintain compatibility with tests and varied 7z outputs
         if line.startswith("----------"):
-            in_file_section = True
+            dash_count += 1
+            if dash_count >= 1:
+                in_file_section = True
             continue
 
         # Skip lines before file section
@@ -1115,6 +1130,53 @@ def extract_nested_archives(
                     if file_path in result["extracted_archives"]:
                         continue
 
+                    # Skip multipart continuation files (.7z.002, .r01, .z02, .part2.rar, etc.)
+                    # Only primary parts should be considered for further processing:
+                    #   - 7z: .7z.001 is primary
+                    #   - TAR.*: .tar.gz/.bz2/.xz.001 is primary
+                    #   - RAR: .rar or .part1.rar is primary (NOT .r00)
+                    #   - ZIP spanned: .zip is primary (treat .z01+ as continuation)
+                    fname = file_name.lower()
+                    try:
+                        skip_continuation = False
+                        # 7z.00N parts: only .001 is primary
+                        m = re.search(r"\.7z\.(\d{1,3})$", fname)
+                        if m:
+                            if int(m.group(1)) != 1:
+                                skip_continuation = True
+
+                        # tar.(gz|bz2|xz).00N parts: only .001 is primary
+                        if not skip_continuation:
+                            m = re.search(r"\.tar\.(gz|bz2|xz)\.(\d{1,3})$", fname)
+                            if m and int(m.group(2)) != 1:
+                                skip_continuation = True
+
+                        # RAR volumes: .r00, .r01, ... are continuations; primary is .rar or .part1.rar
+                        if not skip_continuation:
+                            if re.search(r"\.r\d{2}$", fname):
+                                skip_continuation = True
+
+                        # ZIP spanned: .z01, .z02, ... are continuations; primary is .zip
+                        if not skip_continuation:
+                            if re.search(r"\.z\d{2}$", fname):
+                                skip_continuation = True
+
+                        # RAR part notation: only part1.rar is primary, others are continuation
+                        if not skip_continuation:
+                            m = re.search(r"\.part(\d+)\.rar$", fname)
+                            if m and int(m.group(1)) != 1:
+                                skip_continuation = True
+
+                        if skip_continuation:
+                            print_info(
+                                f"Skipping multipart continuation file 跳过多部分续档: {file_name}",
+                                3,
+                            )
+                            continue
+                    except re.error:
+                        # If regex somehow fails, fall back to normal flow
+                        pass
+
                     if is_valid_archive(
                         file_path, password=password, seven_zip_path=seven_zip_path
                     ):
@@ -1185,7 +1247,6 @@ def extract_nested_archives(
 
                         # Derive folder name by stripping known archive suffixes
                         def _derive_folder_name(filename: str) -> str:
-                            import re as _re
 
                             name = filename
                             # Iteratively strip extensions like .zip, .7z, .rar, .tar.gz, .001, .z01, .r00, .part1
@@ -1199,7 +1260,7 @@ def extract_nested_archives(
                                     name = name_no_ext
                                     continue
                                 # multipart like .z01/.r00/.a00/.c00
-                                if _re.fullmatch(r"\.[zrac][0-9]{2}", ext_low):
+                                if re.fullmatch(r"\.[zrac][0-9]{2}", ext_low):
                                     name = name_no_ext
                                     continue
                                 # .partN
