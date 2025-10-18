@@ -205,6 +205,23 @@ When extracting an archive that itself contains multipart archives (e.g., a .7z 
   - CLI smoke: `poetry run main --help`.
   - End-to-end: run against a directory where an outer archive contains a multipart set; only files from extracting the primary part should end up in the output directory, with continuation parts neither moved nor left behind.
 
+## Non-archive handling during nested scan
+The tool treats every file as a potential archive by default. During nested extraction, we probe files with 7‑Zip but avoid flagging regular files (e.g., .mp4) as corrupted by mapping 7‑Zip output appropriately and parsing list output robustly.
+
+- Behavior:
+  - All files are candidates for probing via 7‑Zip.
+  - If 7‑Zip prints messages like “Can not open file as archive”, “cannot open file as archive”, or “is not archive”, we treat this as unsupported/non‑archive (not corruption) and skip it.
+  - Regular files encountered during nested scanning therefore do not produce spurious corruption errors.
+
+- Implementation:
+  - `complex_unzip_tool_v2/modules/archive_utils.py` → `_raise_for_7z_error()` maps the above messages to `ArchiveUnsupportedError` (non‑archive/unsupported), not `ArchiveCorruptedError`.
+  - `_parse7zListOutput()` begins parsing after the dashed separator to remain compatible with varying 7‑Zip outputs.
+  - `is_valid_archive()` uses 7‑Zip listing plus the mapping above to determine if a file is an archive.
+
+- Validation:
+  - Unit tests: `poetry run pytest -q` should pass.
+  - Smoke: running against directories containing non‑archive files (e.g., .mp4) should not produce “corrupted archive” messages for those files.
+
 ## Common Local Paths
 - 7-Zip: `./7z/7z.exe`
 - Config: `complex_unzip_tool_v2/config/cloaked_file_rules.json`

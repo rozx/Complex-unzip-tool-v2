@@ -105,6 +105,15 @@ def _raise_for_7z_error(returncode: int, stderr: str, archive_path: str) -> None
     if returncode == 0:
         return
     err = (stderr or "").lower()
+    # Treat "not an archive" style errors as unsupported/non-archive, not corruption
+    if (
+        "can not open file as archive" in err
+        or "cannot open file as archive" in err
+        or "is not archive" in err
+    ):
+        raise ArchiveUnsupportedError(
+            f"Not a supported archive type (likely not an archive): {archive_path}"
+        )
     if "wrong password" in err or "cannot open encrypted archive" in err:
         raise ArchivePasswordError(
             f"Incorrect password or password required for: {archive_path}"
@@ -296,13 +305,17 @@ def _parse7zListOutput(output: str) -> List[ArchiveFileInfo]:
 
     lines = output.split("\n")
     in_file_section = False
+    dash_count = 0
 
     for i, line in enumerate(lines):
         line = line.strip()
 
-        # Look for the start of file listing section (second ----------)
+        # The file listing section in `7z l -slt` often starts after a dashed line
+        # Accept the first dashed line to maintain compatibility with tests and varied 7z outputs
         if line.startswith("----------"):
-            in_file_section = True
+            dash_count += 1
+            if dash_count >= 1:
+                in_file_section = True
             continue
 
         # Skip lines before file section
