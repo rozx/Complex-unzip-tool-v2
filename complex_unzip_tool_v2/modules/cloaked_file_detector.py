@@ -17,6 +17,7 @@ from complex_unzip_tool_v2.modules.rich_utils import (
 from complex_unzip_tool_v2.modules.archive_extension_utils import (
     detect_archive_extension,
 )
+from complex_unzip_tool_v2.modules.regex import multipart_regex
 
 
 @dataclass
@@ -237,6 +238,39 @@ class CloakedFileDetector:
         """
         filename = os.path.basename(file_path)
         dirname = os.path.dirname(file_path)
+
+        # Fast-path: skip already proper archive names to avoid unnecessary renames
+        # 1) Proper multipart formats like: .7z.001, .rar.r00, .zip.z01, .tar.gz.001, .part1.rar
+        if re.search(multipart_regex, filename, re.IGNORECASE):
+            return None
+
+        # 2) Proper single archive extensions (no cloaking suffixes)
+        proper_single_exts = [
+            ".7z",
+            ".rar",
+            ".zip",
+            ".tar",
+            ".tar.gz",
+            ".tgz",
+            ".tar.bz2",
+            ".tbz2",
+            ".tar.xz",
+            ".txz",
+            ".gz",
+            ".bz2",
+            ".xz",
+            ".arj",
+            ".cab",
+            ".lzh",
+            ".lha",
+            ".ace",
+            ".iso",
+            ".img",
+            ".bin",
+        ]
+        lower_name = filename.lower()
+        if any(lower_name.endswith(ext) for ext in proper_single_exts):
+            return None
 
         for rule in self.rules:
             match_result = self._match_rule(filename, rule)

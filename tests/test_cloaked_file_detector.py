@@ -187,6 +187,27 @@ class TestCloakedFileDetector:
         assert len(rule_types) > 1
 
     @patch("os.path.exists")
+    def test_no_rename_for_proper_multipart(
+        self, mock_exists, detector_with_real_config
+    ):
+        """archive.7z.001 should be considered proper and not renamed."""
+        mock_exists.return_value = True
+        original = "/tmp/archive.7z.001"
+        result = detector_with_real_config.detect_cloaked_file(original)
+        # detect_cloaked_file returns None when no change is needed
+        assert result is None
+
+    @patch("os.path.exists")
+    def test_no_rename_for_proper_single_extension(
+        self, mock_exists, detector_with_real_config
+    ):
+        """archive.7z should be considered proper and not renamed."""
+        mock_exists.return_value = True
+        original = "/tmp/archive.7z"
+        result = detector_with_real_config.detect_cloaked_file(original)
+        assert result is None
+
+    @patch("os.path.exists")
     @patch.object(CloakedFileDetector, "_verify_with_signature")
     def test_chinese_suffix_digits_in_ext(
         self, mock_verify, mock_exists, detector_with_real_config
