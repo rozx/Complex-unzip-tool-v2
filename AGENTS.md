@@ -24,6 +24,7 @@ A command-line tool to unzip/extract various archive formats, including nested a
 - Keep the app stable and easy to maintain.
 - Prefer minimal, well-scoped changes with tests.
 - Follow a clear workflow so changes are reproducible locally on Windows.
+- **When making changes, ensure all existing behavior is preserved unless intentionally modified.**
 
 ## Ground Rules
 - Do not exfiltrate secrets or make network calls unless explicitly required.
@@ -184,7 +185,7 @@ Testing:
 - Run tests with `poetry run pytest -q`.
 
 ## Nested multipart handling (inside containers)
-When extracting an archive that itself contains multipart archives (e.g., a .7z containing another multi-part set), the tool excludes continuation parts from the final outputs so they are not moved to the destination. Only the primary part is considered for further extraction.
+When extracting an archive that itself contains multipart archives (e.g., a .7z containing another multi-part set), the tool now relocates continuation parts into their corresponding multipart group directory so that top‑level multipart extraction has all required volumes. Primary parts are still the only ones considered for recursive nested extraction.
 
 - Primary vs continuation identification:
   - 7z volumes: primary is `.7z.001`; continuations are `.7z.002+`.
@@ -193,17 +194,23 @@ When extracting an archive that itself contains multipart archives (e.g., a .7z 
   - ZIP spanned: primary is `.zip`; continuations are `.z01`, `.z02`, …
 
 - Behavior:
-  - Continuation parts detected during nested extraction are skipped (not treated as nested archives and not added to `final_files`).
+  - Continuation parts detected during nested extraction are NOT treated as nested archives and are NOT added to `final_files`.
+  - Instead, the extractor attempts to relocate those continuation files next to the multipart set’s main archive, updating the in‑memory group via `ArchiveGroup.add_file`.
+  - If relocation isn’t possible, the continuation is simply skipped (not an error) and will be cleaned up with the temporary folder; a later reconciliation pass may still catch it (see below).
   - Only the primary part is extracted recursively.
-  - After processing, the temporary extraction folder is removed, so any skipped continuation files inside that temp directory are cleaned up instead of being moved to the output folder.
+
+- Reconciliation pass (safety net):
+  - After single archives finish, we scan the output folder and relocate any multipart parts that were extracted there into their matching multipart group directory.
 
 - Implementation:
-  - `complex_unzip_tool_v2/modules/archive_utils.py` → `extract_nested_archives()` filtering logic while iterating over extracted files.
-  - This logic runs only for nested contents. Top-level grouping/multipart processing remains unchanged.
+  - `complex_unzip_tool_v2/modules/archive_utils.py` → `extract_nested_archives()` accepts an optional `group_relocator` callback and invokes it when a continuation file is encountered.
+  - `complex_unzip_tool_v2/main.py` wires `group_relocator` to reuse `file_utils.add_file_to_groups` during the single and multipart phases, and also runs a reconciliation step after single‑archive extraction.
+  - `complex_unzip_tool_v2/modules/file_utils.py` provides `relocate_multipart_parts_from_directory(source_root, groups)` to scan the output folder and move parts into their group directories.
 
 - Validation:
   - CLI smoke: `poetry run main --help`.
-  - End-to-end: run against a directory where an outer archive contains a multipart set; only files from extracting the primary part should end up in the output directory, with continuation parts neither moved nor left behind.
+  - End-to-end: run against a directory where an outer archive contains a multipart set; continuation parts should be moved beside the multipart set before the multipart extraction begins and the set should extract successfully.
+  - Tests: `tests/test_archive_utils.py` includes unit tests that assert continuation parts found during nested extraction are either relocated via the callback or skipped without leaking into `final_files`.
 
 ## Non-archive handling during nested scan
 The tool treats every file as a potential archive by default. During nested extraction, we probe files with 7‑Zip but avoid flagging regular files (e.g., .mp4) as corrupted by mapping 7‑Zip output appropriately and parsing list output robustly.

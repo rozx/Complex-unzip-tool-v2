@@ -3,7 +3,7 @@ import os
 import sys
 import shutil
 import tempfile
-from typing import List, Dict, Optional, Union, Tuple
+from typing import List, Dict, Optional, Union, Tuple, Callable
 import re
 from complex_unzip_tool_v2.modules.rich_utils import (
     print_nested_extraction_header,
@@ -680,6 +680,7 @@ def extract_nested_archives(
     loading_indicator=None,
     active_progress_bars: Optional[List] = None,
     use_recycle_bin: bool = True,
+    group_relocator: Optional[Callable[[str], bool]] = None,
 ) -> Dict[str, Union[bool, List[str]]]:
     """
     Recursively extract archives within archives until no more archives are found.
@@ -1168,6 +1169,20 @@ def extract_nested_archives(
                                 skip_continuation = True
 
                         if skip_continuation:
+                            # Attempt to relocate continuation parts to known multipart groups
+                            if group_relocator:
+                                try:
+                                    relocated = group_relocator(file_path)
+                                except Exception:
+                                    relocated = False
+                                if relocated:
+                                    print_info(
+                                        f"Relocated multipart continuation file 已移动分卷续档: {file_name}",
+                                        3,
+                                    )
+                                    # Do not include in nested processing
+                                    continue
+                            # Default behavior: skip continuation files inside nested containers
                             print_info(
                                 f"Skipping multipart continuation file 跳过多部分续档: {file_name}",
                                 3,

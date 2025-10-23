@@ -212,3 +212,90 @@ def test_extract_nested_archives_returns_false_when_passwords_fail(
     assert result.get("success") is False
     assert result.get("final_files") == []
     assert result.get("extracted_archives") == []
+
+
+def test_nested_continuation_parts_are_relocated(monkeypatch, tmp_path):
+    """Continuation parts found inside nested extraction should be relocated via callback and not counted as finals."""
+    archive_path = str(tmp_path / "outer.7z")
+    output_path = str(tmp_path / "out")
+    (tmp_path / "outer.7z").write_bytes(b"dummy")
+
+    # Only the outer archive is considered valid
+    monkeypatch.setattr(
+        au, "is_valid_archive", lambda p, *a, **k: os.path.basename(p) == "outer.7z"
+    )
+
+    # Extraction creates a continuation part inside the output directory
+    def fake_extract(archive_path: str, output_path: str, *args, **kwargs) -> bool:
+        _ = (archive_path, args, kwargs)
+        os.makedirs(output_path, exist_ok=True)
+        # Create a nested continuation part that should be relocated and skipped
+        with open(os.path.join(output_path, "MySet.7z.002"), "wb") as f:
+            f.write(b"part-bytes")
+        return True
+
+    monkeypatch.setattr(au, "extractArchiveWith7z", fake_extract)
+
+    called_with: list[str] = []
+
+    def relocator(path: str) -> bool:
+        called_with.append(path)
+        return True  # indicate relocation happened
+
+    result = au.extract_nested_archives(
+        archive_path=archive_path,
+        output_path=output_path,
+        interactive=False,
+        use_recycle_bin=False,
+        group_relocator=relocator,
+    )
+
+    assert result.get("success") is True
+    # The continuation part should not appear in final files
+    finals = result.get("final_files")
+    assert finals is not None
+    assert not any(p.endswith("MySet.7z.002") for p in finals)
+    # Relocator should have been invoked with the nested file path
+    assert len(called_with) == 1
+    assert os.path.basename(called_with[0]) == "MySet.7z.002"
+
+
+def test_nested_continuation_parts_skipped_when_not_relocated(monkeypatch, tmp_path):
+    """If relocation says False, continuation parts are still skipped (not treated as finals)."""
+    archive_path = str(tmp_path / "outer.7z")
+    output_path = str(tmp_path / "out")
+    (tmp_path / "outer.7z").write_bytes(b"dummy")
+
+    monkeypatch.setattr(
+        au, "is_valid_archive", lambda p, *a, **k: os.path.basename(p) == "outer.7z"
+    )
+
+    def fake_extract(archive_path: str, output_path: str, *args, **kwargs) -> bool:
+        _ = (archive_path, args, kwargs)
+        os.makedirs(output_path, exist_ok=True)
+        with open(os.path.join(output_path, "AnotherSet.7z.003"), "wb") as f:
+            f.write(b"part-bytes")
+        return True
+
+    monkeypatch.setattr(au, "extractArchiveWith7z", fake_extract)
+
+    called_with: list[str] = []
+
+    def relocator_false(path: str) -> bool:
+        called_with.append(path)
+        return False  # indicate relocation did not occur
+
+    result = au.extract_nested_archives(
+        archive_path=archive_path,
+        output_path=output_path,
+        interactive=False,
+        use_recycle_bin=False,
+        group_relocator=relocator_false,
+    )
+
+    assert result.get("success") is True
+    finals = result.get("final_files")
+    # Continuation should still be skipped from finals even if not relocated
+    assert not any(p.endswith("AnotherSet.7z.003") for p in finals)
+    assert len(called_with) == 1
+    assert os.path.basename(called_with[0]) == "AnotherSet.7z.003"
