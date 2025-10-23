@@ -344,6 +344,75 @@ def add_file_to_groups(file: str, groups: list[ArchiveGroup]) -> ArchiveGroup | 
     return None
 
 
+def relocate_multipart_parts_from_directory(
+    source_root: str, groups: list[ArchiveGroup]
+) -> int:
+    """
+    Scan a directory (recursively) for multipart archive parts and relocate them
+    next to their corresponding multipart group's main archive file.
+
+    This is used after extracting single archives into an output/temp directory
+    to ensure any parts contained inside those archives are moved beside the
+    existing multipart set before attempting extraction.
+
+    Args:
+        source_root: The root directory to scan (e.g., output folder)
+        groups: The current archive groups
+
+    Returns:
+        The number of files relocated.
+    """
+    relocated = 0
+
+    # Build quick lookup for multipart groups by base name and archive ext
+    multipart_groups: list[tuple[str, str, ArchiveGroup]] = []
+    for group in groups:
+        if group.isMultiPart and group.mainArchiveFile:
+            main_basename = os.path.basename(group.mainArchiveFile)
+            main_base, main_ext = get_archive_base_name(main_basename)
+            multipart_groups.append((main_base, main_ext, group))
+
+    if not multipart_groups:
+        return 0
+
+    for root, _dirs, files in os.walk(source_root):
+        for filename in files:
+            # Only consider multipart-looking filenames
+            if not re.search(multipart_regex, filename):
+                continue
+
+            file_path = os.path.join(root, filename)
+
+            # Derive base and ext for matching
+            file_base, _file_ext = get_archive_base_name(filename)
+
+            for main_base, _main_ext, group in multipart_groups:
+                if file_base == main_base:
+                    # Move this part next to the group's main archive
+                    dest_dir = os.path.dirname(group.mainArchiveFile)
+                    dest_path = os.path.join(dest_dir, filename)
+
+                    # Handle potential name collisions in destination
+                    final_dest = dest_path
+                    counter = 1
+                    while os.path.exists(final_dest):
+                        name, ext = os.path.splitext(dest_path)
+                        final_dest = f"{name}_{counter}{ext}"
+                        counter += 1
+
+                    try:
+                        os.makedirs(dest_dir, exist_ok=True)
+                        shutil.move(file_path, final_dest)
+                        group.add_file(final_dest)
+                        relocated += 1
+                        break  # Do not match same file to another group
+                    except (OSError, IOError, PermissionError):
+                        # If we fail to move, just skip; extraction step will handle
+                        pass
+
+    return relocated
+
+
 def move_files_preserving_structure(
     file_paths: list[str],
     source_root: str,

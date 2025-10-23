@@ -256,6 +256,9 @@ def extract_files(paths: List[str], use_recycle_bin: bool = True) -> None:
                     loading_indicator=loader,
                     active_progress_bars=[extraction_progress],
                     use_recycle_bin=False,
+                    group_relocator=lambda p: bool(
+                        file_utils.add_file_to_groups(p, groups)
+                    ),
                 )
 
                 loader.stop()
@@ -279,35 +282,12 @@ def extract_files(paths: List[str], use_recycle_bin: bool = True) -> None:
                         print_success(
                             f"Successfully extracted 成功提取: {group.name}", 2
                         )
-                        print_info("Checking extracted files 正在检查提取的文件...", 2)
-                        print_processing_separator()
 
-                        # Process each extracted file
-                        files_to_remove = []
-                        for file_path in final_files:
-                            if os.path.exists(file_path):
-                                if file_utils.add_file_to_groups(file_path, groups):
-                                    print_success(
-                                        f"📦 {os.path.basename(file_path)} → moved to group location 移动到组位置",
-                                        3,
-                                    )
-                                    files_to_remove.append(file_path)
-                            else:
-                                print_warning(
-                                    f"File not found 文件未找到: {os.path.basename(file_path)}",
-                                    3,
-                                )
-                                files_to_remove.append(file_path)
-
-                        # Remove processed files from the list
-                        for file_path in files_to_remove:
-                            final_files.remove(file_path)
-
-                        # Move remaining files to output folder
+                        # Move files to output folder (relocation to groups happens after this step)
                         if final_files:
                             print_processing_separator()
                             print_info(
-                                f"Moving {len(final_files)} remaining files to output folder",
+                                f"Moving {len(final_files)} files to output folder",
                                 2,
                             )
                             print_info(
@@ -479,6 +459,9 @@ def extract_files(paths: List[str], use_recycle_bin: bool = True) -> None:
                             loading_indicator=retry_loader,
                             active_progress_bars=[extraction_progress],
                             use_recycle_bin=False,
+                            group_relocator=lambda p: bool(
+                                file_utils.add_file_to_groups(p, groups)
+                            ),
                         )
 
                         retry_loader.stop()
@@ -534,6 +517,20 @@ def extract_files(paths: List[str], use_recycle_bin: bool = True) -> None:
     else:
         print_info("No single archives found 未找到单一档案")
         print_minor_section_break()
+
+    # After extracting single archives, reconcile any multipart parts that were
+    # extracted into the output folder so multipart sets are complete before extraction
+    print_info("🔄 Reconciling parts from extracted containers 对齐从容器提取的分卷...")
+    moved_parts = file_utils.relocate_multipart_parts_from_directory(
+        output_folder, groups
+    )
+    if moved_parts:
+        print_success(
+            f"Relocated {moved_parts} multipart parts to their groups 已移动 {moved_parts} 个分卷到对应组"
+        )
+    else:
+        print_info("No multipart parts to relocate 无需移动的分卷")
+    print_minor_section_break()
 
     # add user provided passwords to password book
     if user_provided_passwords:
@@ -597,6 +594,9 @@ def extract_files(paths: List[str], use_recycle_bin: bool = True) -> None:
                     loading_indicator=loader,
                     active_progress_bars=[multipart_progress],
                     use_recycle_bin=False,
+                    group_relocator=lambda p: bool(
+                        file_utils.add_file_to_groups(p, groups)
+                    ),
                 )
 
                 loader.stop()
@@ -801,6 +801,9 @@ def extract_files(paths: List[str], use_recycle_bin: bool = True) -> None:
                             loading_indicator=retry_loader,
                             active_progress_bars=[multipart_progress],
                             use_recycle_bin=False,
+                            group_relocator=lambda p: bool(
+                                file_utils.add_file_to_groups(p, groups)
+                            ),
                         )
 
                         retry_loader.stop()
