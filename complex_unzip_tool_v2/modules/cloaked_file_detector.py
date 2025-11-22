@@ -401,10 +401,74 @@ class CloakedFileDetector:
             print_warning(f"Could not verify file signature for {file_path}: {e}")
             return True  # Assume valid if verification fails
 
+    def _find_next_available_name(self, target_path: str) -> str:
+        """
+        Find the next available filename if target_path already exists.
+        Automatically handles both single files and multipart archives.
+        如果目标路径已存在，查找下一个可用的文件名。
+        自动处理单个文件和多部分档案。
+
+        Args:
+            target_path: The desired file path that may conflict
+
+        Returns:
+            A non-conflicting file path
+        """
+        if not os.path.exists(target_path):
+            return target_path
+
+        dirname = os.path.dirname(target_path)
+        filename = os.path.basename(target_path)
+
+        # Check if this is a multipart archive (e.g., file.7z.001, file.rar.r00)
+        multipart_match = re.search(multipart_regex, filename, re.IGNORECASE)
+        
+        if multipart_match:
+            # For multipart files, insert counter before the archive extension
+            # e.g., file.7z.001 -> file_1.7z.001
+            # e.g., file.rar.r00 -> file_1.rar.r00
+            part_start = multipart_match.start()
+            # Find the last dot before the multipart pattern to get the base name
+            # This handles cases like archive.rar.r00 where we want archive_1.rar.r00
+            base_with_ext = filename[:part_start]
+            part_suffix = filename[part_start:]  # The part number and extension
+            
+            # Find the archive extension by looking for the last dot before the part
+            # For archive.rar.r00, base_with_ext is "archive.rar", we want "archive" and ".rar"
+            last_dot_pos = base_with_ext.rfind(".")
+            if last_dot_pos > 0:
+                base_name = base_with_ext[:last_dot_pos]  # "archive"
+                archive_ext = base_with_ext[last_dot_pos:]  # ".rar"
+            else:
+                # No dot found, use the whole base_with_ext as base_name
+                base_name = base_with_ext
+                archive_ext = ""
+            
+            counter = 1
+            while True:
+                new_filename = f"{base_name}_{counter}{archive_ext}{part_suffix}"
+                new_path = os.path.join(dirname, new_filename)
+                if not os.path.exists(new_path):
+                    return new_path
+                counter += 1
+        else:
+            # For single files, append counter before the extension
+            # e.g., file.7z -> file_1.7z
+            name, ext = os.path.splitext(filename)
+            counter = 1
+            while True:
+                new_filename = f"{name}_{counter}{ext}"
+                new_path = os.path.join(dirname, new_filename)
+                if not os.path.exists(new_path):
+                    return new_path
+                counter += 1
+
     def uncloak_file(self, file_path: str) -> str:
         """
         Uncloak a single file and rename it if needed.
+        Automatically resolves naming conflicts by finding the next available name.
         解除单个文件的隐藏并在需要时重命名。
+        通过查找下一个可用名称自动解决命名冲突。
 
         Args:
             file_path: Full path to the file to uncloak
@@ -418,13 +482,22 @@ class CloakedFileDetector:
         new_path = self.detect_cloaked_file(file_path)
 
         if new_path and new_path != file_path:
+            # Check for naming conflicts and find next available name
+            final_path = self._find_next_available_name(new_path)
+            
+            # Only show conflict message if the name was changed
+            if final_path != new_path:
+                print_warning(
+                    f"Naming conflict resolved 命名冲突已解决: {os.path.basename(new_path)} -> {os.path.basename(final_path)}"
+                )
+            
             try:
                 # Rename the actual file
-                os.rename(file_path, new_path)
+                os.rename(file_path, final_path)
                 print_success(
-                    f"Renamed: {os.path.basename(file_path)} -> {os.path.basename(new_path)}"
+                    f"Renamed: {os.path.basename(file_path)} -> {os.path.basename(final_path)}"
                 )
-                return new_path
+                return final_path
             except Exception as e:
                 print_error(f"Failed to rename {file_path}: {e}")
                 return file_path

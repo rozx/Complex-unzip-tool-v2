@@ -727,3 +727,211 @@ class TestCloakedFileDetectorEdgeCases:
             result = minimal_detector.detect_cloaked_file(f"/test/{filename}")
             # Should handle Unicode gracefully
             assert result is None or isinstance(result, str)
+
+
+class TestConflictResolution:
+    """Tests for naming conflict resolution during uncloaking."""
+
+    @pytest.fixture
+    def detector(self):
+        """Create a detector with test rules."""
+        rules_data = {
+            "rules": [
+                {
+                    "name": "test_rule",
+                    "filename_pattern": r"^(.+)\.test$",
+                    "ext_pattern": r"^(\d+)$",
+                    "priority": 100,
+                    "matching_type": "both",
+                    "type": "7z",
+                    "enabled": True,
+                }
+            ]
+        }
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            json.dump(rules_data, f, indent=2)
+            temp_file = f.name
+        detector = CloakedFileDetector(temp_file)
+        os.unlink(temp_file)
+        return detector
+
+    def test_find_next_available_name_single_file_no_conflict(self, detector):
+        """Test finding next available name when no conflict exists."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            target_path = os.path.join(tmpdir, "archive.7z")
+            result = detector._find_next_available_name(target_path)
+            assert result == target_path
+
+    def test_find_next_available_name_single_file_with_conflict(self, detector):
+        """Test finding next available name for single file with conflict."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            target_path = os.path.join(tmpdir, "archive.7z")
+            # Create a conflicting file
+            with open(target_path, "w") as f:
+                f.write("existing")
+            
+            result = detector._find_next_available_name(target_path)
+            assert result == os.path.join(tmpdir, "archive_1.7z")
+            assert not os.path.exists(result)
+
+    def test_find_next_available_name_single_file_multiple_conflicts(self, detector):
+        """Test finding next available name with multiple conflicts."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            target_path = os.path.join(tmpdir, "archive.7z")
+            # Create the target file and multiple conflicting files
+            with open(target_path, "w") as f:
+                f.write("existing")
+            for i in range(1, 4):
+                conflict_path = os.path.join(tmpdir, f"archive_{i}.7z")
+                with open(conflict_path, "w") as f:
+                    f.write(f"existing_{i}")
+            
+            result = detector._find_next_available_name(target_path)
+            assert result == os.path.join(tmpdir, "archive_4.7z")
+            assert not os.path.exists(result)
+
+    def test_find_next_available_name_multipart_no_conflict(self, detector):
+        """Test finding next available name for multipart file with no conflict."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            target_path = os.path.join(tmpdir, "archive.7z.001")
+            result = detector._find_next_available_name(target_path)
+            assert result == target_path
+
+    def test_find_next_available_name_multipart_with_conflict(self, detector):
+        """Test finding next available name for multipart file with conflict."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            target_path = os.path.join(tmpdir, "archive.7z.001")
+            # Create a conflicting file
+            with open(target_path, "w") as f:
+                f.write("existing")
+            
+            result = detector._find_next_available_name(target_path)
+            assert result == os.path.join(tmpdir, "archive_1.7z.001")
+            assert not os.path.exists(result)
+
+    def test_find_next_available_name_multipart_multiple_conflicts(self, detector):
+        """Test finding next available name for multipart with multiple conflicts."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            target_path = os.path.join(tmpdir, "archive.7z.001")
+            # Create the target file and multiple conflicting files
+            with open(target_path, "w") as f:
+                f.write("existing")
+            for i in range(1, 3):
+                conflict_path = os.path.join(tmpdir, f"archive_{i}.7z.001")
+                with open(conflict_path, "w") as f:
+                    f.write(f"existing_{i}")
+            
+            result = detector._find_next_available_name(target_path)
+            assert result == os.path.join(tmpdir, "archive_3.7z.001")
+            assert not os.path.exists(result)
+
+    def test_find_next_available_name_rar_multipart(self, detector):
+        """Test finding next available name for RAR multipart files."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            target_path = os.path.join(tmpdir, "archive.rar.r00")
+            # Create a conflicting file
+            with open(target_path, "w") as f:
+                f.write("existing")
+            
+            result = detector._find_next_available_name(target_path)
+            assert result == os.path.join(tmpdir, "archive_1.rar.r00")
+            assert not os.path.exists(result)
+
+    @patch("os.path.exists")
+    @patch("os.rename")
+    @patch("complex_unzip_tool_v2.modules.cloaked_file_detector.print_success")
+    @patch("complex_unzip_tool_v2.modules.cloaked_file_detector.print_warning")
+    def test_uncloak_file_with_conflict_resolution(
+        self, mock_warning, mock_success, mock_rename, mock_exists, detector
+    ):
+        """Test uncloaking file with automatic conflict resolution."""
+        # First call (original file) returns True, second call (target) returns True (conflict)
+        mock_exists.side_effect = lambda path: (
+            path == "/test/archive.test.001" or path == "/test/archive.7z.001"
+        )
+        
+        with patch.object(detector, "detect_cloaked_file") as mock_detect:
+            mock_detect.return_value = "/test/archive.7z.001"
+            result = detector.uncloak_file("/test/archive.test.001")
+            
+            # Should call _find_next_available_name and resolve conflict
+            # Normalize path separators for cross-platform compatibility
+            expected = os.path.normpath("/test/archive_1.7z.001")
+            assert os.path.normpath(result) == expected
+            # Check that rename was called with the correct paths (normalize for comparison)
+            call_args = mock_rename.call_args[0]
+            assert os.path.normpath(call_args[0]) == os.path.normpath("/test/archive.test.001")
+            assert os.path.normpath(call_args[1]) == expected
+            mock_warning.assert_called_once()
+            mock_success.assert_called_once()
+
+    @patch("os.path.exists")
+    @patch("os.rename")
+    @patch("complex_unzip_tool_v2.modules.cloaked_file_detector.print_success")
+    @patch("complex_unzip_tool_v2.modules.cloaked_file_detector.print_warning")
+    def test_uncloak_file_no_conflict_no_warning(
+        self, mock_warning, mock_success, mock_rename, mock_exists, detector
+    ):
+        """Test uncloaking file without conflict should not show warning."""
+        # Original file exists, but target doesn't (no conflict)
+        mock_exists.side_effect = lambda path: path == "/test/archive.test.001"
+        
+        with patch.object(detector, "detect_cloaked_file") as mock_detect:
+            mock_detect.return_value = "/test/archive.7z.001"
+            result = detector.uncloak_file("/test/archive.test.001")
+            
+            assert result == "/test/archive.7z.001"
+            mock_rename.assert_called_once_with(
+                "/test/archive.test.001", "/test/archive.7z.001"
+            )
+            mock_warning.assert_not_called()
+            mock_success.assert_called_once()
+
+    def test_find_next_available_name_exact_scenario(self, detector):
+        """Test the exact scenario from the user's error report."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Scenario: 10.7z(1).001 should become 10.7z.001, but 10.7z.001 already exists
+            existing_file = os.path.join(tmpdir, "10.7z.001")
+            with open(existing_file, "w") as f:
+                f.write("existing")
+            
+            target_path = os.path.join(tmpdir, "10.7z.001")
+            result = detector._find_next_available_name(target_path)
+            
+            # Should find 10_1.7z.001 as the next available name
+            assert result == os.path.join(tmpdir, "10_1.7z.001")
+            assert not os.path.exists(result)
+            assert os.path.exists(existing_file)  # Original should still exist
+
+    @patch("os.path.exists")
+    @patch("os.rename")
+    @patch("complex_unzip_tool_v2.modules.cloaked_file_detector.print_success")
+    @patch("complex_unzip_tool_v2.modules.cloaked_file_detector.print_warning")
+    @patch("complex_unzip_tool_v2.modules.cloaked_file_detector.print_error")
+    def test_uncloak_file_exact_error_scenario(
+        self, mock_error, mock_warning, mock_success, mock_rename, mock_exists, detector
+    ):
+        """Test the exact error scenario: 10.7z(1).001 -> 10.7z.001 when 10.7z.001 exists."""
+        # Original file exists, target file also exists (conflict)
+        mock_exists.side_effect = lambda path: (
+            path == "/test/10.7z(1).001" or path == "/test/10.7z.001"
+        )
+        
+        with patch.object(detector, "detect_cloaked_file") as mock_detect:
+            mock_detect.return_value = "/test/10.7z.001"
+            result = detector.uncloak_file("/test/10.7z(1).001")
+            
+            # Should resolve to 10_1.7z.001
+            expected = os.path.normpath("/test/10_1.7z.001")
+            assert os.path.normpath(result) == expected
+            
+            # Should have called rename with the resolved path
+            call_args = mock_rename.call_args[0]
+            assert os.path.normpath(call_args[0]) == os.path.normpath("/test/10.7z(1).001")
+            assert os.path.normpath(call_args[1]) == expected
+            
+            # Should show warning about conflict resolution
+            mock_warning.assert_called_once()
+            mock_success.assert_called_once()
+            # Should NOT show error (the old behavior would show error)
+            mock_error.assert_not_called()
