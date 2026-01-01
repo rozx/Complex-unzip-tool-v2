@@ -44,6 +44,19 @@ app = typer.Typer(
 )
 
 
+def _should_delete_original_archives(extract_result: dict) -> bool:
+    """Decide whether original archive(s) can be deleted after processing.
+
+    We never delete originals if any files were skipped due to incorrect/missing
+    passwords, even if other files extracted successfully.
+    """
+    try:
+        return not bool(extract_result.get("password_failed_archives"))
+    except Exception:
+        # Be conservative: if result shape is unexpected, don't delete originals.
+        return False
+
+
 def _ask_for_user_input_and_exit() -> None:
     """Ask for random user input before exiting the application."""
     # Only ask for input in standalone builds (PyInstaller frozen executables)
@@ -315,33 +328,47 @@ def extract_files(paths: List[str], use_recycle_bin: bool = True) -> None:
                             )
 
                         print_processing_separator()
-                        # Remove the original archive file
-                        try:
-                            if os.path.exists(group.mainArchiveFile):
-                                success = file_utils.safe_remove(
-                                    group.mainArchiveFile,
-                                    use_recycle_bin=use_recycle_bin,
-                                    error_callback=print_error,
-                                )
-                                if success:
-                                    if use_recycle_bin:
-                                        print_success(
-                                            "Moved original archive to recycle bin 已将原始档案移至回收站:",
-                                            2,
-                                        )
-                                    else:
-                                        print_success(
-                                            "Removed original archive 已删除原始档案:",
-                                            2,
-                                        )
-                                    print_file_path(
-                                        os.path.basename(group.mainArchiveFile), 3
-                                    )
-                        except Exception as e:
+                        # Remove the original archive file (only when no password skips happened)
+                        if not _should_delete_original_archives(result):
+                            skipped = result.get("password_failed_archives", [])
                             print_warning(
-                                "Could not remove original archive 无法删除原始档案:", 2
+                                "Skipped deleting original archive because some files were skipped due to password failure "
+                                "由于部分文件密码错误/缺失被跳过，未删除原始档案",
+                                2,
                             )
-                            print_error(f"{group.mainArchiveFile}: {e}", 3)
+                            if skipped:
+                                print_info(
+                                    f"Password-failed archives (kept) 密码失败档案（已保留）: {len(skipped)}",
+                                    3,
+                                )
+                        else:
+                            try:
+                                if os.path.exists(group.mainArchiveFile):
+                                    success = file_utils.safe_remove(
+                                        group.mainArchiveFile,
+                                        use_recycle_bin=use_recycle_bin,
+                                        error_callback=print_error,
+                                    )
+                                    if success:
+                                        if use_recycle_bin:
+                                            print_success(
+                                                "Moved original archive to recycle bin 已将原始档案移至回收站:",
+                                                2,
+                                            )
+                                        else:
+                                            print_success(
+                                                "Removed original archive 已删除原始档案:",
+                                                2,
+                                            )
+                                        print_file_path(
+                                            os.path.basename(group.mainArchiveFile), 3
+                                        )
+                            except Exception as e:
+                                print_warning(
+                                    "Could not remove original archive 无法删除原始档案:",
+                                    2,
+                                )
+                                print_error(f"{group.mainArchiveFile}: {e}", 3)
 
                         # Remove the temporary extraction folder
                         try:
@@ -651,34 +678,48 @@ def extract_files(paths: List[str], use_recycle_bin: bool = True) -> None:
                             )
 
                             print_processing_separator()
-                            # Remove the original archive file
-                            if use_recycle_bin:
-                                print_info(
-                                    f"Moving {len(group.files)} archive parts to recycle bin 正在将 {len(group.files)} 个档案部分移至回收站...",
-                                    2,
-                                )
-                            else:
-                                print_info(
-                                    f"Removing {len(group.files)} archive parts 正在删除 {len(group.files)} 个档案部分...",
-                                    2,
-                                )
-                            try:
-                                for archive_file in group.files:
-                                    if os.path.exists(archive_file):
-                                        success = file_utils.safe_remove(
-                                            archive_file,
-                                            use_recycle_bin=use_recycle_bin,
-                                            error_callback=print_error,
-                                        )
-                                        if success:
-                                            print_success(
-                                                f"✓ {os.path.basename(archive_file)}", 3
-                                            )
-                            except Exception as e:
+                            # Remove the original archive parts (only when no password skips happened)
+                            if not _should_delete_original_archives(result):
+                                skipped = result.get("password_failed_archives", [])
                                 print_warning(
-                                    f"Could not remove some archive parts 无法删除某些档案部分: {e}",
+                                    "Skipped deleting original archive parts because some files were skipped due to password failure "
+                                    "由于部分文件密码错误/缺失被跳过，未删除原始分卷档案",
                                     2,
                                 )
+                                if skipped:
+                                    print_info(
+                                        f"Password-failed archives (kept) 密码失败档案（已保留）: {len(skipped)}",
+                                        3,
+                                    )
+                            else:
+                                if use_recycle_bin:
+                                    print_info(
+                                        f"Moving {len(group.files)} archive parts to recycle bin 正在将 {len(group.files)} 个档案部分移至回收站...",
+                                        2,
+                                    )
+                                else:
+                                    print_info(
+                                        f"Removing {len(group.files)} archive parts 正在删除 {len(group.files)} 个档案部分...",
+                                        2,
+                                    )
+                                try:
+                                    for archive_file in group.files:
+                                        if os.path.exists(archive_file):
+                                            success = file_utils.safe_remove(
+                                                archive_file,
+                                                use_recycle_bin=use_recycle_bin,
+                                                error_callback=print_error,
+                                            )
+                                            if success:
+                                                print_success(
+                                                    f"✓ {os.path.basename(archive_file)}",
+                                                    3,
+                                                )
+                                except Exception as e:
+                                    print_warning(
+                                        f"Could not remove some archive parts 无法删除某些档案部分: {e}",
+                                        2,
+                                    )
 
                             # Remove the temporary extraction folder
                             try:

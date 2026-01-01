@@ -214,6 +214,49 @@ def test_extract_nested_archives_returns_false_when_passwords_fail(
     assert result.get("extracted_archives") == []
 
 
+def test_extract_nested_archives_preserves_nested_archive_when_password_fails(
+    monkeypatch, tmp_path
+):
+    """If a nested archive fails due to password, it should be preserved in final_files and reported."""
+    archive_path = str(tmp_path / "outer.7z")
+    output_path = str(tmp_path / "out")
+    (tmp_path / "outer.7z").write_bytes(b"dummy")
+
+    def fake_is_valid(path, *args, **kwargs):
+        _ = (args, kwargs)
+        # Treat both outer and the nested protected archive as valid archives (password-protected is still valid)
+        return os.path.basename(path) in {"outer.7z", "protected.7z"}
+
+    monkeypatch.setattr(au, "is_valid_archive", fake_is_valid)
+
+    def fake_extract(archive_path: str, output_path: str, *args, **kwargs) -> bool:
+        os.makedirs(output_path, exist_ok=True)
+        if os.path.basename(archive_path) == "outer.7z":
+            # Outer extraction "succeeds" by producing a nested protected archive file
+            with open(os.path.join(output_path, "protected.7z"), "wb") as f:
+                f.write(b"protected-bytes")
+            return True
+        # Nested protected archive extraction fails due to wrong password
+        raise ArchivePasswordError("wrong password")
+
+    monkeypatch.setattr(au, "extractArchiveWith7z", fake_extract)
+
+    result = au.extract_nested_archives(
+        archive_path=archive_path,
+        output_path=output_path,
+        password_list=["a", "b"],
+        interactive=False,
+        use_recycle_bin=False,
+    )
+
+    assert isinstance(result, dict)
+    # Outer archive extracted, but nested one failed due to password
+    assert os.path.join(output_path, "protected.7z") in result.get("final_files", [])
+    assert os.path.join(output_path, "protected.7z") in result.get(
+        "password_failed_archives", []
+    )
+
+
 def test_nested_continuation_parts_are_relocated(monkeypatch, tmp_path):
     """Continuation parts found inside nested extraction should be relocated via callback and not counted as finals."""
     archive_path = str(tmp_path / "outer.7z")
