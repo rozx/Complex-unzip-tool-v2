@@ -280,10 +280,8 @@ def print_final_completion(output_location: str):
     if _stats["errors"]:
         console.print()
         console.print("[red]Errors encountered 遇到的错误:[/red]")
-        for i, error in enumerate(_stats["errors"][:5], 1):  # Show first 5 errors
+        for i, error in enumerate(_stats["errors"], 1):  # Show all errors
             console.print(f"  {i}. [red]{error}[/red]")
-        if len(_stats["errors"]) > 5:
-            console.print(f"  ... and {len(_stats['errors']) - 5} more errors 更多错误")
 
     console.print()
     console.print(
@@ -530,10 +528,8 @@ def print_error_summary(errors: List[str]):
 
     console.print()
     console.print("[red]❌ Errors encountered 遇到的错误:[/red]")
-    for i, error in enumerate(errors[:10], 1):  # Show first 10 errors
+    for i, error in enumerate(errors, 1):  # Show all errors
         console.print(f"  {i}. [red]⚠ {error}[/red]")
-    if len(errors) > 10:
-        console.print(f"  ... and {len(errors) - 10} more errors 更多错误")
     console.print()
 
 
