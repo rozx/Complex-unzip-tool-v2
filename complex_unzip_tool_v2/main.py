@@ -495,6 +495,100 @@ def extract_files(paths: List[str], use_recycle_bin: bool = True) -> None:
 
                         # Check if retry extraction was successful
                         if retry_result and retry_result.get("success", False):
+                            # add user provided passwords from retry
+                            user_provided_passwords.extend(
+                                retry_result.get("user_provided_passwords", [])
+                            )
+
+                            # Process files from retry result
+                            retry_final_files = retry_result.get("final_files", [])
+                            if retry_final_files:
+                                print_processing_separator()
+                                print_info(
+                                    f"Moving {len(retry_final_files)} files from retry to output folder",
+                                    2,
+                                )
+                                file_progress = create_file_operation_progress(
+                                    "Moving Files"
+                                )
+                                file_progress.start(len(retry_final_files))
+
+                                moved_files = (
+                                    file_utils.move_files_preserving_structure(
+                                        retry_final_files,
+                                        new_extraction_temp_path,
+                                        output_folder,
+                                        progress_callback=lambda: file_progress.update(
+                                            1
+                                        ),
+                                    )
+                                )
+                                file_progress.stop()
+                                print_success(
+                                    f"Moved {len(moved_files)} files successfully 成功移动 {len(moved_files)} 个文件",
+                                    2,
+                                )
+
+                            # Check for password failures in retry - if any, don't delete original
+                            if not _should_delete_original_archives(retry_result):
+                                skipped = retry_result.get(
+                                    "password_failed_archives", []
+                                )
+                                print_warning(
+                                    "Skipped deleting original archive because retry had password failures "
+                                    "由于重试时部分文件密码错误/缺失被跳过，未删除原始档案",
+                                    2,
+                                )
+                                if skipped:
+                                    print_info(
+                                        f"Password-failed archives (kept) 密码失败档案（已保留）: {len(skipped)}",
+                                        3,
+                                    )
+                            else:
+                                # No password failures in retry, safe to delete original
+                                try:
+                                    if os.path.exists(group.mainArchiveFile):
+                                        success = file_utils.safe_remove(
+                                            group.mainArchiveFile,
+                                            use_recycle_bin=use_recycle_bin,
+                                            error_callback=print_error,
+                                        )
+                                        if success:
+                                            if use_recycle_bin:
+                                                print_success(
+                                                    "Moved original archive to recycle bin 已将原始档案移至回收站:",
+                                                    2,
+                                                )
+                                            else:
+                                                print_success(
+                                                    "Removed original archive 已删除原始档案:",
+                                                    2,
+                                                )
+                                            print_file_path(
+                                                os.path.basename(group.mainArchiveFile),
+                                                3,
+                                            )
+                                except Exception as e:
+                                    print_warning(
+                                        "Could not remove original archive 无法删除原始档案:",
+                                        2,
+                                    )
+                                    print_error(f"{group.mainArchiveFile}: {e}", 3)
+
+                            # Clean up retry temp folder
+                            try:
+                                if os.path.exists(new_extraction_temp_path):
+                                    shutil.rmtree(new_extraction_temp_path)
+                                    print_success(
+                                        "Cleaned up temporary folder 已清理临时文件夹",
+                                        2,
+                                    )
+                            except Exception as e:
+                                print_warning(
+                                    f"Could not remove temp folder 无法删除临时文件夹: {e}",
+                                    2,
+                                )
+
                             print_success(
                                 f"Alternative archive extraction succeeded 备用档案提取成功: {group.name}",
                                 2,
@@ -851,6 +945,101 @@ def extract_files(paths: List[str], use_recycle_bin: bool = True) -> None:
 
                         # Check if retry extraction was successful
                         if retry_result and retry_result.get("success", False):
+                            # add user provided passwords from retry
+                            user_provided_passwords.extend(
+                                retry_result.get("user_provided_passwords", [])
+                            )
+
+                            # Process files from retry result
+                            retry_final_files = retry_result.get("final_files", [])
+                            if retry_final_files:
+                                print_processing_separator()
+                                print_info(
+                                    f"Moving {len(retry_final_files)} files from retry to output folder",
+                                    2,
+                                )
+                                file_progress = create_file_operation_progress(
+                                    "Moving Files"
+                                )
+                                file_progress.start(len(retry_final_files))
+
+                                moved_files = (
+                                    file_utils.move_files_preserving_structure(
+                                        retry_final_files,
+                                        new_extraction_temp_path,
+                                        output_folder,
+                                        progress_callback=lambda: file_progress.update(
+                                            1
+                                        ),
+                                    )
+                                )
+                                file_progress.stop()
+                                print_success(
+                                    f"Moved {len(moved_files)} files successfully 成功移动 {len(moved_files)} 个文件",
+                                    2,
+                                )
+
+                            # Check for password failures in retry - if any, don't delete original
+                            if not _should_delete_original_archives(retry_result):
+                                skipped = retry_result.get(
+                                    "password_failed_archives", []
+                                )
+                                print_warning(
+                                    "Skipped deleting original archive parts because retry had password failures "
+                                    "由于重试时部分文件密码错误/缺失被跳过，未删除原始分卷档案",
+                                    2,
+                                )
+                                if skipped:
+                                    print_info(
+                                        f"Password-failed archives (kept) 密码失败档案（已保留）: {len(skipped)}",
+                                        3,
+                                    )
+                            else:
+                                # No password failures in retry, safe to delete original parts
+                                print_processing_separator()
+                                if use_recycle_bin:
+                                    print_info(
+                                        f"Moving {len(group.files)} archive parts to recycle bin 正在将 {len(group.files)} 个档案部分移至回收站...",
+                                        2,
+                                    )
+                                else:
+                                    print_info(
+                                        f"Removing {len(group.files)} archive parts 正在删除 {len(group.files)} 个档案部分...",
+                                        2,
+                                    )
+                                try:
+                                    for archive_file in group.files:
+                                        if os.path.exists(archive_file):
+                                            success = file_utils.safe_remove(
+                                                archive_file,
+                                                use_recycle_bin=use_recycle_bin,
+                                                error_callback=print_error,
+                                            )
+                                            if success:
+                                                print_success(
+                                                    f"✓ {os.path.basename(archive_file)}",
+                                                    3,
+                                                )
+                                except Exception as e:
+                                    print_warning(
+                                        f"Could not remove some archive parts 无法删除某些档案部分: {e}",
+                                        2,
+                                    )
+
+                            # Clean up retry temp folder
+                            try:
+                                if os.path.exists(new_extraction_temp_path):
+                                    shutil.rmtree(new_extraction_temp_path)
+                                    print_success(
+                                        "Cleaned up temporary folder 已清理临时文件夹",
+                                        2,
+                                    )
+                            except Exception as e:
+                                print_warning(
+                                    f"Could not remove temp folder 无法删除临时文件夹: {e}",
+                                    2,
+                                )
+
                             print_success(
                                 f"Alternative multipart archive extraction succeeded 备用多部分档案提取成功: {group.name}",
                                 2,
