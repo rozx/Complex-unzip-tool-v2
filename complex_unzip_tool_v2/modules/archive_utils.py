@@ -100,34 +100,46 @@ def _run_7z_cmd(cmd: List[str]) -> Tuple[str, str, int]:
     return stdout, stderr, result.returncode
 
 
-def _raise_for_7z_error(returncode: int, stderr: str, archive_path: str) -> None:
-    """Map 7z return/err output to specific exceptions or no-op if success."""
+def _raise_for_7z_error(
+    returncode: int, stderr: str, archive_path: str, stdout: str = ""
+) -> None:
+    """Map 7z return/err output to specific exceptions or no-op if success.
+
+    Note: 7-Zip sometimes prints important diagnostics (including password failures)
+    to stdout instead of stderr. We therefore consider both streams.
+    """
     if returncode == 0:
         return
-    err = (stderr or "").lower()
+    combined = f"{stderr or ''}\n{stdout or ''}".lower()
     # Treat "not an archive" style errors as unsupported/non-archive, not corruption
     if (
-        "can not open file as archive" in err
-        or "cannot open file as archive" in err
-        or "is not archive" in err
+        "can not open file as archive" in combined
+        or "cannot open file as archive" in combined
+        or "is not archive" in combined
     ):
         raise ArchiveUnsupportedError(
             f"Not a supported archive type (likely not an archive): {archive_path}"
         )
-    if "wrong password" in err or "cannot open encrypted archive" in err:
+    if (
+        "wrong password" in combined
+        or "cannot open encrypted archive" in combined
+        or "password is incorrect" in combined
+    ):
         raise ArchivePasswordError(
             f"Incorrect password or password required for: {archive_path}"
         )
-    if "data error" in err or "crc failed" in err:
+    if "data error" in combined or "crc failed" in combined:
         raise ArchiveCorruptedError(f"Archive appears to be corrupted: {archive_path}")
-    if "unsupported method" in err or "unknown method" in err:
+    if "unsupported method" in combined or "unknown method" in combined:
         raise ArchiveUnsupportedError(f"Archive format not supported: {archive_path}")
-    if "cannot open file" in err:
+    if "cannot open file" in combined:
         raise ArchiveNotFoundError(f"Cannot open archive file: {archive_path}")
-    if "disk full" in err or "not enough space" in err:
+    if "disk full" in combined or "not enough space" in combined:
         raise ArchiveError(f"Insufficient disk space for extraction: {archive_path}")
     # Generic fallback
-    raise ArchiveError(f"7z command failed ({returncode}): {stderr.strip()}")
+    raise ArchiveError(
+        f"7z command failed ({returncode}): {(stderr or '').strip() or (stdout or '').strip()}"
+    )
 
 
 def is_valid_archive(
@@ -276,7 +288,7 @@ def readArchiveContentWith7z(
 
     try:
         stdout, stderr, code = _run_7z_cmd(cmd)
-        _raise_for_7z_error(code, stderr, archive_path)
+        _raise_for_7z_error(code, stderr, archive_path, stdout=stdout)
 
         try:
             files_info = _parse7zListOutput(stdout)
@@ -441,7 +453,7 @@ def extractArchiveWith7z(
     try:
         stdout, stderr, code = _run_7z_cmd(cmd)
         try:
-            _raise_for_7z_error(code, stderr, archive_path)
+            _raise_for_7z_error(code, stderr, archive_path, stdout=stdout)
         except ArchivePasswordError:
             # Re-raise password errors immediately without path checking
             raise
@@ -501,7 +513,7 @@ def _extractWithSanitizedPaths(
         # Execute extraction to temp directory
         stdout, stderr, code = _run_7z_cmd(temp_cmd)
         if code != 0:
-            _raise_for_7z_error(code, stderr, archive_path)
+            _raise_for_7z_error(code, stderr, archive_path, stdout=stdout)
 
         # Now move files from temp directory to final destination with sanitized names
         try:
@@ -704,6 +716,7 @@ def extract_nested_archives(
             - 'errors': List[str] - List of errors encountered
             - 'password_used': Dict[str, str] - Mapping of archives to passwords that worked
             - 'user_provided_passwords': List[str] - List of passwords provided by the user
+            - 'password_failed_archives': List[str] - Archives that were skipped due to incorrect/missing password
 
     Raises:
         Same exceptions as extractArchiveWith7z for the initial archive
@@ -716,6 +729,7 @@ def extract_nested_archives(
         "errors": [],
         "password_used": {},
         "user_provided_passwords": [],
+        "password_failed_archives": [],
     }
 
     # Build user provided passwords
@@ -821,13 +835,13 @@ def extract_nested_archives(
 
     def _tryExtractWithPasswords(
         archive_file: str, extract_to: str, active_progress_bars: Optional[List] = None
-    ) -> tuple[bool, str]:
+    ) -> tuple[bool, str, bool]:
         """
         Try to extract an archive with different passwords.
         Note: This function assumes the file has already been verified as a valid archive.
 
         Returns:
-            tuple: (success: bool, password_used: str)
+            tuple: (success: bool, password_used: str, failed_due_to_password: bool)
         """
         archive_name = os.path.basename(archive_file)
         skip_all_prompts = False
@@ -852,7 +866,7 @@ def extract_nested_archives(
 
                 if success:
                     print_password_success(pwd)
-                    return True, pwd
+                    return True, pwd, False
 
             except ArchivePasswordError:
                 password_required = (
@@ -871,7 +885,7 @@ def extract_nested_archives(
                     "Skipping remaining passwords for this archive 跳过此档案的剩余密码",
                     2,
                 )
-                return False, ""
+                return False, "", False
 
             except ArchiveError as e:
                 # Generic archive errors - check if it's a path-related error that should stop
@@ -882,7 +896,7 @@ def extract_nested_archives(
                         "Skipping remaining passwords for this archive 跳过此档案的剩余密码",
                         2,
                     )
-                    return False, ""
+                    return False, "", False
                 else:
                     # Other archive errors might be password-related, continue with next password
                     continue
@@ -894,7 +908,7 @@ def extract_nested_archives(
                     "Skipping remaining passwords for this archive 跳过此档案的剩余密码",
                     2,
                 )
-                return False, ""
+                return False, "", False
 
         # Only prompt user for passwords if we confirmed this is a valid archive that requires password
         if interactive and not skip_all_prompts and password_required:
@@ -913,10 +927,10 @@ def extract_nested_archives(
                     print_info(
                         "Skipping all future password prompts 跳过所有未来的密码提示", 2
                     )
-                    return False, ""
+                    return False, "", True
                 elif user_password is None:
                     print_info(f"Skipping archive 跳过档案: {archive_name}", 2)
-                    return False, ""
+                    return False, "", True
 
                 # Try the user-provided password
                 try:
@@ -936,7 +950,7 @@ def extract_nested_archives(
                         )
                         # Add the successful password to the list for future use
                         passwords_to_try.append(user_password)
-                        return True, user_password
+                        return True, user_password, False
 
                 except ArchivePasswordError:
                     # Don't count password failures as errors - use warning instead
@@ -989,7 +1003,7 @@ def extract_nested_archives(
                         loading_indicator.start()
 
                     if not continue_prompt:
-                        return False, ""
+                        return False, "", True
                     continue
 
                 except (
@@ -1002,7 +1016,7 @@ def extract_nested_archives(
                     print_info(
                         "Cannot continue with this archive 无法继续处理此档案", 2
                     )
-                    return False, ""
+                    return False, "", False
 
                 except ArchiveError as e:
                     # Generic archive errors - check if it's a path-related error that should stop
@@ -1012,7 +1026,7 @@ def extract_nested_archives(
                         print_info(
                             "Cannot continue with this archive 无法继续处理此档案", 2
                         )
-                        return False, ""
+                        return False, "", False
                     else:
                         # Other archive errors might be password-related, continue
                         print_error(
@@ -1022,14 +1036,14 @@ def extract_nested_archives(
                         print_info(
                             "Cannot continue with this archive 无法继续处理此档案", 2
                         )
-                        return False, ""
+                        return False, "", True
 
                 except Exception as e:
                     print_error(f"Unexpected error 意外错误: {str(e)}", 1)
                     print_info(
                         "Cannot continue with this archive 无法继续处理此档案", 2
                     )
-                    return False, ""
+                    return False, "", False
         else:
             # If no password was required but extraction still failed, show appropriate message
             if password_required:
@@ -1042,7 +1056,7 @@ def extract_nested_archives(
                     f"Failed to extract archive 提取档案失败: {archive_name}", 1
                 )
 
-        return False, ""
+        return False, "", password_required
 
     def _extractRecursively(
         current_archive: str, current_output: str, depth: int
@@ -1090,7 +1104,7 @@ def extract_nested_archives(
             # Extract directly to the current output directory to preserve structure
             print_extracting_archive(os.path.basename(current_archive), depth)
 
-            extract_success, used_password = _tryExtractWithPasswords(
+            extract_success, used_password, failed_due_to_password = _tryExtractWithPasswords(
                 current_archive, current_output, active_progress_bars
             )
 
@@ -1341,6 +1355,12 @@ def extract_nested_archives(
                     2,
                 )
                 # Note: This is not added to errors list as it's likely a password issue, not a system error
+                if failed_due_to_password:
+                    result["password_failed_archives"].append(current_archive)
+                    # Preserve password-failed nested archives so users can retry later.
+                    # Never add the top-level input archive to final_files (caller owns it).
+                    if depth > 0:
+                        result["final_files"].append(current_archive)
 
         except Exception as e:
             error_msg = f"Error extracting 提取错误 {current_archive}: {e}"

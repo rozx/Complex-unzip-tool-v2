@@ -275,9 +275,14 @@ The standalone executable can be distributed without any installation requiremen
 
 ### For Standalone Executable | 独立可执行文件
 
-1. Create a `passwords.txt` file in the same directory as the executable | 在可执行文件的同一目录中创建 `passwords.txt` 文件
-2. Add one password per line | 每行添加一个密码
-3. The tool will automatically detect and use this file | 工具会自动检测并使用此文件
+The tool searches for `passwords.txt` in multiple locations and combines passwords from all found files:
+
+工具会在多个位置搜索 `passwords.txt` 并合并所有找到的文件中的密码：
+
+1. **Destination folder | 目标文件夹**: Place `passwords.txt` in the folder you're extracting to | 将 `passwords.txt` 放在您要提取到的文件夹中
+2. **Tool root directory | 工具根目录**: Place `passwords.txt` in the same directory as the executable | 将 `passwords.txt` 放在可执行文件的同一目录中
+3. Add one password per line | 每行添加一个密码
+4. The tool will automatically detect and combine passwords from all locations | 工具会自动检测并合并所有位置的密码
 
 ### Password File Example | 密码文件示例
 
@@ -369,7 +374,8 @@ complex-unzip-tool-v2.exe "D:\document.pdf.fake.001"
 
 #### Example 6: Extract with custom password file | 示例六：使用自定义密码文件提取
 ```bash
-# Place passwords.txt in the same directory as the exe | 将 passwords.txt 放在 exe 相同目录中
+# Place passwords.txt in the destination folder or in the same directory as the exe
+# Passwords from both locations will be combined | 将 passwords.txt 放在目标文件夹或 exe 相同目录中，两个位置的密码将被合并
 complex-unzip-tool-v2.exe "D:\protected_archive.zip"
 ```
 
