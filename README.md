@@ -402,6 +402,14 @@ poetry run main "D:\file1.zip" "D:\file2.rar" "D:\multipart.001"
 poetry run cuz "D:\Downloads\Archives"
 ```
 
+## 🧰 Troubleshooting | 故障排除
+
+### Multipart retention on failure | 提取失败时保留分卷
+- When multipart extraction fails (e.g., missing volumes or incorrect password), source archive parts are retained; only tool‑created temporary folders are cleaned.
+- Logs clarify this behavior, e.g., "Retained source multipart parts due to extraction failure".
+- 当多部分提取失败（例如缺少分卷或密码错误）时，源档案分卷会被保留；仅清理工具创建的临时文件夹。
+- 日志会明确该行为，例如“提取失败，保留源分卷”。
+
 ## 🤝 Contributing | 参与贡献
 
 1. Fork the repository | Fork 本仓库

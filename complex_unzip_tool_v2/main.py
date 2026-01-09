@@ -892,6 +892,10 @@ def extract_files(paths: List[str], use_recycle_bin: bool = True) -> None:
                     print_error(f"Failed to extract 提取失败: {group.name}", 2)
                     if os.path.exists(extraction_temp_path):
                         shutil.rmtree(extraction_temp_path)
+                        print_info(
+                            "Retained source multipart parts due to extraction failure 提取失败，保留源分卷",
+                            2,
+                        )
                     groups.remove(group)
                     multipart_progress.complete_group(success=False)
                     print_minor_section_break()
@@ -1055,6 +1059,10 @@ def extract_files(paths: List[str], use_recycle_bin: bool = True) -> None:
                             # Clean up temp folder if it exists
                             if os.path.exists(new_extraction_temp_path):
                                 shutil.rmtree(new_extraction_temp_path)
+                                print_info(
+                                    "Retained source multipart parts due to extraction failure 提取失败，保留源分卷",
+                                    2,
+                                )
 
                     except Exception as retry_e:
                         print_error(
@@ -1080,6 +1088,10 @@ def extract_files(paths: List[str], use_recycle_bin: bool = True) -> None:
                 except Exception:
                     pass
                 finally:
+                    print_info(
+                        "Retained source multipart parts due to extraction failure 提取失败，保留源分卷",
+                        2,
+                    )
                     groups.remove(group)
                     multipart_progress.complete_group(success=False)
                     print_minor_section_break()
