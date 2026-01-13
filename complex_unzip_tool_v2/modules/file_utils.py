@@ -392,6 +392,14 @@ def relocate_multipart_parts_from_directory(
                     dest_dir = os.path.dirname(group.mainArchiveFile)
                     dest_path = os.path.join(dest_dir, filename)
 
+                    # If the file is already in the correct destination, do nothing.
+                    # This avoids renaming the group's own main archive due to self-collision.
+                    try:
+                        if os.path.abspath(file_path) == os.path.abspath(dest_path):
+                            break
+                    except Exception:
+                        pass
+
                     # Handle potential name collisions in destination
                     final_dest = dest_path
                     counter = 1
@@ -411,6 +419,141 @@ def relocate_multipart_parts_from_directory(
                         pass
 
     return relocated
+
+
+def ensure_contained_multipart_groups(
+    file_paths: list[str], groups: list[ArchiveGroup]
+) -> int:
+    """Create multipart groups for newly discovered multipart primaries.
+
+    This is used when nested extraction preserves contained multipart sets into the
+    output folder during Step 7. The groups list was created earlier (Step 5), so
+    without this, Step 8 would not attempt extraction for newly discovered sets.
+
+    Safety: only auto-creates groups for unambiguous multipart primaries:
+    - `.7z.001`
+    - `.tar.(gz|bz2|xz).001`
+    - `.part1.rar`
+    And conservative spanned formats when a continuation part exists in the same bucket:
+    - `.zip` when any `.zNN` exists
+    - `.rar` when any `.rNN` exists
+
+    Returns the number of groups created.
+    """
+
+    created = 0
+
+    def _base_for_part_notation(filename: str) -> str | None:
+        m = re.match(r"^(.*)\.part(\d+)\.rar$", filename, re.IGNORECASE)
+        if not m:
+            return None
+        return m.group(1)
+
+    # Build an index of existing groups by (dir, base) to avoid duplicates
+    existing: set[tuple[str, str]] = set()
+    for g in groups:
+        if not g.mainArchiveFile:
+            continue
+        d = os.path.abspath(os.path.dirname(g.mainArchiveFile))
+        b = os.path.basename(g.mainArchiveFile)
+        base_name, _ext = get_archive_base_name(b)
+        # Special-case partN.rar notation
+        base_part = _base_for_part_notation(b)
+        if base_part is not None:
+            base_name = base_part
+        existing.add((d, base_name))
+
+    # Bucket multipart-looking files by (dir, base)
+    buckets: dict[tuple[str, str], list[str]] = {}
+    for p in file_paths:
+        if not os.path.exists(p):
+            continue
+        filename = os.path.basename(p)
+
+        base_part = _base_for_part_notation(filename)
+        if base_part is not None:
+            base_name = base_part
+        else:
+            base_name, _ext = get_archive_base_name(filename)
+
+        key = (os.path.abspath(os.path.dirname(p)), base_name)
+        buckets.setdefault(key, []).append(p)
+
+    for (dir_path, base_name), files in buckets.items():
+        # Identify an unambiguous multipart primary within this bucket
+        primary: str | None = None
+        force_main: str | None = None
+
+        for p in files:
+            fname = os.path.basename(p).lower()
+            # 7z primary
+            if re.search(r"\.7z\.(0*1)$", fname):
+                primary = p
+                break
+            # tar.* primary
+            if re.search(r"\.tar\.(gz|bz2|xz)\.(0*1)$", fname):
+                primary = p
+                break
+            # rar part notation primary
+            if re.search(r"\.part1\.rar$", fname):
+                primary = p
+                break
+
+        # Spanned ZIP and volume RAR are ambiguous; only group if a continuation exists.
+        if primary is None:
+            has_zip = None
+            has_z_cont = False
+            has_rar = None
+            has_r_cont = False
+
+            for p in files:
+                fname = os.path.basename(p).lower()
+                if fname.endswith(".zip"):
+                    has_zip = p
+                elif re.search(r"\.z\d{2}$", fname):
+                    has_z_cont = True
+
+                if fname.endswith(".rar"):
+                    has_rar = p
+                elif re.search(r"\.r\d{2}$", fname):
+                    has_r_cont = True
+
+            if has_zip is not None and has_z_cont:
+                primary = has_zip
+                force_main = has_zip
+            elif has_rar is not None and has_r_cont:
+                primary = has_rar
+                force_main = has_rar
+
+        if primary is None:
+            continue
+
+        if (dir_path, base_name) in existing:
+            continue
+
+        # Create a new group named like the existing grouping logic: <dir>-<base>
+        dir_name = os.path.basename(dir_path)
+        group_name = f"{dir_name}-{base_name}"
+        new_group = ArchiveGroup(group_name)
+
+        # Add primary first for stable main selection
+        new_group.add_file(primary)
+        for p in sorted(files):
+            if p == primary:
+                continue
+            if p not in new_group.files:
+                new_group.add_file(p)
+
+        if new_group.isMultiPart:
+            # If we grouped a spanned ZIP/RAR set, make sure the main archive stays
+            # on the `.zip`/`.rar` primary, not the `.z01`/`.r00` continuation.
+            if force_main is not None:
+                new_group.set_main_archive(force_main)
+            groups.append(new_group)
+            existing.add((dir_path, base_name))
+            created += 1
+
+    return created
 
 
 def move_files_preserving_structure(

@@ -342,3 +342,53 @@ def test_nested_continuation_parts_skipped_when_not_relocated(monkeypatch, tmp_p
     assert not any(p.endswith("AnotherSet.7z.003") for p in finals)
     assert len(called_with) == 1
     assert os.path.basename(called_with[0]) == "AnotherSet.7z.003"
+
+
+def test_nested_multipart_missing_parts_are_preserved_in_final_files(
+    monkeypatch, tmp_path
+):
+    """If a nested multipart primary can't be extracted (even after matching), its parts must be preserved."""
+    archive_path = str(tmp_path / "outer.7z")
+    output_path = str(tmp_path / "out")
+    (tmp_path / "outer.7z").write_bytes(b"dummy")
+
+    # Treat the outer and the nested primary as valid archives.
+    def fake_is_valid(path, *args, **kwargs):
+        _ = (args, kwargs)
+        return os.path.basename(path) in {"outer.7z", "MySet.7z.001"}
+
+    monkeypatch.setattr(au, "is_valid_archive", fake_is_valid)
+
+    def fake_extract(archive_path: str, output_path: str, *args, **kwargs) -> bool:
+        _ = (args, kwargs)
+        os.makedirs(output_path, exist_ok=True)
+        base = os.path.basename(archive_path)
+        if base == "outer.7z":
+            # Place primary and continuation in different subfolders to require matching/moving.
+            d1 = os.path.join(output_path, "A")
+            d2 = os.path.join(output_path, "B")
+            os.makedirs(d1, exist_ok=True)
+            os.makedirs(d2, exist_ok=True)
+            with open(os.path.join(d1, "MySet.7z.001"), "wb") as f:
+                f.write(b"part1")
+            with open(os.path.join(d2, "MySet.7z.002"), "wb") as f:
+                f.write(b"part2")
+            return True
+        if base == "MySet.7z.001":
+            # Always fail to force the preservation path.
+            raise au.ArchiveError("Missing volume")
+        return True
+
+    monkeypatch.setattr(au, "extractArchiveWith7z", fake_extract)
+
+    result = au.extract_nested_archives(
+        archive_path=archive_path,
+        output_path=output_path,
+        interactive=False,
+        use_recycle_bin=False,
+    )
+
+    finals = result.get("final_files")
+    assert isinstance(finals, list)
+    assert any(p.endswith("MySet.7z.001") for p in finals)
+    assert any(p.endswith("MySet.7z.002") for p in finals)

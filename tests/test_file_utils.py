@@ -557,5 +557,90 @@ class TestAddFileToGroupsDirectoryAwareness:
         assert os.path.exists(self.b_p2)
 
 
+class TestEnsureContainedMultipartGroups:
+    def test_creates_group_for_7z_set(self, tmp_path):
+        out_dir = tmp_path / "unzipped"
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        p1 = out_dir / "MySet.7z.001"
+        p2 = out_dir / "MySet.7z.002"
+        p1.write_bytes(b"1")
+        p2.write_bytes(b"2")
+
+        groups: list[ArchiveGroup] = []
+        created = fu.ensure_contained_multipart_groups([str(p1), str(p2)], groups)
+
+        assert created == 1
+        assert len(groups) == 1
+        g = groups[0]
+        assert g.isMultiPart is True
+        assert os.path.basename(g.mainArchiveFile).lower().endswith(".7z.001")
+        assert any(f.lower().endswith(".7z.002") for f in g.files)
+
+    def test_creates_group_for_spanned_zip_and_keeps_zip_as_main(self, tmp_path):
+        out_dir = tmp_path / "unzipped"
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        p_zip = out_dir / "Set.zip"
+        p_z01 = out_dir / "Set.z01"
+        p_zip.write_bytes(b"zip")
+        p_z01.write_bytes(b"z01")
+
+        groups: list[ArchiveGroup] = []
+        created = fu.ensure_contained_multipart_groups([str(p_zip), str(p_z01)], groups)
+
+        assert created == 1
+        assert len(groups) == 1
+        g = groups[0]
+        assert g.isMultiPart is True
+        assert os.path.basename(g.mainArchiveFile).lower().endswith(".zip")
+        assert any(f.lower().endswith(".z01") for f in g.files)
+
+    def test_does_not_create_group_for_standalone_zip(self, tmp_path):
+        out_dir = tmp_path / "unzipped"
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        p_zip = out_dir / "Standalone.zip"
+        p_zip.write_bytes(b"zip")
+
+        groups: list[ArchiveGroup] = []
+        created = fu.ensure_contained_multipart_groups([str(p_zip)], groups)
+
+        assert created == 0
+        assert groups == []
+
+    def test_creates_group_for_rar_volume_and_keeps_rar_as_main(self, tmp_path):
+        out_dir = tmp_path / "unzipped"
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        p_rar = out_dir / "Arc.rar"
+        p_r00 = out_dir / "Arc.r00"
+        p_rar.write_bytes(b"rar")
+        p_r00.write_bytes(b"r00")
+
+        groups: list[ArchiveGroup] = []
+        created = fu.ensure_contained_multipart_groups([str(p_rar), str(p_r00)], groups)
+
+        assert created == 1
+        assert len(groups) == 1
+        g = groups[0]
+        assert g.isMultiPart is True
+        assert os.path.basename(g.mainArchiveFile).lower().endswith(".rar")
+        assert any(f.lower().endswith(".r00") for f in g.files)
+
+    def test_does_not_create_group_for_standalone_rar(self, tmp_path):
+        out_dir = tmp_path / "unzipped"
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        p_rar = out_dir / "Standalone.rar"
+        p_rar.write_bytes(b"rar")
+
+        groups: list[ArchiveGroup] = []
+        created = fu.ensure_contained_multipart_groups([str(p_rar)], groups)
+
+        assert created == 0
+        assert groups == []
+
+
 if __name__ == "__main__":
     pytest.main([__file__])
