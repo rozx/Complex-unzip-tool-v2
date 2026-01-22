@@ -664,6 +664,11 @@ class TestOutputPathNormalization:
             os.path.join("photos", "1", "aaa.jpg")
         ) == os.path.join("photos", "1", "aaa.jpg")
 
+    def test_only_leading_meaningless_folders_are_flattened(self):
+        assert fu.normalize_output_relative_path(
+            os.path.join("1", "photos", "1", "aaa.jpg")
+        ) == os.path.join("photos", "1", "aaa.jpg")
+
     def test_move_files_preserving_structure_flattens_meaningless_prefix(
         self, tmp_path
     ):
@@ -683,6 +688,26 @@ class TestOutputPathNormalization:
 
         assert moved == [os.path.join("aaa.jpg")]
         assert (dest_root / "aaa.jpg").exists()
+
+    def test_move_files_preserving_structure_only_flattens_leading_meaningless(
+        self, tmp_path
+    ):
+        src_root = tmp_path / "src"
+        dest_root = tmp_path / "unzipped"
+        (src_root / "1" / "photos" / "1").mkdir(parents=True, exist_ok=True)
+        dest_root.mkdir(parents=True, exist_ok=True)
+
+        src_file = src_root / "1" / "photos" / "1" / "aaa.jpg"
+        src_file.write_bytes(b"aaa")
+
+        moved = fu.move_files_preserving_structure(
+            [str(src_file)],
+            source_root=str(src_root),
+            destination_root=str(dest_root),
+        )
+
+        assert moved == [os.path.join("photos", "1", "aaa.jpg")]
+        assert (dest_root / "photos" / "1" / "aaa.jpg").exists()
 
     def test_move_files_preserving_structure_keeps_date_folder(self, tmp_path):
         src_root = tmp_path / "src"
