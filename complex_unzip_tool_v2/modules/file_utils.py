@@ -56,7 +56,8 @@ def read_dir(file_paths: list[str]) -> list[str]:
                         result.append(os.path.join(root, filename))
         else:
             # Check if the file is ignored
-            if os.path.basename(path) not in IGNORED_FILES:
+            basename = os.path.basename(path)
+            if basename not in IGNORED_FILES:
                 result.append(path)
 
     # make sure the result is unique

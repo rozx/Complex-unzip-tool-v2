@@ -503,15 +503,18 @@ class TestCloakedFileDetector:
             "/test/archive.7z(1).001",
             "/test/archive.7z.001",
         }
-        with patch.object(detector, "_build_collision_path") as mock_collision:
-            mock_collision.return_value = "/test/archive.7z(1).001.duplicate.ab12cd34"
+        with patch.object(detector, "_build_collision_token") as mock_token:
+            mock_token.return_value = "ab12cd34"
             with patch.object(detector, "detect_cloaked_file") as mock_detect:
                 mock_detect.return_value = "/test/archive.7z.001"
                 result = detector.uncloak_file("/test/archive.7z(1).001")
-                assert result == "/test/archive.7z.001"
+                assert result.endswith("__duplicate_ab12cd34.7z.001")
+                expected_path = os.path.join(
+                    "/test", "archive__duplicate_ab12cd34.7z.001"
+                )
                 mock_rename.assert_called_once_with(
                     "/test/archive.7z(1).001",
-                    "/test/archive.7z(1).001.duplicate.ab12cd34",
+                    expected_path,
                 )
                 mock_warning.assert_called_once()
 

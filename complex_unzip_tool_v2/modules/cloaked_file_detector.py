@@ -402,16 +402,57 @@ class CloakedFileDetector:
             print_warning(f"Could not verify file signature for {file_path}: {e}")
             return True  # Assume valid if verification fails
 
-    def _build_collision_path(self, file_path: str) -> str:
+    def _build_collision_path(self, file_path: str, normalized_path: str | None) -> str:
         """
         Build a unique collision path by appending a duplicate suffix.
         使用重复后缀生成唯一的冲突路径。
         """
+        target_path = normalized_path or file_path
+        base_dir = os.path.dirname(target_path)
+        file_name = os.path.basename(target_path)
+        base_name = file_name
+        suffix = ""
+
+        multipart_patterns = [
+            r"^(?P<base>.+)\.(?P<archive>7z|zip|rar)\.(?P<part>\d{1,3})$",
+            r"^(?P<base>.+)\.(?P<archive>zip|rar)\.(?P<part>[rz]\d{2})$",
+            r"^(?P<base>.+)\.(?P<archive>tar\.(?:gz|bz2|xz))\.(?P<part>\d{1,3})$",
+            r"^(?P<base>.+)\.part(?P<part>\d+)\.rar$",
+        ]
+
+        for pattern in multipart_patterns:
+            match = re.match(pattern, file_name, re.IGNORECASE)
+            if match:
+                base_name = match.group("base")
+                if "archive" in match.groupdict():
+                    suffix = f".{match.group('archive')}.{match.group('part')}"
+                else:
+                    suffix = f".part{match.group('part')}.rar"
+                break
+
+        if not suffix:
+            suffix_match = re.search(r"(\.\d{1,3})$", file_name)
+            if suffix_match:
+                base_name = file_name[: suffix_match.start()]
+                suffix = suffix_match.group(1)
+
+        token = self._build_collision_token(base_dir, base_name)
+        counter = 0
         while True:
-            token = uuid.uuid4().hex[:8]
-            candidate = f"{file_path}.duplicate.{token}"
+            counter_suffix = f"_{counter}" if counter else ""
+            candidate_name = f"{base_name}__duplicate_{token}{counter_suffix}{suffix}"
+            candidate = os.path.join(base_dir, candidate_name)
             if not os.path.exists(candidate):
                 return candidate
+            counter += 1
+
+    def _build_collision_token(self, base_dir: str, base_name: str) -> str:
+        """
+        Build a deterministic token so multipart siblings share the same duplicate stem.
+        生成确定性令牌，确保多分卷重复文件共享相同名称前缀。
+        """
+        seed = f"{base_dir}|{base_name}"
+        return uuid.uuid5(uuid.NAMESPACE_URL, seed).hex[:8]
 
     def uncloak_file(self, file_path: str) -> str:
         """
@@ -431,21 +472,22 @@ class CloakedFileDetector:
 
         if new_path and new_path != file_path:
             if os.path.exists(new_path):
-                duplicate_path = self._build_collision_path(file_path)
+                duplicate_path = self._build_collision_path(file_path, new_path)
                 try:
                     os.rename(file_path, duplicate_path)
                     print_warning(
-                        "Duplicate cloaked file detected; renamed duplicate and using "
-                        f"existing normalized file: {os.path.basename(file_path)} -> "
-                        f"{os.path.basename(duplicate_path)} (kept {os.path.basename(new_path)})"
+                        "Duplicate cloaked file detected; renamed to preserve multipart set: "
+                        f"{os.path.basename(file_path)} -> {os.path.basename(duplicate_path)} "
+                        f"(existing {os.path.basename(new_path)} kept)"
                     )
+                    return duplicate_path
                 except Exception as e:
                     print_warning(
                         "Duplicate cloaked file detected; failed to rename duplicate "
                         f"{os.path.basename(file_path)}: {e}. Using existing normalized "
                         f"file {os.path.basename(new_path)}"
                     )
-                return new_path
+                    return new_path
             try:
                 # Rename the actual file
                 os.rename(file_path, new_path)
