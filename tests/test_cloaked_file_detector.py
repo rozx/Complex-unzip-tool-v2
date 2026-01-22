@@ -482,7 +482,7 @@ class TestCloakedFileDetector:
         self, mock_success, mock_rename, mock_exists, detector
     ):
         """Test successful file uncloaking."""
-        mock_exists.return_value = True
+        mock_exists.side_effect = lambda path: path == "/test/archive.7z"
         with patch.object(detector, "detect_cloaked_file") as mock_detect:
             mock_detect.return_value = "/test/archive.7z.001"
             result = detector.uncloak_file("/test/archive.7z")
@@ -491,6 +491,29 @@ class TestCloakedFileDetector:
                 "/test/archive.7z", "/test/archive.7z.001"
             )
             mock_success.assert_called_once()
+
+    @patch("os.path.exists")
+    @patch("os.rename")
+    @patch("complex_unzip_tool_v2.modules.cloaked_file_detector.print_warning")
+    def test_uncloak_file_collision_uses_existing(
+        self, mock_warning, mock_rename, mock_exists, detector
+    ):
+        """Test uncloaking when the normalized target already exists."""
+        mock_exists.side_effect = lambda path: path in {
+            "/test/archive.7z(1).001",
+            "/test/archive.7z.001",
+        }
+        with patch.object(detector, "_build_collision_path") as mock_collision:
+            mock_collision.return_value = "/test/archive.7z(1).001.duplicate.ab12cd34"
+            with patch.object(detector, "detect_cloaked_file") as mock_detect:
+                mock_detect.return_value = "/test/archive.7z.001"
+                result = detector.uncloak_file("/test/archive.7z(1).001")
+                assert result == "/test/archive.7z.001"
+                mock_rename.assert_called_once_with(
+                    "/test/archive.7z(1).001",
+                    "/test/archive.7z(1).001.duplicate.ab12cd34",
+                )
+                mock_warning.assert_called_once()
 
     @patch("os.path.exists")
     def test_uncloak_file_not_exists(self, mock_exists, detector):
@@ -515,7 +538,7 @@ class TestCloakedFileDetector:
         self, mock_error, mock_rename, mock_exists, detector
     ):
         """Test uncloaking with rename error."""
-        mock_exists.return_value = True
+        mock_exists.side_effect = lambda path: path == "/test/archive.7z"
         mock_rename.side_effect = OSError("Permission denied")
         with patch.object(detector, "detect_cloaked_file") as mock_detect:
             mock_detect.return_value = "/test/archive.7z.001"

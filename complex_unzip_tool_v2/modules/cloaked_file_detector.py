@@ -6,6 +6,7 @@ Rule-based cloaked file detection and renaming system.
 import json
 import os
 import re
+import uuid
 from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass
 
@@ -401,6 +402,17 @@ class CloakedFileDetector:
             print_warning(f"Could not verify file signature for {file_path}: {e}")
             return True  # Assume valid if verification fails
 
+    def _build_collision_path(self, file_path: str) -> str:
+        """
+        Build a unique collision path by appending a duplicate suffix.
+        使用重复后缀生成唯一的冲突路径。
+        """
+        while True:
+            token = uuid.uuid4().hex[:8]
+            candidate = f"{file_path}.duplicate.{token}"
+            if not os.path.exists(candidate):
+                return candidate
+
     def uncloak_file(self, file_path: str) -> str:
         """
         Uncloak a single file and rename it if needed.
@@ -418,6 +430,22 @@ class CloakedFileDetector:
         new_path = self.detect_cloaked_file(file_path)
 
         if new_path and new_path != file_path:
+            if os.path.exists(new_path):
+                duplicate_path = self._build_collision_path(file_path)
+                try:
+                    os.rename(file_path, duplicate_path)
+                    print_warning(
+                        "Duplicate cloaked file detected; renamed duplicate and using "
+                        f"existing normalized file: {os.path.basename(file_path)} -> "
+                        f"{os.path.basename(duplicate_path)} (kept {os.path.basename(new_path)})"
+                    )
+                except Exception as e:
+                    print_warning(
+                        "Duplicate cloaked file detected; failed to rename duplicate "
+                        f"{os.path.basename(file_path)}: {e}. Using existing normalized "
+                        f"file {os.path.basename(new_path)}"
+                    )
+                return new_path
             try:
                 # Rename the actual file
                 os.rename(file_path, new_path)
