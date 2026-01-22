@@ -14,6 +14,70 @@ from complex_unzip_tool_v2.modules.cloaked_file_detector import CloakedFileDetec
 from complex_unzip_tool_v2.modules.regex import multipart_regex
 
 
+_MEANINGLESS_OUTPUT_FOLDER_ALLOWED_CHARS_RE = re.compile(
+    r"^[0-9\+\-_\.,\(\)\[\]\{\}!@#\$%\^&=]+$"
+)
+_DATE_LIKE_FOLDER_RE = re.compile(r"^\d{4}-\d{1,2}-\d{1,2}$")
+
+
+def _is_meaningless_output_folder_name(folder_name: str) -> bool:
+    """Return True if folder name is considered meaningless for output layout.
+
+    Intended for flattening leading folders under the output root.
+    """
+
+    name = (folder_name or "").strip()
+    if not name:
+        return False
+
+    # Do not treat dates as meaningless (e.g., 2024-01-01)
+    if _DATE_LIKE_FOLDER_RE.match(name):
+        return False
+
+    # Must contain at least one digit
+    if not any(ch.isdigit() for ch in name):
+        return False
+
+    # Must not contain letters or CJK characters
+    if re.search(r"[A-Za-z]", name):
+        return False
+    if re.search(r"[\u4e00-\u9fff]", name):
+        return False
+
+    # Only allow digits plus specific symbols
+    return bool(_MEANINGLESS_OUTPUT_FOLDER_ALLOWED_CHARS_RE.match(name))
+
+
+def normalize_output_relative_path(relative_path: str) -> str:
+    """Normalize a relative path by stripping meaningless *leading* folders.
+
+    Example:
+    - "1/aaa.jpg" -> "aaa.jpg"
+    - "1/5555+/222.jpg" -> "222.jpg"
+
+    Only leading directories are stripped; once a meaningful directory is reached,
+    the remaining structure is preserved.
+    """
+
+    if relative_path in ("", "."):
+        return relative_path
+
+    norm = os.path.normpath(relative_path)
+    parts = [p for p in norm.split(os.path.sep) if p not in ("", ".")]
+    if not parts:
+        return relative_path
+
+    filename = parts[-1]
+    dir_parts = parts[:-1]
+
+    while dir_parts and _is_meaningless_output_folder_name(dir_parts[0]):
+        dir_parts.pop(0)
+
+    if dir_parts:
+        return os.path.join(*dir_parts, filename)
+    return filename
+
+
 def get_archive_base_name(file_path: str) -> tuple[str, str]:
     """
     Get the base name and archive extension from a file path,
@@ -589,6 +653,7 @@ def move_files_preserving_structure(
             try:
                 # Calculate relative path from source root to preserve structure
                 relative_path = os.path.relpath(file_path, source_root)
+                relative_path = normalize_output_relative_path(relative_path)
                 destination = os.path.join(destination_root, relative_path)
 
                 # Create destination directory if it doesn't exist

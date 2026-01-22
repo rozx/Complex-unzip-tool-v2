@@ -555,12 +555,43 @@ def _moveAndSanitizeFiles(source_dir: str, target_dir: str) -> None:
     if not os.path.exists(source_dir):
         return
 
+    allowed_chars_re = re.compile(r"^[0-9\+\-_\.,\(\)\[\]\{\}!@#\$%\^&=]+$")
+    date_like_re = re.compile(r"^\d{4}-\d{1,2}-\d{1,2}$")
+
+    def _is_meaningless_dir(name: str) -> bool:
+        n = (name or "").strip()
+        if not n:
+            return False
+        if date_like_re.match(n):
+            return False
+        if not any(ch.isdigit() for ch in n):
+            return False
+        if re.search(r"[A-Za-z]", n):
+            return False
+        if re.search(r"[\u4e00-\u9fff]", n):
+            return False
+        return bool(allowed_chars_re.match(n))
+
+    def _normalize_rel_dir(rel_dir: str) -> str:
+        if rel_dir in ("", "."):
+            return "."
+        norm = os.path.normpath(rel_dir)
+        parts = [p for p in norm.split(os.path.sep) if p not in ("", ".")]
+        while parts and _is_meaningless_dir(parts[0]):
+            parts.pop(0)
+        if not parts:
+            return "."
+        return os.path.join(*parts)
+
     # Ensure target directory exists
     os.makedirs(target_dir, exist_ok=True)
 
     # Process all files and directories
     for root, dirs, files in os.walk(source_dir):
         rel_path = os.path.relpath(root, source_dir)
+
+        if rel_path != ".":
+            rel_path = _normalize_rel_dir(rel_path)
 
         # Determine target subdirectory
         if rel_path != ".":
