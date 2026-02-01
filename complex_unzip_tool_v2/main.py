@@ -327,6 +327,25 @@ def extract_files(paths: List[str], use_recycle_bin: bool = True) -> None:
                                 2,
                             )
 
+                            # If nested extraction preserved a contained multipart set into the output folder,
+                            # create a corresponding multipart group so Step 8 can extract it in the same run.
+                            try:
+                                moved_abs = [
+                                    os.path.join(output_folder, rel)
+                                    for rel in moved_files
+                                ]
+                                created = file_utils.ensure_contained_multipart_groups(
+                                    moved_abs, groups
+                                )
+                                if created:
+                                    print_info(
+                                        f"Discovered {created} new multipart set(s) from containers 从容器发现 {created} 个新的分卷集合",
+                                        2,
+                                    )
+                            except Exception:
+                                # Best-effort only; failure here should not break extraction.
+                                pass
+
                         print_processing_separator()
                         # Remove the original archive file (only when no password skips happened)
                         if not _should_delete_original_archives(result):
@@ -892,6 +911,10 @@ def extract_files(paths: List[str], use_recycle_bin: bool = True) -> None:
                     print_error(f"Failed to extract 提取失败: {group.name}", 2)
                     if os.path.exists(extraction_temp_path):
                         shutil.rmtree(extraction_temp_path)
+                        print_info(
+                            "Retained source multipart parts due to extraction failure 提取失败，保留源分卷",
+                            2,
+                        )
                     groups.remove(group)
                     multipart_progress.complete_group(success=False)
                     print_minor_section_break()
@@ -1055,6 +1078,10 @@ def extract_files(paths: List[str], use_recycle_bin: bool = True) -> None:
                             # Clean up temp folder if it exists
                             if os.path.exists(new_extraction_temp_path):
                                 shutil.rmtree(new_extraction_temp_path)
+                                print_info(
+                                    "Retained source multipart parts due to extraction failure 提取失败，保留源分卷",
+                                    2,
+                                )
 
                     except Exception as retry_e:
                         print_error(
@@ -1080,6 +1107,10 @@ def extract_files(paths: List[str], use_recycle_bin: bool = True) -> None:
                 except Exception:
                     pass
                 finally:
+                    print_info(
+                        "Retained source multipart parts due to extraction failure 提取失败，保留源分卷",
+                        2,
+                    )
                     groups.remove(group)
                     multipart_progress.complete_group(success=False)
                     print_minor_section_break()

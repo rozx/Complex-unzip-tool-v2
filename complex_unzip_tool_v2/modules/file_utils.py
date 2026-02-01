@@ -14,6 +14,70 @@ from complex_unzip_tool_v2.modules.cloaked_file_detector import CloakedFileDetec
 from complex_unzip_tool_v2.modules.regex import multipart_regex
 
 
+_MEANINGLESS_OUTPUT_FOLDER_ALLOWED_CHARS_RE = re.compile(
+    r"^[0-9\+\-_\.,\(\)\[\]\{\}!@#\$%\^&=]+$"
+)
+_DATE_LIKE_FOLDER_RE = re.compile(r"^\d{4}-\d{1,2}-\d{1,2}$")
+
+
+def _is_meaningless_output_folder_name(folder_name: str) -> bool:
+    """Return True if folder name is considered meaningless for output layout.
+
+    Intended for flattening leading folders under the output root.
+    """
+
+    name = (folder_name or "").strip()
+    if not name:
+        return False
+
+    # Do not treat dates as meaningless (e.g., 2024-01-01)
+    if _DATE_LIKE_FOLDER_RE.match(name):
+        return False
+
+    # Must contain at least one digit
+    if not any(ch.isdigit() for ch in name):
+        return False
+
+    # Must not contain letters or CJK characters
+    if re.search(r"[A-Za-z]", name):
+        return False
+    if re.search(r"[\u4e00-\u9fff]", name):
+        return False
+
+    # Only allow digits plus specific symbols
+    return bool(_MEANINGLESS_OUTPUT_FOLDER_ALLOWED_CHARS_RE.match(name))
+
+
+def normalize_output_relative_path(relative_path: str) -> str:
+    """Normalize a relative path by stripping meaningless *leading* folders.
+
+    Example:
+    - "1/aaa.jpg" -> "aaa.jpg"
+    - "1/5555+/222.jpg" -> "222.jpg"
+
+    Only leading directories are stripped; once a meaningful directory is reached,
+    the remaining structure is preserved.
+    """
+
+    if relative_path in ("", "."):
+        return relative_path
+
+    norm = os.path.normpath(relative_path)
+    parts = [p for p in norm.split(os.path.sep) if p not in ("", ".")]
+    if not parts:
+        return relative_path
+
+    filename = parts[-1]
+    dir_parts = parts[:-1]
+
+    while dir_parts and _is_meaningless_output_folder_name(dir_parts[0]):
+        dir_parts.pop(0)
+
+    if dir_parts:
+        return os.path.join(*dir_parts, filename)
+    return filename
+
+
 def get_archive_base_name(file_path: str) -> tuple[str, str]:
     """
     Get the base name and archive extension from a file path,
@@ -56,7 +120,8 @@ def read_dir(file_paths: list[str]) -> list[str]:
                         result.append(os.path.join(root, filename))
         else:
             # Check if the file is ignored
-            if os.path.basename(path) not in IGNORED_FILES:
+            basename = os.path.basename(path)
+            if basename not in IGNORED_FILES:
                 result.append(path)
 
     # make sure the result is unique
@@ -392,6 +457,14 @@ def relocate_multipart_parts_from_directory(
                     dest_dir = os.path.dirname(group.mainArchiveFile)
                     dest_path = os.path.join(dest_dir, filename)
 
+                    # If the file is already in the correct destination, do nothing.
+                    # This avoids renaming the group's own main archive due to self-collision.
+                    try:
+                        if os.path.abspath(file_path) == os.path.abspath(dest_path):
+                            break
+                    except Exception:
+                        pass
+
                     # Handle potential name collisions in destination
                     final_dest = dest_path
                     counter = 1
@@ -411,6 +484,141 @@ def relocate_multipart_parts_from_directory(
                         pass
 
     return relocated
+
+
+def ensure_contained_multipart_groups(
+    file_paths: list[str], groups: list[ArchiveGroup]
+) -> int:
+    """Create multipart groups for newly discovered multipart primaries.
+
+    This is used when nested extraction preserves contained multipart sets into the
+    output folder during Step 7. The groups list was created earlier (Step 5), so
+    without this, Step 8 would not attempt extraction for newly discovered sets.
+
+    Safety: only auto-creates groups for unambiguous multipart primaries:
+    - `.7z.001`
+    - `.tar.(gz|bz2|xz).001`
+    - `.part1.rar`
+    And conservative spanned formats when a continuation part exists in the same bucket:
+    - `.zip` when any `.zNN` exists
+    - `.rar` when any `.rNN` exists
+
+    Returns the number of groups created.
+    """
+
+    created = 0
+
+    def _base_for_part_notation(filename: str) -> str | None:
+        m = re.match(r"^(.*)\.part(\d+)\.rar$", filename, re.IGNORECASE)
+        if not m:
+            return None
+        return m.group(1)
+
+    # Build an index of existing groups by (dir, base) to avoid duplicates
+    existing: set[tuple[str, str]] = set()
+    for g in groups:
+        if not g.mainArchiveFile:
+            continue
+        d = os.path.abspath(os.path.dirname(g.mainArchiveFile))
+        b = os.path.basename(g.mainArchiveFile)
+        base_name, _ext = get_archive_base_name(b)
+        # Special-case partN.rar notation
+        base_part = _base_for_part_notation(b)
+        if base_part is not None:
+            base_name = base_part
+        existing.add((d, base_name))
+
+    # Bucket multipart-looking files by (dir, base)
+    buckets: dict[tuple[str, str], list[str]] = {}
+    for p in file_paths:
+        if not os.path.exists(p):
+            continue
+        filename = os.path.basename(p)
+
+        base_part = _base_for_part_notation(filename)
+        if base_part is not None:
+            base_name = base_part
+        else:
+            base_name, _ext = get_archive_base_name(filename)
+
+        key = (os.path.abspath(os.path.dirname(p)), base_name)
+        buckets.setdefault(key, []).append(p)
+
+    for (dir_path, base_name), files in buckets.items():
+        # Identify an unambiguous multipart primary within this bucket
+        primary: str | None = None
+        force_main: str | None = None
+
+        for p in files:
+            fname = os.path.basename(p).lower()
+            # 7z primary
+            if re.search(r"\.7z\.(0*1)$", fname):
+                primary = p
+                break
+            # tar.* primary
+            if re.search(r"\.tar\.(gz|bz2|xz)\.(0*1)$", fname):
+                primary = p
+                break
+            # rar part notation primary
+            if re.search(r"\.part1\.rar$", fname):
+                primary = p
+                break
+
+        # Spanned ZIP and volume RAR are ambiguous; only group if a continuation exists.
+        if primary is None:
+            has_zip = None
+            has_z_cont = False
+            has_rar = None
+            has_r_cont = False
+
+            for p in files:
+                fname = os.path.basename(p).lower()
+                if fname.endswith(".zip"):
+                    has_zip = p
+                elif re.search(r"\.z\d{2}$", fname):
+                    has_z_cont = True
+
+                if fname.endswith(".rar"):
+                    has_rar = p
+                elif re.search(r"\.r\d{2}$", fname):
+                    has_r_cont = True
+
+            if has_zip is not None and has_z_cont:
+                primary = has_zip
+                force_main = has_zip
+            elif has_rar is not None and has_r_cont:
+                primary = has_rar
+                force_main = has_rar
+
+        if primary is None:
+            continue
+
+        if (dir_path, base_name) in existing:
+            continue
+
+        # Create a new group named like the existing grouping logic: <dir>-<base>
+        dir_name = os.path.basename(dir_path)
+        group_name = f"{dir_name}-{base_name}"
+        new_group = ArchiveGroup(group_name)
+
+        # Add primary first for stable main selection
+        new_group.add_file(primary)
+        for p in sorted(files):
+            if p == primary:
+                continue
+            if p not in new_group.files:
+                new_group.add_file(p)
+
+        if new_group.isMultiPart:
+            # If we grouped a spanned ZIP/RAR set, make sure the main archive stays
+            # on the `.zip`/`.rar` primary, not the `.z01`/`.r00` continuation.
+            if force_main is not None:
+                new_group.set_main_archive(force_main)
+            groups.append(new_group)
+            existing.add((dir_path, base_name))
+            created += 1
+
+    return created
 
 
 def move_files_preserving_structure(
@@ -445,6 +653,7 @@ def move_files_preserving_structure(
             try:
                 # Calculate relative path from source root to preserve structure
                 relative_path = os.path.relpath(file_path, source_root)
+                relative_path = normalize_output_relative_path(relative_path)
                 destination = os.path.join(destination_root, relative_path)
 
                 # Create destination directory if it doesn't exist
