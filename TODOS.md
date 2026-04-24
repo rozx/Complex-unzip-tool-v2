@@ -1,0 +1,2 @@
+- Renaming history. Failed to rename files will be reverted back to their original names. This is a safety measure to prevent data loss in case of errors during the renaming process.
+- Better handling for zip, z01 files.
