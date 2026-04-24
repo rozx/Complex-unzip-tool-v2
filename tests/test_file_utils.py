@@ -557,5 +557,198 @@ class TestAddFileToGroupsDirectoryAwareness:
         assert os.path.exists(self.b_p2)
 
 
+class TestEnsureContainedMultipartGroups:
+    def test_creates_group_for_7z_set(self, tmp_path):
+        out_dir = tmp_path / "unzipped"
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        p1 = out_dir / "MySet.7z.001"
+        p2 = out_dir / "MySet.7z.002"
+        p1.write_bytes(b"1")
+        p2.write_bytes(b"2")
+
+        groups: list[ArchiveGroup] = []
+        created = fu.ensure_contained_multipart_groups([str(p1), str(p2)], groups)
+
+        assert created == 1
+        assert len(groups) == 1
+        g = groups[0]
+        assert g.isMultiPart is True
+        assert os.path.basename(g.mainArchiveFile).lower().endswith(".7z.001")
+        assert any(f.lower().endswith(".7z.002") for f in g.files)
+
+    def test_creates_group_for_spanned_zip_and_keeps_zip_as_main(self, tmp_path):
+        out_dir = tmp_path / "unzipped"
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        p_zip = out_dir / "Set.zip"
+        p_z01 = out_dir / "Set.z01"
+        p_zip.write_bytes(b"zip")
+        p_z01.write_bytes(b"z01")
+
+        groups: list[ArchiveGroup] = []
+        created = fu.ensure_contained_multipart_groups([str(p_zip), str(p_z01)], groups)
+
+        assert created == 1
+        assert len(groups) == 1
+        g = groups[0]
+        assert g.isMultiPart is True
+        assert os.path.basename(g.mainArchiveFile).lower().endswith(".zip")
+        assert any(f.lower().endswith(".z01") for f in g.files)
+
+    def test_does_not_create_group_for_standalone_zip(self, tmp_path):
+        out_dir = tmp_path / "unzipped"
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        p_zip = out_dir / "Standalone.zip"
+        p_zip.write_bytes(b"zip")
+
+        groups: list[ArchiveGroup] = []
+        created = fu.ensure_contained_multipart_groups([str(p_zip)], groups)
+
+        assert created == 0
+        assert groups == []
+
+    def test_creates_group_for_rar_volume_and_keeps_rar_as_main(self, tmp_path):
+        out_dir = tmp_path / "unzipped"
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        p_rar = out_dir / "Arc.rar"
+        p_r00 = out_dir / "Arc.r00"
+        p_rar.write_bytes(b"rar")
+        p_r00.write_bytes(b"r00")
+
+        groups: list[ArchiveGroup] = []
+        created = fu.ensure_contained_multipart_groups([str(p_rar), str(p_r00)], groups)
+
+        assert created == 1
+        assert len(groups) == 1
+        g = groups[0]
+        assert g.isMultiPart is True
+        assert os.path.basename(g.mainArchiveFile).lower().endswith(".rar")
+        assert any(f.lower().endswith(".r00") for f in g.files)
+
+    def test_does_not_create_group_for_standalone_rar(self, tmp_path):
+        out_dir = tmp_path / "unzipped"
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        p_rar = out_dir / "Standalone.rar"
+        p_rar.write_bytes(b"rar")
+
+        groups: list[ArchiveGroup] = []
+        created = fu.ensure_contained_multipart_groups([str(p_rar)], groups)
+
+        assert created == 0
+        assert groups == []
+
+
+class TestOutputPathNormalization:
+    def test_normalize_numeric_only_folder(self):
+        assert (
+            fu.normalize_output_relative_path(os.path.join("1", "aaa.jpg")) == "aaa.jpg"
+        )
+
+    def test_normalize_numeric_symbol_folder_chain(self):
+        assert (
+            fu.normalize_output_relative_path(os.path.join("1", "5555+", "222.jpg"))
+            == "222.jpg"
+        )
+
+    def test_date_folder_is_not_flattened(self):
+        assert fu.normalize_output_relative_path(
+            os.path.join("2024-01-01", "aaa.jpg")
+        ) == os.path.join("2024-01-01", "aaa.jpg")
+
+    def test_meaningful_prefix_stops_flattening(self):
+        assert fu.normalize_output_relative_path(
+            os.path.join("photos", "1", "aaa.jpg")
+        ) == os.path.join("photos", "1", "aaa.jpg")
+
+    def test_only_leading_meaningless_folders_are_flattened(self):
+        assert fu.normalize_output_relative_path(
+            os.path.join("1", "photos", "1", "aaa.jpg")
+        ) == os.path.join("photos", "1", "aaa.jpg")
+
+    def test_move_files_preserving_structure_flattens_meaningless_prefix(
+        self, tmp_path
+    ):
+        src_root = tmp_path / "src"
+        dest_root = tmp_path / "unzipped"
+        (src_root / "1").mkdir(parents=True, exist_ok=True)
+        dest_root.mkdir(parents=True, exist_ok=True)
+
+        src_file = src_root / "1" / "aaa.jpg"
+        src_file.write_bytes(b"aaa")
+
+        moved = fu.move_files_preserving_structure(
+            [str(src_file)],
+            source_root=str(src_root),
+            destination_root=str(dest_root),
+        )
+
+        assert moved == [os.path.join("aaa.jpg")]
+        assert (dest_root / "aaa.jpg").exists()
+
+    def test_move_files_preserving_structure_only_flattens_leading_meaningless(
+        self, tmp_path
+    ):
+        src_root = tmp_path / "src"
+        dest_root = tmp_path / "unzipped"
+        (src_root / "1" / "photos" / "1").mkdir(parents=True, exist_ok=True)
+        dest_root.mkdir(parents=True, exist_ok=True)
+
+        src_file = src_root / "1" / "photos" / "1" / "aaa.jpg"
+        src_file.write_bytes(b"aaa")
+
+        moved = fu.move_files_preserving_structure(
+            [str(src_file)],
+            source_root=str(src_root),
+            destination_root=str(dest_root),
+        )
+
+        assert moved == [os.path.join("photos", "1", "aaa.jpg")]
+        assert (dest_root / "photos" / "1" / "aaa.jpg").exists()
+
+    def test_move_files_preserving_structure_keeps_date_folder(self, tmp_path):
+        src_root = tmp_path / "src"
+        dest_root = tmp_path / "unzipped"
+        (src_root / "2024-01-01").mkdir(parents=True, exist_ok=True)
+        dest_root.mkdir(parents=True, exist_ok=True)
+
+        src_file = src_root / "2024-01-01" / "aaa.jpg"
+        src_file.write_bytes(b"aaa")
+
+        fu.move_files_preserving_structure(
+            [str(src_file)],
+            source_root=str(src_root),
+            destination_root=str(dest_root),
+        )
+
+        assert (dest_root / "2024-01-01" / "aaa.jpg").exists()
+
+    def test_collisions_are_handled_after_flattening(self, tmp_path):
+        src_root = tmp_path / "src"
+        dest_root = tmp_path / "unzipped"
+        (src_root / "1").mkdir(parents=True, exist_ok=True)
+        (src_root / "2").mkdir(parents=True, exist_ok=True)
+        dest_root.mkdir(parents=True, exist_ok=True)
+
+        f1 = src_root / "1" / "aaa.jpg"
+        f2 = src_root / "2" / "aaa.jpg"
+        f1.write_bytes(b"one")
+        f2.write_bytes(b"two")
+
+        fu.move_files_preserving_structure(
+            [str(f1), str(f2)],
+            source_root=str(src_root),
+            destination_root=str(dest_root),
+        )
+
+        files = sorted(p.name for p in dest_root.iterdir() if p.is_file())
+        assert "aaa.jpg" in files
+        assert any(name.startswith("aaa_") and name.endswith(".jpg") for name in files)
+        assert len(files) == 2
+
+
 if __name__ == "__main__":
     pytest.main([__file__])

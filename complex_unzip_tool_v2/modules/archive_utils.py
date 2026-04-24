@@ -555,12 +555,43 @@ def _moveAndSanitizeFiles(source_dir: str, target_dir: str) -> None:
     if not os.path.exists(source_dir):
         return
 
+    allowed_chars_re = re.compile(r"^[0-9\+\-_\.,\(\)\[\]\{\}!@#\$%\^&=]+$")
+    date_like_re = re.compile(r"^\d{4}-\d{1,2}-\d{1,2}$")
+
+    def _is_meaningless_dir(name: str) -> bool:
+        n = (name or "").strip()
+        if not n:
+            return False
+        if date_like_re.match(n):
+            return False
+        if not any(ch.isdigit() for ch in n):
+            return False
+        if re.search(r"[A-Za-z]", n):
+            return False
+        if re.search(r"[\u4e00-\u9fff]", n):
+            return False
+        return bool(allowed_chars_re.match(n))
+
+    def _normalize_rel_dir(rel_dir: str) -> str:
+        if rel_dir in ("", "."):
+            return "."
+        norm = os.path.normpath(rel_dir)
+        parts = [p for p in norm.split(os.path.sep) if p not in ("", ".")]
+        while parts and _is_meaningless_dir(parts[0]):
+            parts.pop(0)
+        if not parts:
+            return "."
+        return os.path.join(*parts)
+
     # Ensure target directory exists
     os.makedirs(target_dir, exist_ok=True)
 
     # Process all files and directories
     for root, dirs, files in os.walk(source_dir):
         rel_path = os.path.relpath(root, source_dir)
+
+        if rel_path != ".":
+            rel_path = _normalize_rel_dir(rel_path)
 
         # Determine target subdirectory
         if rel_path != ".":
@@ -726,11 +757,132 @@ def extract_nested_archives(
         "success": True,
         "extracted_archives": [],
         "final_files": [],
+        # Multipart continuation parts discovered during nested extraction that were
+        # not relocated to an existing group. These are candidates that may be used
+        # to satisfy missing volumes for a nested multipart primary.
+        # NOTE: These are not necessarily preserved to output; preservation depends
+        # on whether extraction of the multipart primary ultimately succeeds.
+        "candidate_multipart_parts": [],
         "errors": [],
         "password_used": {},
         "user_provided_passwords": [],
         "password_failed_archives": [],
     }
+
+    candidate_parts_by_key: dict[str, set[str]] = {}
+
+    def _multipart_key_from_basename(file_basename: str) -> Optional[str]:
+        """Return a stable key for matching multipart primaries and continuations.
+
+        The key is intentionally conservative and based on common multipart naming:
+        - 7z volumes: name.7z.001 / name.7z.002 -> key: name|7z
+        - TAR multipart: name.tar.gz.001 -> key: name|tar.gz
+        - RAR part notation: name.part1.rar -> key: name|rar.part
+        - RAR volumes: name.rar / name.r00 -> key: name|rar
+        - ZIP spanned: name.zip / name.z01 -> key: name|zip
+        """
+        fname = file_basename.lower()
+
+        m = re.match(r"^(.*)\.7z\.(\d{1,3})$", fname)
+        if m:
+            return f"{m.group(1)}|7z"
+
+        m = re.match(r"^(.*)\.tar\.(gz|bz2|xz)\.(\d{1,3})$", fname)
+        if m:
+            return f"{m.group(1)}|tar.{m.group(2)}"
+
+        m = re.match(r"^(.*)\.part(\d+)\.rar$", fname)
+        if m:
+            return f"{m.group(1)}|rar.part"
+
+        # RAR volume continuations (.r00, .r01, ...). Primary is typically .rar.
+        m = re.match(r"^(.*)\.r\d{2}$", fname)
+        if m:
+            return f"{m.group(1)}|rar"
+
+        if fname.endswith(".rar"):
+            return f"{fname[:-4]}|rar"
+
+        # ZIP spanned continuations (.z01, .z02, ...). Primary is .zip.
+        m = re.match(r"^(.*)\.z\d{2}$", fname)
+        if m:
+            return f"{m.group(1)}|zip"
+
+        if fname.endswith(".zip"):
+            return f"{fname[:-4]}|zip"
+
+        return None
+
+    def _is_multipart_primary(file_basename: str) -> bool:
+        """Best-effort check for multipart primary candidates."""
+        fname = file_basename.lower()
+        if re.search(r"\.7z\.(\d{1,3})$", fname):
+            return bool(re.search(r"\.7z\.(0*1)$", fname))
+        if re.search(r"\.tar\.(gz|bz2|xz)\.(\d{1,3})$", fname):
+            return bool(re.search(r"\.tar\.(gz|bz2|xz)\.(0*1)$", fname))
+        if re.search(r"\.part(\d+)\.rar$", fname):
+            m = re.search(r"\.part(\d+)\.rar$", fname)
+            return bool(m and int(m.group(1)) == 1)
+        # .rar and .zip may be the first part of a multipart set
+        return fname.endswith(".rar") or fname.endswith(".zip")
+
+    def _find_matching_candidate_parts(search_root: str, key: str) -> list[str]:
+        """Scan search_root for multipart continuation parts matching key."""
+        matches: list[str] = []
+        for root, _dirs, files in os.walk(search_root):
+            for f in files:
+                k = _multipart_key_from_basename(f)
+                if k != key:
+                    continue
+                # Only include continuation parts, not primaries.
+                f_low = f.lower()
+                if re.search(r"\.7z\.(\d{1,3})$", f_low) and not re.search(
+                    r"\.7z\.(0*1)$", f_low
+                ):
+                    matches.append(os.path.join(root, f))
+                    continue
+                if re.search(
+                    r"\.tar\.(gz|bz2|xz)\.(\d{1,3})$", f_low
+                ) and not re.search(r"\.tar\.(gz|bz2|xz)\.(0*1)$", f_low):
+                    matches.append(os.path.join(root, f))
+                    continue
+                if re.search(r"\.r\d{2}$", f_low):
+                    matches.append(os.path.join(root, f))
+                    continue
+                if re.search(r"\.z\d{2}$", f_low):
+                    matches.append(os.path.join(root, f))
+                    continue
+                m = re.search(r"\.part(\d+)\.rar$", f_low)
+                if m and int(m.group(1)) != 1:
+                    matches.append(os.path.join(root, f))
+                    continue
+        return matches
+
+    def _move_parts_next_to_primary(
+        primary_path: str, part_paths: list[str]
+    ) -> list[str]:
+        """Move part_paths into the primary's directory, returning new paths."""
+        moved: list[str] = []
+        primary_dir = os.path.dirname(primary_path)
+        for part in part_paths:
+            if not os.path.exists(part):
+                continue
+            dest = os.path.join(primary_dir, os.path.basename(part))
+            if os.path.abspath(part) == os.path.abspath(dest):
+                moved.append(part)
+                continue
+            # Avoid overwriting; if it already exists, keep the existing one.
+            if os.path.exists(dest):
+                moved.append(dest)
+                continue
+            try:
+                os.makedirs(primary_dir, exist_ok=True)
+                shutil.move(part, dest)
+                moved.append(dest)
+            except Exception:
+                # If move fails, keep the original path so it can be preserved on failure.
+                moved.append(part)
+        return moved
 
     # Build user provided passwords
     user_provided_passwords = []
@@ -1104,9 +1256,52 @@ def extract_nested_archives(
             # Extract directly to the current output directory to preserve structure
             print_extracting_archive(os.path.basename(current_archive), depth)
 
-            extract_success, used_password, failed_due_to_password = _tryExtractWithPasswords(
-                current_archive, current_output, active_progress_bars
+            extract_success, used_password, failed_due_to_password = (
+                _tryExtractWithPasswords(
+                    current_archive, current_output, active_progress_bars
+                )
             )
+
+            # If extraction failed for a nested multipart primary, attempt to match/move
+            # continuation parts extracted elsewhere in this run and retry once.
+            if (
+                not extract_success
+                and not failed_due_to_password
+                and depth > 0
+                and _is_multipart_primary(os.path.basename(current_archive))
+            ):
+                primary_key = _multipart_key_from_basename(
+                    os.path.basename(current_archive)
+                )
+                if primary_key:
+                    # Merge any already-recorded candidates with a fresh scan.
+                    candidates = set(candidate_parts_by_key.get(primary_key, set()))
+                    candidates.update(
+                        _find_matching_candidate_parts(output_path, primary_key)
+                    )
+                    # Do not treat the primary itself as a candidate.
+                    candidates.discard(current_archive)
+                    if candidates:
+                        moved_candidates = _move_parts_next_to_primary(
+                            current_archive, sorted(candidates)
+                        )
+
+                        # Retry extraction after bringing parts together.
+                        extract_success, used_password, failed_due_to_password = (
+                            _tryExtractWithPasswords(
+                                current_archive,
+                                current_output,
+                                active_progress_bars,
+                            )
+                        )
+
+                        # If retry still fails, preserve the multipart set by emitting
+                        # both the primary and the parts as final_files.
+                        if not extract_success and not failed_due_to_password:
+                            result["final_files"].append(current_archive)
+                            for p in moved_candidates:
+                                if p not in result["final_files"]:
+                                    result["final_files"].append(p)
 
             if extract_success:
                 result["extracted_archives"].append(current_archive)
@@ -1196,6 +1391,15 @@ def extract_nested_archives(
                                     )
                                     # Do not include in nested processing
                                     continue
+                            # Record as candidate part for potential matching if a multipart
+                            # primary later fails due to missing volumes.
+                            key = _multipart_key_from_basename(file_name)
+                            if key:
+                                candidate_parts_by_key.setdefault(key, set()).add(
+                                    file_path
+                                )
+                                # Maintain a simple list for callers/diagnostics.
+                                result["candidate_multipart_parts"].append(file_path)
                             # Default behavior: skip continuation files inside nested containers
                             print_info(
                                 f"Skipping multipart continuation file 跳过多部分续档: {file_name}",

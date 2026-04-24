@@ -4,6 +4,7 @@ OUTPUT_FOLDER = "unzipped"
 # 扫描目录时忽略的文件
 IGNORED_FILES = {".DS_Store", "thumbs.db", "desktop.ini", "passwords.txt"}
 
+
 # Multi-part archive patterns for detecting split archives
 # 多部分档案模式，用于检测分割档案
 MULTI_PART_PATTERNS = [
