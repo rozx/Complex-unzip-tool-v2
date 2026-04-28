@@ -14,6 +14,9 @@ MULTI_PART_PATTERNS = [
     r"\.tar\.gz\.\d+$",  # .tar.gz.001, etc.
     r"\.tar\.bz2\.\d+$",  # .tar.bz2.001, etc.
     r"\.tar\.xz\.\d+$",  # .tar.xz.001, etc.
+    r"\.part\d+\.rar$",  # .part1.rar, .part2.rar (standard RAR multi-volume)
+    r"\.r\d{2}$",  # .r00, .r01 (legacy RAR continuation parts)
+    r"\.z\d{2}$",  # .z01, .z02 (spanned ZIP continuation parts)
     r"\.\w+\.part\d+$",  # generic .ext.part1 format
 ]
 
