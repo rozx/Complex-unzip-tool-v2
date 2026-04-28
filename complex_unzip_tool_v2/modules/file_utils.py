@@ -317,7 +317,10 @@ def create_groups_by_name(file_paths: list[str]) -> list[ArchiveGroup]:
 
 
 def uncloak_file_extension_for_groups(
-    groups: list[ArchiveGroup], rules_file_path: str = None, warning_callback=None
+    groups: list[ArchiveGroup],
+    rules_file_path: str = None,
+    warning_callback=None,
+    history=None,
 ) -> None:
     """
     Uncloak file extensions for groups using rule-based detection.
@@ -340,7 +343,7 @@ def uncloak_file_extension_for_groups(
     for group in groups:
         for i, file in enumerate(group.files):
             original_file = file
-            new_path = detector.uncloak_file(file)
+            new_path = detector.uncloak_file(file, history=history)
 
             if new_path != original_file:
                 if os.path.exists(new_path):
@@ -357,7 +360,7 @@ def uncloak_file_extension_for_groups(
 
 
 def uncloak_file_extensions(
-    file_paths: list[str], rules_file_path: str = None
+    file_paths: list[str], rules_file_path: str = None, history=None
 ) -> list[str]:
     """
     Uncloak file extensions for a list of file paths using rule-based detection.
@@ -366,6 +369,7 @@ def uncloak_file_extensions(
     Args:
         file_paths: List of file paths to process
         rules_file_path: Path to JSON rules file (optional, uses default if not provided)
+        history: Optional RenameHistory to record successful renames
 
     Returns:
         The updated file paths list with proper extensions.
@@ -380,7 +384,7 @@ def uncloak_file_extensions(
     detector = CloakedFileDetector(rules_file_path)
 
     # Process all files
-    updated_paths = detector.uncloak_files(file_paths)
+    updated_paths = detector.uncloak_files(file_paths, history=history)
 
     return updated_paths
 

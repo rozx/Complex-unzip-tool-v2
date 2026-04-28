@@ -454,13 +454,14 @@ class CloakedFileDetector:
         seed = f"{base_dir}|{base_name}"
         return uuid.uuid5(uuid.NAMESPACE_URL, seed).hex[:8]
 
-    def uncloak_file(self, file_path: str) -> str:
+    def uncloak_file(self, file_path: str, history=None) -> str:
         """
         Uncloak a single file and rename it if needed.
         解除单个文件的隐藏并在需要时重命名。
 
         Args:
             file_path: Full path to the file to uncloak
+            history: Optional RenameHistory to record successful renames
 
         Returns:
             New file path with proper extension, or original path if no changes needed
@@ -475,6 +476,8 @@ class CloakedFileDetector:
                 duplicate_path = self._build_collision_path(file_path, new_path)
                 try:
                     os.rename(file_path, duplicate_path)
+                    if history is not None:
+                        history.record(file_path, duplicate_path)
                     print_warning(
                         "Duplicate cloaked file detected; renamed to preserve multipart set: "
                         f"{os.path.basename(file_path)} -> {os.path.basename(duplicate_path)} "
@@ -491,6 +494,8 @@ class CloakedFileDetector:
             try:
                 # Rename the actual file
                 os.rename(file_path, new_path)
+                if history is not None:
+                    history.record(file_path, new_path)
                 print_success(
                     f"Renamed: {os.path.basename(file_path)} -> {os.path.basename(new_path)}"
                 )
@@ -501,13 +506,14 @@ class CloakedFileDetector:
 
         return file_path
 
-    def uncloak_files(self, file_paths: List[str]) -> List[str]:
+    def uncloak_files(self, file_paths: List[str], history=None) -> List[str]:
         """
         Uncloak multiple files and return updated paths.
         解除多个文件的隐藏并返回更新的路径。
 
         Args:
             file_paths: List of file paths to uncloak
+            history: Optional RenameHistory to record successful renames
 
         Returns:
             List of updated file paths with proper extensions
@@ -515,7 +521,7 @@ class CloakedFileDetector:
         updated_paths = []
 
         for file_path in file_paths:
-            updated_path = self.uncloak_file(file_path)
+            updated_path = self.uncloak_file(file_path, history=history)
             updated_paths.append(updated_path)
 
         return updated_paths

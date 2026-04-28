@@ -13,6 +13,7 @@ from .modules import (
     const,
     password_util,
 )
+from .modules.rename_history import RenameHistory
 from .modules.rich_utils import (
     init_statistics,
     print_header,
@@ -55,6 +56,94 @@ def _should_delete_original_archives(extract_result: dict) -> bool:
     except Exception:
         # Be conservative: if result shape is unexpected, don't delete originals.
         return False
+
+
+def _reconcile_rename_history(
+    history: Optional[RenameHistory],
+    group_name: str,
+    extract_result: Optional[dict],
+) -> None:
+    """Decide whether to revert or clear renames for this group, based on
+    whether the originals are being preserved (revert) or deleted (clear).
+
+    Mirrors `_should_delete_original_archives`: if originals would be kept,
+    we put their names back so the user can identify the files manually.
+    """
+    if history is None:
+        return
+
+    if extract_result is None or not _should_delete_original_archives(extract_result):
+        count, sample = history.revert_group(group_name)
+        if count > 0:
+            print_warning(
+                f"Reverted {count} rename(s) for {group_name} "
+                f"已回滚 {count} 个改名:",
+                2,
+            )
+            for renamed_basename, original_basename in sample:
+                print_file_path(f"{renamed_basename} → {original_basename}", 3)
+    else:
+        cleared = history.clear_group(group_name)
+        if cleared > 0:
+            print_info(
+                f"Cleared {cleared} rename history entr(ies) for {group_name}",
+                2,
+            )
+
+
+def _maybe_recover_pending_renames(input_root: str) -> None:
+    """If a leftover rename-history file exists, ask the user whether to revert."""
+    pending = RenameHistory.load_pending(input_root)
+    if pending is None:
+        return
+
+    print_warning(
+        f"Detected pending rename history from a previous run "
+        f"检测到上次运行遗留的改名记录: {len(pending.entries)} entries"
+    )
+    if not pending.root_matches(input_root):
+        print_warning(
+            f"⚠ History was recorded for a different input root "
+            f"历史文件来自另一个输入目录: {pending.input_root}",
+            1,
+        )
+
+    for entry in pending.entries[:10]:
+        ren_basename = os.path.basename(entry["renamed"])
+        orig_basename = os.path.basename(entry["original"])
+        group_label = entry.get("group") or "unbound"
+        print_file_path(
+            f"{ren_basename} → {orig_basename}  ({group_label})", 1
+        )
+    if len(pending.entries) > 10:
+        print_info(f"... and {len(pending.entries) - 10} more", 1)
+
+    try:
+        choice = input(
+            "Revert these renames before starting? "
+            "在开始前回滚这些改名? (y/N) [default: N]: "
+        ).strip().lower()
+    except (KeyboardInterrupt, EOFError):
+        choice = "n"
+
+    if choice not in ("y", "yes"):
+        print_info(
+            "Skipping recovery. This run will overwrite the history file. "
+            "跳过恢复，本次运行将覆盖历史记录。"
+        )
+        return
+
+    total = 0
+    for group_key in pending.bound_group_keys():
+        count, _ = pending.revert_group(group_key)
+        total += count
+    unbound_count, _ = pending.revert_unbound()
+    total += unbound_count
+    pending.delete_file()
+    print_success(
+        f"✓ Reverted {total} rename(s) and removed history file "
+        f"已回滚 {total} 个改名并删除历史文件"
+    )
 
 
 def _ask_for_user_input_and_exit() -> None:
@@ -134,6 +223,17 @@ def extract_files(paths: List[str], use_recycle_bin: bool = True) -> None:
         f"🚀 Starting Complex Unzip Tool v2 启动复杂解压工具v2 v{__version__} By Rozx"
     )
 
+    # Derive input root for the rename-history persistence file
+    input_root = (
+        paths[0] if os.path.isdir(paths[0]) else os.path.dirname(paths[0])
+    )
+
+    # Recovery: prompt to revert any leftover renames from a crashed run
+    _maybe_recover_pending_renames(input_root)
+
+    # Per-run rename history (records every cloaked-file uncloak rename)
+    rename_history = RenameHistory(input_root)
+
     # Step 1: Setup output folder 设置输出文件夹
     print_step(1, "📁 Setting up output folder 设置输出文件夹")
 
@@ -181,7 +281,7 @@ def extract_files(paths: List[str], use_recycle_bin: bool = True) -> None:
 
     loader = create_spinner("Uncloaking file extensions 正在揭示文件扩展名...")
     loader.start()
-    contents = file_utils.uncloak_file_extensions(contents)
+    contents = file_utils.uncloak_file_extensions(contents, history=rename_history)
     loader.stop()
 
     print_success("File extensions uncloaked 文件扩展名已揭示")
@@ -196,6 +296,13 @@ def extract_files(paths: List[str], use_recycle_bin: bool = True) -> None:
     loader.stop()
 
     print_success(f"Created {len(groups)} archive groups 已创建 {len(groups)} 个档案组")
+
+    # Bind rename history entries to their owning ArchiveGroup so per-group
+    # success/failure can revert or clear the right entries later.
+    for group in groups:
+        for file_path in group.files:
+            rename_history.bind(file_path, group.name)
+
     print_minor_section_break()
 
     # Step 6: Processing archive groups 处理档案组
@@ -243,6 +350,7 @@ def extract_files(paths: List[str], use_recycle_bin: bool = True) -> None:
                         f"No valid archive files found in group 组中未找到有效档案文件: {group.name}",
                         2,
                     )
+                    _reconcile_rename_history(rename_history, group.name, None)
                     groups.remove(group)
                     extraction_progress.complete_group(success=False)
                     print_minor_section_break()
@@ -446,6 +554,7 @@ def extract_files(paths: List[str], use_recycle_bin: bool = True) -> None:
                             )
 
                         # Remove the group from processing
+                        _reconcile_rename_history(rename_history, group.name, result)
                         groups.remove(group)
                         extraction_progress.complete_group(success=True)
                         print_success("Processing completed 处理完成", 2)
@@ -454,6 +563,7 @@ def extract_files(paths: List[str], use_recycle_bin: bool = True) -> None:
                     else:
                         print_error("Expected list of files 期望文件列表", 2)
                         print_error(f"Got {type(final_files_raw)} for {group.name}", 3)
+                        _reconcile_rename_history(rename_history, group.name, None)
                         groups.remove(group)
                         extraction_progress.complete_group(success=False)
 
@@ -461,6 +571,7 @@ def extract_files(paths: List[str], use_recycle_bin: bool = True) -> None:
                     print_error(f"Failed to extract 提取失败: {group.name}", 2)
                     if os.path.exists(extraction_temp_path):
                         shutil.rmtree(extraction_temp_path)
+                    _reconcile_rename_history(rename_history, group.name, None)
                     groups.remove(group)
                     extraction_progress.complete_group(success=False)
                     print_minor_section_break()
@@ -612,6 +723,9 @@ def extract_files(paths: List[str], use_recycle_bin: bool = True) -> None:
                                 f"Alternative archive extraction succeeded 备用档案提取成功: {group.name}",
                                 2,
                             )
+                            _reconcile_rename_history(
+                                rename_history, group.name, retry_result
+                            )
                             extraction_progress.complete_group(success=True)
                             print_minor_section_break()
                             continue  # Skip the removal and continue with next group
@@ -645,6 +759,7 @@ def extract_files(paths: List[str], use_recycle_bin: bool = True) -> None:
                 except Exception:
                     pass
                 finally:
+                    _reconcile_rename_history(rename_history, group.name, None)
                     groups.remove(group)
                     extraction_progress.complete_group(success=False)
                     print_minor_section_break()
@@ -710,6 +825,7 @@ def extract_files(paths: List[str], use_recycle_bin: bool = True) -> None:
                         f"No valid multipart archive files found in group 组中未找到有效多部分档案文件: {group.name}",
                         2,
                     )
+                    _reconcile_rename_history(rename_history, group.name, None)
                     groups.remove(group)
                     multipart_progress.complete_group(success=False)
                     print_minor_section_break()
@@ -896,6 +1012,9 @@ def extract_files(paths: List[str], use_recycle_bin: bool = True) -> None:
                                 )
 
                             # Remove the group from processing
+                            _reconcile_rename_history(
+                                rename_history, group.name, result
+                            )
                             groups.remove(group)
                             multipart_progress.complete_group(success=True)
                             print_success("Processing completed 处理完成", 2)
@@ -904,6 +1023,7 @@ def extract_files(paths: List[str], use_recycle_bin: bool = True) -> None:
                     else:
                         print_error("Expected list of files 期望文件列表", 2)
                         print_error(f"Got {type(final_files_raw)} for {group.name}", 3)
+                        _reconcile_rename_history(rename_history, group.name, None)
                         groups.remove(group)
                         multipart_progress.complete_group(success=False)
                         print_minor_section_break()
@@ -915,6 +1035,7 @@ def extract_files(paths: List[str], use_recycle_bin: bool = True) -> None:
                             "Retained source multipart parts due to extraction failure 提取失败，保留源分卷",
                             2,
                         )
+                    _reconcile_rename_history(rename_history, group.name, None)
                     groups.remove(group)
                     multipart_progress.complete_group(success=False)
                     print_minor_section_break()
@@ -1067,6 +1188,9 @@ def extract_files(paths: List[str], use_recycle_bin: bool = True) -> None:
                                 f"Alternative multipart archive extraction succeeded 备用多部分档案提取成功: {group.name}",
                                 2,
                             )
+                            _reconcile_rename_history(
+                                rename_history, group.name, retry_result
+                            )
                             multipart_progress.complete_group(success=True)
                             print_minor_section_break()
                             continue  # Skip the removal and continue with next group
@@ -1111,6 +1235,7 @@ def extract_files(paths: List[str], use_recycle_bin: bool = True) -> None:
                         "Retained source multipart parts due to extraction failure 提取失败，保留源分卷",
                         2,
                     )
+                    _reconcile_rename_history(rename_history, group.name, None)
                     groups.remove(group)
                     multipart_progress.complete_group(success=False)
                     print_minor_section_break()
@@ -1144,6 +1269,21 @@ def extract_files(paths: List[str], use_recycle_bin: bool = True) -> None:
         passwordBook.save_passwords()
     else:
         print_info("📝 No new passwords to save 没有新密码需要保存")
+
+    # Revert any rename history entries that never bound to a group (their
+    # renamed file likely vanished before grouping completed).
+    unbound_count, unbound_sample = rename_history.revert_unbound()
+    if unbound_count > 0:
+        print_warning(
+            f"Reverted {unbound_count} unbound rename(s) "
+            f"已回滚 {unbound_count} 个未绑定改名:",
+            1,
+        )
+        for renamed_basename, original_basename in unbound_sample:
+            print_file_path(f"{renamed_basename} → {original_basename}", 2)
+
+    # Delete the on-disk history file when no entries remain (clean run).
+    rename_history.finalize()
 
     print_major_section_break()
     # Footer with fancy border
