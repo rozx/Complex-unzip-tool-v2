@@ -37,11 +37,14 @@ multipart_regex = (
     r"\.(?:7z\.\d{1,3}|tar\.(?:gz|bz2|xz)\.\d{1,3}|r\d{2}|z\d{2}|part\d+\.rar)$"
 )
 
-# Check if it's the first part of a multipart archive (base case only)
-# These patterns match the first part of different multipart conventions:
-# - .7z.001, .tar.gz.001, etc. (first part with .001)
-# - .r00 (RAR first continuation part)
-# - .z01 (ZIP first continuation part)
-# - .part1.rar (RAR part1 notation - only part1, not part01 or part001)
-# Note: .rar and .zip are excluded as they're ambiguous
-first_part_regex = r"\.(?:7z\.0*1|tar\.(?:gz|bz2|xz)\.0*1|r0*0|z0*1|part1\.rar)$"
+# Check if it's an unambiguous extraction entry point of a multipart archive.
+# These patterns match the file 7-Zip needs to be invoked on to extract the set:
+# - .7z.001, .tar.gz.001, etc. (first split-volume of .7z/.tar.*)
+# - .part1.rar (first volume of standard RAR multi-volume)
+# Note: .rar and .zip are NOT included here because they are ambiguous (could
+# be standalone or the entry point of a spanned set). They are still treated
+# as the highest-priority main archive for spanned ZIP / volume RAR sets via
+# explicit handling in ArchiveGroup.add_file (which knows the full file list).
+# IMPORTANT: .r00 and .z01 are intentionally excluded — they are continuation
+# parts, not extraction entry points; 7-Zip must be invoked on .rar / .zip.
+first_part_regex = r"\.(?:7z\.0*1|tar\.(?:gz|bz2|xz)\.0*1|part0*1\.rar)$"

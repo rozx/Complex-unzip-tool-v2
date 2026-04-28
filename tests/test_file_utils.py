@@ -42,6 +42,130 @@ class TestGetArchiveBaseName:
         """Test with hidden files."""
         assert fu.get_archive_base_name(".hidden.zip") == (".hidden", "zip")
 
+    def test_spanned_zip_continuation_returns_zip_family(self):
+        """Spanned ZIP continuation parts must share the .zip family extension."""
+        assert fu.get_archive_base_name("set.zip") == ("set", "zip")
+        assert fu.get_archive_base_name("set.z01") == ("set", "zip")
+        assert fu.get_archive_base_name("set.z02") == ("set", "zip")
+        assert fu.get_archive_base_name("set.z99") == ("set", "zip")
+
+    def test_volume_rar_continuation_returns_rar_family(self):
+        """Volume RAR continuation parts must share the .rar family extension."""
+        assert fu.get_archive_base_name("arc.rar") == ("arc", "rar")
+        assert fu.get_archive_base_name("arc.r00") == ("arc", "rar")
+        assert fu.get_archive_base_name("arc.r01") == ("arc", "rar")
+
+    def test_partN_rar_returns_rar_family(self):
+        """Standard .partN.rar volumes must share the .rar family extension."""
+        assert fu.get_archive_base_name("data.part1.rar") == ("data", "rar")
+        assert fu.get_archive_base_name("data.part2.rar") == ("data", "rar")
+        assert fu.get_archive_base_name("data.part10.rar") == ("data", "rar")
+
+
+class TestArchiveGroupMainSelection:
+    """Regression tests verifying ArchiveGroup picks the correct main archive
+    regardless of file insertion order (Bug B fix)."""
+
+    def test_spanned_zip_keeps_zip_as_main(self):
+        from complex_unzip_tool_v2.classes.ArchiveGroup import ArchiveGroup
+
+        for order in (
+            ["set.zip", "set.z01", "set.z02"],
+            ["set.z01", "set.z02", "set.zip"],
+            ["set.z02", "set.zip", "set.z01"],
+        ):
+            g = ArchiveGroup("dir-set")
+            for f in order:
+                g.add_file(f)
+            assert (
+                g.mainArchiveFile == "set.zip"
+            ), f"order {order} produced main {g.mainArchiveFile!r}"
+            assert g.isMultiPart is True
+
+    def test_volume_rar_keeps_rar_as_main(self):
+        from complex_unzip_tool_v2.classes.ArchiveGroup import ArchiveGroup
+
+        for order in (
+            ["arc.rar", "arc.r00", "arc.r01"],
+            ["arc.r00", "arc.r01", "arc.rar"],
+            ["arc.r01", "arc.rar", "arc.r00"],
+        ):
+            g = ArchiveGroup("dir-arc")
+            for f in order:
+                g.add_file(f)
+            assert (
+                g.mainArchiveFile == "arc.rar"
+            ), f"order {order} produced main {g.mainArchiveFile!r}"
+            assert g.isMultiPart is True
+
+    def test_part1_rar_wins_over_partN(self):
+        from complex_unzip_tool_v2.classes.ArchiveGroup import ArchiveGroup
+
+        g = ArchiveGroup("dir-data")
+        g.add_file("data.part2.rar")
+        g.add_file("data.part1.rar")
+        assert g.mainArchiveFile == "data.part1.rar"
+
+    def test_7z_first_volume_wins(self):
+        from complex_unzip_tool_v2.classes.ArchiveGroup import ArchiveGroup
+
+        g = ArchiveGroup("dir-x")
+        g.add_file("x.7z.002")
+        g.add_file("x.7z.001")
+        assert g.mainArchiveFile == "x.7z.001"
+
+
+class TestCreateGroupsByNameMultipart:
+    """End-to-end grouping tests for spanned ZIP / volume RAR (Bugs A+B)."""
+
+    def setup_method(self):
+        self.test_dir = tempfile.mkdtemp()
+
+    def teardown_method(self):
+        shutil.rmtree(self.test_dir, ignore_errors=True)
+
+    def _create(self, name: str) -> str:
+        p = os.path.join(self.test_dir, name)
+        with open(p, "wb") as f:
+            f.write(b"x")
+        return p
+
+    def test_spanned_zip_files_grouped_with_zip_as_main(self):
+        files = [
+            self._create("set.zip"),
+            self._create("set.z01"),
+            self._create("set.z02"),
+        ]
+        groups = fu.create_groups_by_name(files)
+        assert len(groups) == 1
+        g = groups[0]
+        assert g.isMultiPart is True
+        assert os.path.basename(g.mainArchiveFile) == "set.zip"
+        assert len(g.files) == 3
+
+    def test_volume_rar_files_grouped_with_rar_as_main(self):
+        files = [
+            self._create("arc.rar"),
+            self._create("arc.r00"),
+            self._create("arc.r01"),
+        ]
+        groups = fu.create_groups_by_name(files)
+        assert len(groups) == 1
+        g = groups[0]
+        assert g.isMultiPart is True
+        assert os.path.basename(g.mainArchiveFile) == "arc.rar"
+        assert len(g.files) == 3
+
+    def test_zip_continuations_only_still_group(self):
+        """If user gives only .z01/.z02 (no .zip), they should still group together."""
+        files = [
+            self._create("set.z01"),
+            self._create("set.z02"),
+        ]
+        groups = fu.create_groups_by_name(files)
+        assert len(groups) == 1
+        assert groups[0].isMultiPart is True
+
 
 class TestReadDir:
     """Tests for read_dir function."""

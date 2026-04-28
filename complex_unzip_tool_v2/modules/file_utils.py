@@ -84,8 +84,26 @@ def get_archive_base_name(file_path: str) -> tuple[str, str]:
     handling multi-part archives like .7z.001, .rar.part1, etc.
     获取文件路径的基本名称和档案扩展名，处理多部分档案如.7z.001, .rar.part1等
     Returns (base_name, archive_extension)
+
+    For multi-part formats whose parts use distinct per-part suffixes
+    (e.g. .z01/.z02 for spanned ZIP, .r00/.r01 for legacy RAR, .partN.rar for
+    standard RAR), the returned extension is the *family* extension (zip/rar)
+    so that all parts of the same set share the same (base, ext) tuple. This
+    is what enables grouping logic to recognize them as related.
     """
     base_name = os.path.basename(file_path)
+
+    # Family-mapped continuation suffixes: all parts must share the family ext
+    # so grouping/comparison treats them as the same multi-part set.
+    family_pattern_map = [
+        (r"\.z\d{2}$", "zip"),  # .z01, .z02 → zip family
+        (r"\.r\d{2}$", "rar"),  # .r00, .r01 → rar family
+        (r"\.part\d+\.rar$", "rar"),  # .part1.rar, .part2.rar → rar family
+    ]
+    for pattern, family_ext in family_pattern_map:
+        match = re.search(pattern, base_name, re.IGNORECASE)
+        if match:
+            return base_name[: match.start()], family_ext
 
     # Use the multi-part archive patterns from constants
     for pattern in MULTI_PART_PATTERNS:
@@ -299,7 +317,10 @@ def create_groups_by_name(file_paths: list[str]) -> list[ArchiveGroup]:
 
 
 def uncloak_file_extension_for_groups(
-    groups: list[ArchiveGroup], rules_file_path: str = None, warning_callback=None
+    groups: list[ArchiveGroup],
+    rules_file_path: str = None,
+    warning_callback=None,
+    history=None,
 ) -> None:
     """
     Uncloak file extensions for groups using rule-based detection.
@@ -322,7 +343,7 @@ def uncloak_file_extension_for_groups(
     for group in groups:
         for i, file in enumerate(group.files):
             original_file = file
-            new_path = detector.uncloak_file(file)
+            new_path = detector.uncloak_file(file, history=history)
 
             if new_path != original_file:
                 if os.path.exists(new_path):
@@ -339,7 +360,7 @@ def uncloak_file_extension_for_groups(
 
 
 def uncloak_file_extensions(
-    file_paths: list[str], rules_file_path: str = None
+    file_paths: list[str], rules_file_path: str = None, history=None
 ) -> list[str]:
     """
     Uncloak file extensions for a list of file paths using rule-based detection.
@@ -348,6 +369,7 @@ def uncloak_file_extensions(
     Args:
         file_paths: List of file paths to process
         rules_file_path: Path to JSON rules file (optional, uses default if not provided)
+        history: Optional RenameHistory to record successful renames
 
     Returns:
         The updated file paths list with proper extensions.
@@ -362,7 +384,7 @@ def uncloak_file_extensions(
     detector = CloakedFileDetector(rules_file_path)
 
     # Process all files
-    updated_paths = detector.uncloak_files(file_paths)
+    updated_paths = detector.uncloak_files(file_paths, history=history)
 
     return updated_paths
 
