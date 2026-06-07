@@ -55,7 +55,17 @@ poetry install
 - Run tests:
 
 ```powershell
-poetry run pytest -q
+poetry run pytest -q                                        # all tests
+poetry run pytest tests/test_archive_utils.py -q            # one file
+poetry run pytest tests/test_archive_utils.py::test_build_7z_extract_cmd -q   # one test
+```
+
+- Lint / format / type-check:
+
+```powershell
+poetry run black complex_unzip_tool_v2/ tests/   # format (line-length 88)
+poetry run flake8 complex_unzip_tool_v2/ tests/  # lint
+poetry run mypy complex_unzip_tool_v2/           # type check (strict)
 ```
 
 - Smoke test the CLI:
@@ -91,14 +101,17 @@ Note: The project bundles `7z/7z.exe`; code paths may assume this local binary.
 
 ## Change Workflow
 1) Branch and plan a minimal change set.
-2) Add/adjust tests under `tests/` (write failing test first if practical).
-3) Implement changes in `complex_unzip_tool_v2/` (keep diffs small and focused).
+2) **TDD: write a failing test first** under `tests/` (regression test for a bug, or a spec test for new behavior); confirm it fails for the right reason.
+3) Implement the minimum change in `complex_unzip_tool_v2/` to make it pass (keep diffs small and focused), then refactor with the test green.
 4) Run quality gates locally:
    - Build: ensure code runs (smoke test CLI)
    - Tests: `poetry run pytest -q`
    - Lint/Typecheck: if configured in `pyproject.toml`
 5) Update docs (`README.md`) if user-facing behavior changes.
 6) Commit with a clear message and open a PR with a short checklist.
+
+## Spec-driven development (OpenSpec)
+This repo uses **OpenSpec**. Active specs live in `openspec/specs/`, proposed changes in `openspec/changes/`, and project conventions in `openspec/project.md`. For non-trivial features or behavior changes, create/advance an OpenSpec change (via the `openspec-*` skills) instead of ad-hoc edits, then archive it once implemented. Small bugfixes can skip this, but still follow TDD.
 
 ## Quality Gates (Definition of Done)
 - Build/Run: CLI `--help` works without errors.
@@ -108,9 +121,11 @@ Note: The project bundles `7z/7z.exe`; code paths may assume this local binary.
 - Docs updated when behavior or usage changes.
 
 ## Testing Guidelines
+- **Always use TDD**: write the failing test before the implementation (see Change Workflow).
 - Put tests in `tests/`, named `test_*.py`.
 - Cover happy path and at least one edge case (e.g., missing password, invalid archive, cloaked file detection).
 - Prefer small, deterministic examples; avoid large fixtures unless needed.
+- Tests do **not** require the real `7z.exe`: mock the subprocess/extraction calls with `monkeypatch` and use the `tmp_path` fixture for filesystem effects. Pure helpers (regex / grouping / uncloaking / path normalization) are tested directly. See `tests/test_archive_utils.py` for the mocking pattern.
 
 ## Coding Conventions
 - Keep functions small; prefer pure helpers in `modules/` when feasible.
@@ -167,8 +182,8 @@ Resolution flow:
 2) Iterate rules by `priority` (desc). If a rule matches, build the new filename:
    - Multipart part numbers are normalized to 3 digits (e.g., `1` -> `001`).
    - If `type` is `auto`, we try to detect via `archive_extension_utils.detect_archive_extension`.
-3) Optional verification: the detector attempts to confirm the archive type via signature when possible; it’s lenient for cloaked files to avoid blocking normalization.
-4) Apply rename only if the new filename differs and passes the basic checks.
+3) Signature gate (`_verify_with_signature`): if the filename carries an explicit archive token — `.7z` / `.rar` / `.zip` (matched by `ARCHIVE_TOKEN_RE`) — the rename is trusted, because continuation parts (e.g. `name.7z.002删除`) legitimately carry no magic-byte signature. If there is NO such token, the type was only *guessed* from a trailing number, so a real archive signature (`archive_extension_utils.detect_archive_extension`) is required before renaming — this stops ordinary files from being turned into fake parts.
+4) Apply rename only if the new filename differs and passes the signature gate.
 
 Examples (intended outcomes):
 - `11111.7z删除` -> `11111.7z`
@@ -184,6 +199,20 @@ Where to change rules:
 Testing:
 - See `tests/test_cloaked_file_detector.py` for unit tests covering rule matching and safety guards.
 - Run tests with `poetry run pytest -q`.
+
+## Rename history (revert-on-failure)
+Because uncloaking renames source files *in place* before extraction, a failed extraction would otherwise leave the user with renamed files they can no longer recognize. `RenameHistory` (`complex_unzip_tool_v2/modules/rename_history.py`) makes uncloaking reversible.
+
+- Every successful uncloak rename is recorded (Step 4) and persisted eagerly via atomic temp+replace to `<input_root>/.unzip-rename-history.tmp.json`, so a crash mid-run still leaves a recoverable record.
+- Entries are bound to their owning `ArchiveGroup` after grouping (Step 5).
+- Per group, after extraction: on **success** the entries are cleared; on **failure** they are reverted (files renamed back to their original cloaked names). This is wired through `_reconcile_rename_history()` in `main.py`, which mirrors `_should_delete_original_archives()` — if originals are being kept, names are put back; if they are being deleted, history is cleared.
+- On startup, a leftover history file from a previous crashed run is detected and the user is prompted to revert it (`_maybe_recover_pending_renames`).
+- Unbound entries (renamed file vanished before grouping) are reverted defensively at the end; the on-disk file is deleted on a clean run (`finalize`).
+- Tests: `tests/test_rename_history.py`.
+
+## Cleanup safety guards (do not break these)
+- **Never delete originals on password failure.** All source deletion is gated by `_should_delete_original_archives()`, which returns `False` whenever `password_failed_archives` is non-empty. Deletion defaults to the Recycle Bin (`send2trash`); `--permanent-delete` overrides.
+- **Multipart retention on failure.** When a multipart set fails to extract, the source parts are retained; only tool-created temp folders are cleaned (logs say "Retained source multipart parts due to extraction failure").
 
 ## Nested multipart handling (inside containers)
 When extracting an archive that itself contains multipart archives (e.g., a .7z containing another multi-part set), the tool now relocates continuation parts into their corresponding multipart group directory so that top‑level multipart extraction has all required volumes. Primary parts are still the only ones considered for recursive nested extraction.
