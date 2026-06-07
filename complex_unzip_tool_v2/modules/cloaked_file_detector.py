@@ -20,6 +20,19 @@ from complex_unzip_tool_v2.modules.archive_extension_utils import (
 )
 from complex_unzip_tool_v2.modules.regex import multipart_regex
 
+# An explicit archive-type token (.7z/.rar/.zip) embedded in a filename means the
+# user deliberately named the file as that archive type; the surrounding garbage
+# is just cloaking. Such renames are trustworthy even for continuation parts that
+# carry no signature. When NO token is present, the archive type is only a guess
+# from a trailing numeric suffix and must be confirmed by the file's signature.
+# 文件名中显式带有归档标记(.7z/.rar/.zip)说明用户有意将其命名为该归档类型，
+# 周围的内容只是伪装；此类改名即使对无签名的续卷也是可信的。若没有该标记，
+# 归档类型只是根据尾部数字猜测得到，必须由文件签名确认。
+ARCHIVE_TOKEN_RE = re.compile(
+    r"\.(?:7z|rar|zip)(?:\.|$|[^0-9A-Za-z])",
+    re.IGNORECASE,
+)
+
 
 @dataclass
 class CloakedFileRule:
@@ -384,23 +397,26 @@ class CloakedFileDetector:
             part_number: Part number if this is a multipart archive (e.g., "001", "002")
 
         Returns:
-            True if signature matches or verification not applicable, False otherwise
+            True if there is real evidence the file is an archive, False otherwise.
         """
         try:
-            # Use existing archive extension detection
-            detected_type = detect_archive_extension(file_path)
-            if detected_type:
-                # If we detect a valid archive type, accept it even if different from expected
-                # This handles cases where the rule guesses wrong but the file is still an archive
-                return True  # Any valid archive signature is acceptable
+            filename = os.path.basename(file_path)
 
-            # If no signature detected, be very lenient for cloaked files
-            # Cloaked files by definition don't have proper signatures/extensions
-            return True
+            # The user explicitly named the file as a .7z/.rar/.zip archive; the
+            # rest is just cloaking. Trust it even when this is a continuation
+            # part that legitimately carries no signature (e.g. ".7z.002删除").
+            if ARCHIVE_TOKEN_RE.search(filename):
+                return True
+
+            # No archive token in the name: the type was only guessed from a
+            # trailing numeric suffix (e.g. "2382" -> "2.7z.382"). Require a real
+            # archive signature so ordinary files are never mistaken for parts.
+            detected_type = detect_archive_extension(file_path)
+            return bool(detected_type)
 
         except Exception as e:
             print_warning(f"Could not verify file signature for {file_path}: {e}")
-            return True  # Assume valid if verification fails
+            return False  # Be conservative: do not rename on verification failure
 
     def _build_collision_path(self, file_path: str, normalized_path: str | None) -> str:
         """
