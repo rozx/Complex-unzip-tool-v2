@@ -344,6 +344,65 @@ def test_nested_continuation_parts_skipped_when_not_relocated(monkeypatch, tmp_p
     assert os.path.basename(called_with[0]) == "AnotherSet.7z.003"
 
 
+def test_nested_continuation_parts_relocated_across_all_formats(monkeypatch, tmp_path):
+    """Continuation parts of every supported format found inside nested
+    extraction must be relocated via callback and never counted as finals:
+    generic numbered splits (.zip.002/.rar.002/.iso.002) plus ZIPX/ARJ/ACE
+    continuations (.zx01/.a01/.c00)."""
+    continuation_names = [
+        "Set.zip.002",
+        "Set.rar.002",
+        "Set.iso.002",
+        "Set.zx01",
+        "Set.a01",
+        "Set.c00",
+    ]
+
+    for cont_name in continuation_names:
+        sub = tmp_path / cont_name.replace(".", "_")
+        sub.mkdir()
+        archive_path = str(sub / "outer.7z")
+        output_path = str(sub / "out")
+        (sub / "outer.7z").write_bytes(b"dummy")
+
+        monkeypatch.setattr(
+            au,
+            "is_valid_archive",
+            lambda p, *a, **k: os.path.basename(p) == "outer.7z",
+        )
+
+        def fake_extract(archive_path, output_path, *args, _name=cont_name, **kwargs):
+            _ = (archive_path, args, kwargs)
+            os.makedirs(output_path, exist_ok=True)
+            with open(os.path.join(output_path, _name), "wb") as f:
+                f.write(b"part-bytes")
+            return True
+
+        monkeypatch.setattr(au, "extractArchiveWith7z", fake_extract)
+
+        called_with: list[str] = []
+
+        def relocator(path, _sink=called_with):
+            _sink.append(path)
+            return True
+
+        result = au.extract_nested_archives(
+            archive_path=archive_path,
+            output_path=output_path,
+            interactive=False,
+            use_recycle_bin=False,
+            group_relocator=relocator,
+        )
+
+        finals = result.get("final_files") or []
+        assert not any(
+            os.path.basename(p) == cont_name for p in finals
+        ), f"{cont_name} should not be a final file"
+        assert [os.path.basename(p) for p in called_with] == [
+            cont_name
+        ], f"{cont_name} should be relocated as a continuation"
+
+
 def test_nested_multipart_missing_parts_are_preserved_in_final_files(
     monkeypatch, tmp_path
 ):

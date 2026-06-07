@@ -23,9 +23,13 @@ def _entry_point_priority(file_path: str) -> int:
         return 100
     if re.search(r"\.part0*1\.rar$", fname):
         return 100
+    # 7-Zip generic numbered split: `name.<ext>.001` is the entry point for ANY
+    # base extension (.zip.001, .rar.001, .iso.001, …). 3+ zero-padded digits.
+    if re.search(r"\.[a-z0-9]+\.0{2,}1$", fname):
+        return 100
 
-    # ZIP/RAR primaries — entry points for spanned ZIP / volume RAR sets,
-    # and also valid for standalone .zip/.rar (lower priority so split-volume
+    # ZIP/RAR/ZIPX/ARJ/ACE primaries — entry points for their multi-volume sets,
+    # and also valid for the standalone archive (lower priority so split-volume
     # primaries above always win when both exist).
     if re.search(r"\.part\d+\.rar$", fname):
         # .partN.rar where N != 1 — continuation, not entry point
@@ -33,6 +37,12 @@ def _entry_point_priority(file_path: str) -> int:
     if fname.endswith(".rar"):
         return 90
     if fname.endswith(".zip"):
+        return 90
+    if fname.endswith(".zipx"):
+        return 90
+    if fname.endswith(".arj"):
+        return 90
+    if fname.endswith(".ace"):
         return 90
 
     return 0

@@ -424,20 +424,26 @@ class TestCloakedFileDetector:
         "complex_unzip_tool_v2.modules.cloaked_file_detector.detect_archive_extension"
     )
     def test_verify_with_signature_no_detection(self, mock_detect, detector):
-        """Test signature verification with no detection."""
+        """No archive token in the name and no signature -> reject the guess.
+
+        'test.file' carries no .7z/.rar/.zip token, so the archive type would be
+        a pure guess. Without a real signature it must be rejected, otherwise
+        ordinary files get renamed into bogus multipart parts (e.g. data loss
+        bug where '2382' became '2.7z.382').
+        """
         mock_detect.return_value = None
         result = detector._verify_with_signature("test.file", "7z")
-        assert result is True  # Should be lenient for cloaked files
+        assert result is False
 
     @patch(
         "complex_unzip_tool_v2.modules.cloaked_file_detector.detect_archive_extension"
     )
     @patch("complex_unzip_tool_v2.modules.cloaked_file_detector.print_warning")
     def test_verify_with_signature_exception(self, mock_warning, mock_detect, detector):
-        """Test signature verification with exception."""
+        """On verification error, be conservative and do not rename."""
         mock_detect.side_effect = Exception("Test error")
         result = detector._verify_with_signature("test.file", "7z")
-        assert result is True  # Should assume valid on error
+        assert result is False  # Conservative: skip rename when verification fails
         mock_warning.assert_called_once()
 
     @patch("os.path.exists")
@@ -589,6 +595,68 @@ class TestCloakedFileDetector:
             assert info["rules_by_type"] == {}
             assert info["highest_priority"] == 0
             assert info["lowest_priority"] == 0
+
+
+class TestCloakedFalsePositives:
+    """Regression tests: ordinary, non-archive files must never be misdetected
+    as cloaked multipart archive parts.
+
+    Bug report: a plain file named like ``2382`` was renamed to ``2.7z.382``
+    (treating the trailing three digits as a 7z multipart part number) and then
+    deleted at the end without ever being extracted, causing data loss. The
+    rename came from the weak ``cloaked_extensionless_direct_digits`` rule whose
+    only safety net -- ``_verify_with_signature`` -- always returned ``True``.
+    """
+
+    # pylint: disable=protected-access
+    @pytest.fixture
+    def detector_with_real_config(self):
+        """Detector backed by the shipped production rules file."""
+        config_path = os.path.join(
+            os.path.dirname(os.path.dirname(__file__)),
+            "complex_unzip_tool_v2",
+            "config",
+            "cloaked_file_rules.json",
+        )
+        with patch.object(CloakedFileRule, "__post_init__", return_value=None):
+            return CloakedFileDetector(config_path)
+
+    def test_non_archive_trailing_digits_not_detected(
+        self, detector_with_real_config, tmp_path
+    ):
+        """A real, non-archive file named ``2382`` must not become ``2.7z.382``."""
+        f = tmp_path / "2382"
+        f.write_bytes(b"this is plain data, definitely not an archive\n")
+
+        result = detector_with_real_config.detect_cloaked_file(str(f))
+
+        assert result is None
+
+    def test_non_archive_trailing_digits_uncloak_keeps_file(
+        self, detector_with_real_config, tmp_path
+    ):
+        """uncloak_file must leave a non-archive digit-suffixed file untouched."""
+        f = tmp_path / "2392"
+        f.write_bytes(b"more plain data\n")
+
+        new_path = detector_with_real_config.uncloak_file(str(f))
+
+        assert new_path == str(f)
+        assert os.path.exists(str(f))
+        assert not os.path.exists(str(tmp_path / "2.7z.392"))
+
+    def test_real_7z_first_part_still_detected(
+        self, detector_with_real_config, tmp_path
+    ):
+        """A genuine cloaked 7z first part (valid signature) is still uncloaked."""
+        f = tmp_path / "secret001"
+        # 7z magic bytes so signature verification confirms it is really a 7z.
+        f.write_bytes(b"7z\xbc\xaf\x27\x1c" + b"\x00" * 32)
+
+        result = detector_with_real_config.detect_cloaked_file(str(f))
+
+        assert result is not None
+        assert os.path.basename(result) == "secret.7z.001"
 
 
 class TestCloakedFileDetectorEdgeCases:

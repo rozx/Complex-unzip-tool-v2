@@ -61,6 +61,40 @@ class TestGetArchiveBaseName:
         assert fu.get_archive_base_name("data.part2.rar") == ("data", "rar")
         assert fu.get_archive_base_name("data.part10.rar") == ("data", "rar")
 
+    def test_generic_numbered_split_returns_token_family(self):
+        """7-Zip generic numbered splits keep the token before the number as the
+        family ext, so all parts of one set share (base, ext)."""
+        assert fu.get_archive_base_name("a.rar.001") == ("a", "rar")
+        assert fu.get_archive_base_name("a.rar.002") == ("a", "rar")
+        assert fu.get_archive_base_name("a.iso.001") == ("a", "iso")
+        assert fu.get_archive_base_name("a.bin.002") == ("a", "bin")
+        assert fu.get_archive_base_name("a.tar.001") == ("a", "tar")
+
+    def test_generic_numbered_split_does_not_change_specific_formats(self):
+        """The generic rule must run AFTER the specific ones: 7z/zip/tar split
+        parsing stays exactly as before."""
+        assert fu.get_archive_base_name("a.7z.001") == ("a", "7z")
+        assert fu.get_archive_base_name("a.zip.001") == ("a", "zip")
+        assert fu.get_archive_base_name("a.tar.gz.001") == ("a", "tar")
+
+    def test_zipx_split_returns_zipx_family(self):
+        """WinZip ZIPX split parts share the .zipx family extension."""
+        assert fu.get_archive_base_name("a.zipx") == ("a", "zipx")
+        assert fu.get_archive_base_name("a.zx01") == ("a", "zipx")
+        assert fu.get_archive_base_name("a.zx02") == ("a", "zipx")
+
+    def test_arj_multivolume_returns_arj_family(self):
+        """ARJ multi-volume parts share the .arj family extension."""
+        assert fu.get_archive_base_name("a.arj") == ("a", "arj")
+        assert fu.get_archive_base_name("a.a01") == ("a", "arj")
+        assert fu.get_archive_base_name("a.a02") == ("a", "arj")
+
+    def test_ace_multivolume_returns_ace_family(self):
+        """ACE multi-volume parts share the .ace family extension."""
+        assert fu.get_archive_base_name("a.ace") == ("a", "ace")
+        assert fu.get_archive_base_name("a.c00") == ("a", "ace")
+        assert fu.get_archive_base_name("a.c01") == ("a", "ace")
+
 
 class TestArchiveGroupMainSelection:
     """Regression tests verifying ArchiveGroup picks the correct main archive
@@ -114,6 +148,60 @@ class TestArchiveGroupMainSelection:
         g.add_file("x.7z.001")
         assert g.mainArchiveFile == "x.7z.001"
 
+    def test_generic_numbered_first_volume_wins(self):
+        """For a 7-Zip generic split of any extension, the `.001` is the entry
+        point regardless of insertion order."""
+        from complex_unzip_tool_v2.classes.ArchiveGroup import ArchiveGroup
+
+        for base, ext in (("x", "rar"), ("y", "iso"), ("z", "bin")):
+            g = ArchiveGroup(f"dir-{base}")
+            g.add_file(f"{base}.{ext}.002")
+            g.add_file(f"{base}.{ext}.001")
+            assert g.mainArchiveFile == f"{base}.{ext}.001"
+            assert g.isMultiPart is True
+
+    def test_zipx_primary_wins_over_continuations(self):
+        from complex_unzip_tool_v2.classes.ArchiveGroup import ArchiveGroup
+
+        for order in (
+            ["a.zipx", "a.zx01", "a.zx02"],
+            ["a.zx01", "a.zx02", "a.zipx"],
+            ["a.zx02", "a.zipx", "a.zx01"],
+        ):
+            g = ArchiveGroup("dir-a")
+            for f in order:
+                g.add_file(f)
+            assert g.mainArchiveFile == "a.zipx", order
+            assert g.isMultiPart is True
+
+    def test_arj_primary_wins_over_continuations(self):
+        from complex_unzip_tool_v2.classes.ArchiveGroup import ArchiveGroup
+
+        for order in (
+            ["a.arj", "a.a01", "a.a02"],
+            ["a.a01", "a.a02", "a.arj"],
+            ["a.a02", "a.arj", "a.a01"],
+        ):
+            g = ArchiveGroup("dir-a")
+            for f in order:
+                g.add_file(f)
+            assert g.mainArchiveFile == "a.arj", order
+            assert g.isMultiPart is True
+
+    def test_ace_primary_wins_over_continuations(self):
+        from complex_unzip_tool_v2.classes.ArchiveGroup import ArchiveGroup
+
+        for order in (
+            ["a.ace", "a.c00", "a.c01"],
+            ["a.c00", "a.c01", "a.ace"],
+            ["a.c01", "a.ace", "a.c00"],
+        ):
+            g = ArchiveGroup("dir-a")
+            for f in order:
+                g.add_file(f)
+            assert g.mainArchiveFile == "a.ace", order
+            assert g.isMultiPart is True
+
 
 class TestCreateGroupsByNameMultipart:
     """End-to-end grouping tests for spanned ZIP / volume RAR (Bugs A+B)."""
@@ -165,6 +253,37 @@ class TestCreateGroupsByNameMultipart:
         groups = fu.create_groups_by_name(files)
         assert len(groups) == 1
         assert groups[0].isMultiPart is True
+
+    def _assert_single_multipart(self, names, expected_main):
+        files = [self._create(n) for n in names]
+        groups = fu.create_groups_by_name(files)
+        assert len(groups) == 1, [g.name for g in groups]
+        g = groups[0]
+        assert g.isMultiPart is True
+        assert os.path.basename(g.mainArchiveFile) == expected_main
+        assert len(g.files) == len(names)
+
+    def test_generic_split_zip_grouped_with_001_as_main(self):
+        self._assert_single_multipart(["a.zip.001", "a.zip.002"], "a.zip.001")
+
+    def test_generic_split_rar_grouped_with_001_as_main(self):
+        self._assert_single_multipart(["a.rar.001", "a.rar.002"], "a.rar.001")
+
+    def test_generic_split_iso_grouped_with_001_as_main(self):
+        self._assert_single_multipart(["a.iso.001", "a.iso.002"], "a.iso.001")
+
+    def test_zipx_split_grouped_with_zipx_as_main(self):
+        self._assert_single_multipart(["a.zipx", "a.zx01", "a.zx02"], "a.zipx")
+
+    def test_arj_multivolume_grouped_with_arj_as_main(self):
+        self._assert_single_multipart(["a.arj", "a.a01", "a.a02"], "a.arj")
+
+    def test_ace_multivolume_grouped_with_ace_as_main(self):
+        self._assert_single_multipart(["a.ace", "a.c00", "a.c01"], "a.ace")
+
+    def test_generic_split_main_independent_of_insertion_order(self):
+        # `.002` created/scanned before `.001` must still pick `.001`.
+        self._assert_single_multipart(["a.iso.002", "a.iso.001"], "a.iso.001")
 
 
 class TestReadDir:
@@ -377,6 +496,20 @@ class TestShouldGroupFiles:
                 fu._should_group_files("a", "b", "/path/a.zip", "/path/b.zip") is False
             )
 
+    def test_same_base_different_archive_type_not_grouped(self):
+        """Files sharing a base name but with different archive families must
+        NOT be grouped together (e.g. foo.zip vs foo.7z).
+
+        Regression: the similarity (third) check ignored the extension, so a
+        standalone .7z was merged into a spanned .zip group, corrupting both.
+        """
+        assert (
+            fu._should_group_files(
+                "in-foo", "in-foo", r"C:\in\foo.7z", r"C:\in\foo.zip"
+            )
+            is False
+        )
+
 
 class TestAreMultipartRelated:
     """Tests for _are_multipart_related function."""
@@ -464,6 +597,42 @@ class TestCreateGroupsByName:
         # All files should be processed without any validation errors
         groups = fu.create_groups_by_name(self.test_files)
         assert len(groups) > 0  # All files should result in groups
+
+    def test_7z_not_merged_into_spanned_zip_group(self):
+        """A standalone .7z sharing a base name with a spanned .zip set must
+        stay in its own group, not get merged into the multipart zip group.
+
+        Regression for the reported bug where a .7z grouped with a .zip/.z01
+        set caused the .7z to be deleted (and the zip mishandled).
+        """
+        files = [
+            r"C:\in\foo.7z",
+            r"C:\in\foo.zip",
+            r"C:\in\foo.z01",
+            r"C:\in\foo.z02",
+        ]
+        groups = fu.create_groups_by_name(files)
+
+        # Exactly two groups: the standalone 7z, and the spanned zip set.
+        assert len(groups) == 2
+
+        by_main = {os.path.basename(g.mainArchiveFile): g for g in groups}
+
+        # The 7z is its own single (non-multipart) group containing only itself.
+        assert "foo.7z" in by_main
+        sevenz_group = by_main["foo.7z"]
+        assert sevenz_group.isMultiPart is False
+        assert sevenz_group.files == [r"C:\in\foo.7z"]
+
+        # The spanned zip set is multipart with .zip as the main entry point.
+        assert "foo.zip" in by_main
+        zip_group = by_main["foo.zip"]
+        assert zip_group.isMultiPart is True
+        assert set(zip_group.files) == {
+            r"C:\in\foo.zip",
+            r"C:\in\foo.z01",
+            r"C:\in\foo.z02",
+        }
 
 
 class TestMoveFilesPreservingStructure:
@@ -761,6 +930,102 @@ class TestEnsureContainedMultipartGroups:
 
         groups: list[ArchiveGroup] = []
         created = fu.ensure_contained_multipart_groups([str(p_rar)], groups)
+
+        assert created == 0
+        assert groups == []
+
+    def test_creates_group_for_generic_numbered_split(self, tmp_path):
+        out_dir = tmp_path / "unzipped"
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        p1 = out_dir / "Set.iso.001"
+        p2 = out_dir / "Set.iso.002"
+        p1.write_bytes(b"1")
+        p2.write_bytes(b"2")
+
+        groups: list[ArchiveGroup] = []
+        created = fu.ensure_contained_multipart_groups([str(p1), str(p2)], groups)
+
+        assert created == 1
+        g = groups[0]
+        assert g.isMultiPart is True
+        assert os.path.basename(g.mainArchiveFile).lower().endswith(".iso.001")
+        assert any(f.lower().endswith(".iso.002") for f in g.files)
+
+    def test_creates_group_for_generic_numbered_split_from_001_alone(self, tmp_path):
+        # `.001` is unambiguous, so a group is created even without a sibling.
+        out_dir = tmp_path / "unzipped"
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        p1 = out_dir / "Lonely.rar.001"
+        p1.write_bytes(b"1")
+
+        groups: list[ArchiveGroup] = []
+        created = fu.ensure_contained_multipart_groups([str(p1)], groups)
+
+        assert created == 1
+        assert os.path.basename(groups[0].mainArchiveFile).lower().endswith(".rar.001")
+
+    def test_creates_group_for_zipx_set(self, tmp_path):
+        out_dir = tmp_path / "unzipped"
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        p_zipx = out_dir / "Z.zipx"
+        p_zx01 = out_dir / "Z.zx01"
+        p_zipx.write_bytes(b"zipx")
+        p_zx01.write_bytes(b"zx01")
+
+        groups: list[ArchiveGroup] = []
+        created = fu.ensure_contained_multipart_groups(
+            [str(p_zipx), str(p_zx01)], groups
+        )
+
+        assert created == 1
+        g = groups[0]
+        assert g.isMultiPart is True
+        assert os.path.basename(g.mainArchiveFile).lower().endswith(".zipx")
+
+    def test_creates_group_for_arj_set(self, tmp_path):
+        out_dir = tmp_path / "unzipped"
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        p_arj = out_dir / "A.arj"
+        p_a01 = out_dir / "A.a01"
+        p_arj.write_bytes(b"arj")
+        p_a01.write_bytes(b"a01")
+
+        groups: list[ArchiveGroup] = []
+        created = fu.ensure_contained_multipart_groups([str(p_arj), str(p_a01)], groups)
+
+        assert created == 1
+        assert os.path.basename(groups[0].mainArchiveFile).lower().endswith(".arj")
+
+    def test_creates_group_for_ace_set(self, tmp_path):
+        out_dir = tmp_path / "unzipped"
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        p_ace = out_dir / "C.ace"
+        p_c00 = out_dir / "C.c00"
+        p_ace.write_bytes(b"ace")
+        p_c00.write_bytes(b"c00")
+
+        groups: list[ArchiveGroup] = []
+        created = fu.ensure_contained_multipart_groups([str(p_ace), str(p_c00)], groups)
+
+        assert created == 1
+        assert os.path.basename(groups[0].mainArchiveFile).lower().endswith(".ace")
+
+    def test_does_not_create_group_for_standalone_arj_or_ace(self, tmp_path):
+        out_dir = tmp_path / "unzipped"
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        p_arj = out_dir / "Solo.arj"
+        p_ace = out_dir / "Solo2.ace"
+        p_arj.write_bytes(b"arj")
+        p_ace.write_bytes(b"ace")
+
+        groups: list[ArchiveGroup] = []
+        created = fu.ensure_contained_multipart_groups([str(p_arj), str(p_ace)], groups)
 
         assert created == 0
         assert groups == []
