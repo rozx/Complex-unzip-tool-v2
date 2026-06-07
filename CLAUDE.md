@@ -63,9 +63,9 @@ The recursive engine is [archive_utils.py](complex_unzip_tool_v2/modules/archive
 
 - [regex.py](complex_unzip_tool_v2/modules/regex.py) — `multipart_regex` (is this any part of a set?) and `first_part_regex` (is this an unambiguous entry point?).
 - [ArchiveGroup.py](complex_unzip_tool_v2/classes/ArchiveGroup.py) — `_entry_point_priority()` ranks files so `mainArchiveFile` is always the right entry point (e.g. spanned ZIP keeps `.zip`, not `.z01`; volume RAR keeps `.rar`, not `.r00`), regardless of insertion order. `try_set_alternative_main_archive()` is the fallback when the chosen main fails.
-- `archive_utils.py` / `file_utils.py` — relocate continuation parts (`.7z.002+`, `.r00+`, `.z01+`, `.part2+.rar`) next to their primary instead of treating them as nested archives or final files.
+- `archive_utils.py` / `file_utils.py` — relocate continuation parts (`.7z.002+`, `.<ext>.002+`, `.r00+`, `.z01+`, `.zx01+`, `.a01+`, `.c00+`, `.part2+.rar`) next to their primary instead of treating them as nested archives or final files.
 
-Primary/continuation rules per format: `.7z.001` primary / `.7z.002+` cont; `.tar.{gz,bz2,xz}.001` primary / `.002+` cont; `.rar` or `.part1.rar` primary / `.r00+`,`.part2+.rar` cont; `.zip` primary / `.z01+` cont.
+Primary/continuation rules per format: `.7z.001` primary / `.7z.002+` cont; `.tar.{gz,bz2,xz}.001` primary / `.002+` cont; **generic 7-Zip split `name.<ext>.001` primary / `name.<ext>.002+` cont** (any `<ext>` — covers `.zip.001`, `.rar.001`, `.iso.001`, …; 3+ zero-padded digits); `.rar` or `.part1.rar` primary / `.r00+`,`.part2+.rar` cont; `.zip` primary / `.z01+` cont; `.zipx` primary / `.zx01+` cont; `.arj` primary / `.a01+` cont; `.ace` primary / `.c00+` cont (ACE is grouped/classified only — the bundled 7-Zip cannot extract ACE, so such sets fail extraction and parts are retained).
 
 ### Cloaked-file detection + signature gate
 

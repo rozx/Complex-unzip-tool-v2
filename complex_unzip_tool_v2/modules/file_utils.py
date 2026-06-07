@@ -95,9 +95,13 @@ def get_archive_base_name(file_path: str) -> tuple[str, str]:
 
     # Family-mapped continuation suffixes: all parts must share the family ext
     # so grouping/comparison treats them as the same multi-part set.
+    # Note: .zx must be checked before .z so `.zx01` maps to zipx, not zip.
     family_pattern_map = [
+        (r"\.zx\d{2}$", "zipx"),  # .zx01, .zx02 → zipx family
         (r"\.z\d{2}$", "zip"),  # .z01, .z02 → zip family
         (r"\.r\d{2}$", "rar"),  # .r00, .r01 → rar family
+        (r"\.a\d{2}$", "arj"),  # .a01, .a02 → arj family
+        (r"\.c\d{2}$", "ace"),  # .c00, .c01 → ace family
         (r"\.part\d+\.rar$", "rar"),  # .part1.rar, .part2.rar → rar family
     ]
     for pattern, family_ext in family_pattern_map:
@@ -115,6 +119,14 @@ def get_archive_base_name(file_path: str) -> tuple[str, str]:
                 0
             ]  # Get the archive extension
             return name_without_part, archive_ext
+
+    # 7-Zip generic numbered volume split for ANY base extension: `name.<ext>.NNN`
+    # (zero-padded, 3+ digits). Checked AFTER the specific patterns above so 7z/zip/
+    # tar split parsing is preserved; covers .rar.001, .iso.001, plain .tar.001, etc.
+    # The token immediately before the numeric run is the shared family extension.
+    generic_match = re.search(r"\.([A-Za-z0-9]+)\.\d{3,}$", base_name)
+    if generic_match:
+        return base_name[: generic_match.start()], generic_match.group(1)
 
     # Fallback to regular splitext if no multi-part pattern found
     name, ext = os.path.splitext(base_name)
@@ -527,9 +539,13 @@ def ensure_contained_multipart_groups(
     - `.7z.001`
     - `.tar.(gz|bz2|xz).001`
     - `.part1.rar`
-    And conservative spanned formats when a continuation part exists in the same bucket:
+    - `.<ext>.001` (7-Zip generic numbered split of any extension)
+    And conservative formats only when a continuation part exists in the same bucket:
     - `.zip` when any `.zNN` exists
     - `.rar` when any `.rNN` exists
+    - `.zipx` when any `.zxNN` exists
+    - `.arj` when any `.aNN` exists
+    - `.ace` when any `.cNN` exists
 
     Returns the number of groups created.
     """
@@ -591,17 +607,33 @@ def ensure_contained_multipart_groups(
             if re.search(r"\.part1\.rar$", fname):
                 primary = p
                 break
+            # 7-Zip generic numbered split primary (any extension): name.<ext>.001
+            # The .001 suffix is unambiguous, so the .001 alone is enough.
+            if re.search(r"\.[a-z0-9]+\.0{2,}1$", fname):
+                primary = p
+                break
 
-        # Spanned ZIP and volume RAR are ambiguous; only group if a continuation exists.
+        # Spanned ZIP / volume RAR / ZIPX / ARJ / ACE primaries are ambiguous
+        # (they can be standalone archives); only group if a continuation exists.
         if primary is None:
             has_zip = None
             has_z_cont = False
             has_rar = None
             has_r_cont = False
+            has_zipx = None
+            has_zx_cont = False
+            has_arj = None
+            has_a_cont = False
+            has_ace = None
+            has_c_cont = False
 
             for p in files:
                 fname = os.path.basename(p).lower()
-                if fname.endswith(".zip"):
+                if fname.endswith(".zipx"):
+                    has_zipx = p
+                elif re.search(r"\.zx\d{2}$", fname):
+                    has_zx_cont = True
+                elif fname.endswith(".zip"):
                     has_zip = p
                 elif re.search(r"\.z\d{2}$", fname):
                     has_z_cont = True
@@ -611,12 +643,31 @@ def ensure_contained_multipart_groups(
                 elif re.search(r"\.r\d{2}$", fname):
                     has_r_cont = True
 
+                if fname.endswith(".arj"):
+                    has_arj = p
+                elif re.search(r"\.a\d{2}$", fname):
+                    has_a_cont = True
+
+                if fname.endswith(".ace"):
+                    has_ace = p
+                elif re.search(r"\.c\d{2}$", fname):
+                    has_c_cont = True
+
             if has_zip is not None and has_z_cont:
                 primary = has_zip
                 force_main = has_zip
             elif has_rar is not None and has_r_cont:
                 primary = has_rar
                 force_main = has_rar
+            elif has_zipx is not None and has_zx_cont:
+                primary = has_zipx
+                force_main = has_zipx
+            elif has_arj is not None and has_a_cont:
+                primary = has_arj
+                force_main = has_arj
+            elif has_ace is not None and has_c_cont:
+                primary = has_ace
+                force_main = has_ace
 
         if primary is None:
             continue

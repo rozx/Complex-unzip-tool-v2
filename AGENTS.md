@@ -159,8 +159,12 @@ The tool normalizes “cloaked” filenames before grouping/extracting. This is 
 Safety guards (never rename these):
 - Files that already have a proper multipart format are left as-is, e.g.:
   - `.7z.001`, `.7z.002`, ...
+  - `.<ext>.001`, `.<ext>.002`, ... (7-Zip generic numbered split of any extension, e.g. `.zip.001`, `.rar.001`, `.iso.001`; 3+ zero-padded digits)
   - `.r00`, `.r01`, ... (RAR continuation)
   - `.z01`, `.z02`, ... (ZIP continuation)
+  - `.zx01`, `.zx02`, ... (ZIPX continuation)
+  - `.a01`, `.a02`, ... (ARJ continuation)
+  - `.c00`, `.c01`, ... (ACE continuation)
   - `.tar.gz.001`, `.tar.bz2.001`, `.tar.xz.001`
   - `.part1.rar`, `.part2.rar`
 - Files that already end with a proper single archive extension are left as-is, e.g.:
@@ -220,8 +224,12 @@ When extracting an archive that itself contains multipart archives (e.g., a .7z 
 - Primary vs continuation identification:
   - 7z volumes: primary is `.7z.001`; continuations are `.7z.002+`.
   - TAR multipart: primary is `.tar.gz/.tar.bz2/.tar.xz.001`; continuations are `.002+`.
+  - Generic 7-Zip split (any extension): primary is `name.<ext>.001`; continuations are `name.<ext>.002+` (3+ zero-padded digits; covers `.zip.001`, `.rar.001`, `.iso.001`, …).
   - RAR volumes: primary is `.rar` or `.part1.rar`; continuations are `.r00`, `.r01`, … and `.part2+.rar`.
   - ZIP spanned: primary is `.zip`; continuations are `.z01`, `.z02`, …
+  - ZIPX spanned: primary is `.zipx`; continuations are `.zx01`, `.zx02`, …
+  - ARJ volumes: primary is `.arj`; continuations are `.a01`, `.a02`, …
+  - ACE volumes: primary is `.ace`; continuations are `.c00`, `.c01`, … (classification only — the bundled 7-Zip cannot extract ACE, so such sets fail extraction and their parts are retained).
 
 - Behavior:
   - Continuation parts detected during nested extraction are NOT treated as nested archives and are NOT added to `final_files`.

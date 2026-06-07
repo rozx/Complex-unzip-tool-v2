@@ -811,6 +811,35 @@ def extract_nested_archives(
         if fname.endswith(".zip"):
             return f"{fname[:-4]}|zip"
 
+        # ZIPX spanned continuations (.zx01, ...). Primary is .zipx.
+        m = re.match(r"^(.*)\.zx\d{2}$", fname)
+        if m:
+            return f"{m.group(1)}|zipx"
+
+        if fname.endswith(".zipx"):
+            return f"{fname[:-5]}|zipx"
+
+        # ARJ volume continuations (.a01, ...). Primary is .arj.
+        m = re.match(r"^(.*)\.a\d{2}$", fname)
+        if m:
+            return f"{m.group(1)}|arj"
+
+        if fname.endswith(".arj"):
+            return f"{fname[:-4]}|arj"
+
+        # ACE volume continuations (.c00, ...). Primary is .ace.
+        m = re.match(r"^(.*)\.c\d{2}$", fname)
+        if m:
+            return f"{m.group(1)}|ace"
+
+        if fname.endswith(".ace"):
+            return f"{fname[:-4]}|ace"
+
+        # 7-Zip generic numbered split of any extension (.zip.NNN, .rar.NNN, …).
+        m = re.match(r"^(.*)\.([a-z0-9]+)\.(\d{3,})$", fname)
+        if m:
+            return f"{m.group(1)}|{m.group(2)}"
+
         return None
 
     def _is_multipart_primary(file_basename: str) -> bool:
@@ -823,8 +852,18 @@ def extract_nested_archives(
         if re.search(r"\.part(\d+)\.rar$", fname):
             m = re.search(r"\.part(\d+)\.rar$", fname)
             return bool(m and int(m.group(1)) == 1)
-        # .rar and .zip may be the first part of a multipart set
-        return fname.endswith(".rar") or fname.endswith(".zip")
+        # 7-Zip generic numbered split of any extension: .001 is the primary.
+        m = re.search(r"\.[a-z0-9]+\.(\d{3,})$", fname)
+        if m:
+            return int(m.group(1)) == 1
+        # .rar/.zip/.zipx/.arj/.ace may be the first part of a multipart set
+        return (
+            fname.endswith(".rar")
+            or fname.endswith(".zip")
+            or fname.endswith(".zipx")
+            or fname.endswith(".arj")
+            or fname.endswith(".ace")
+        )
 
     def _find_matching_candidate_parts(search_root: str, key: str) -> list[str]:
         """Scan search_root for multipart continuation parts matching key."""
@@ -852,7 +891,21 @@ def extract_nested_archives(
                 if re.search(r"\.z\d{2}$", f_low):
                     matches.append(os.path.join(root, f))
                     continue
+                if re.search(r"\.zx\d{2}$", f_low):
+                    matches.append(os.path.join(root, f))
+                    continue
+                if re.search(r"\.a\d{2}$", f_low):
+                    matches.append(os.path.join(root, f))
+                    continue
+                if re.search(r"\.c\d{2}$", f_low):
+                    matches.append(os.path.join(root, f))
+                    continue
                 m = re.search(r"\.part(\d+)\.rar$", f_low)
+                if m and int(m.group(1)) != 1:
+                    matches.append(os.path.join(root, f))
+                    continue
+                # 7-Zip generic numbered continuation (.zip.002, .rar.002, …)
+                m = re.search(r"\.[a-z0-9]+\.(\d{3,})$", f_low)
                 if m and int(m.group(1)) != 1:
                     matches.append(os.path.join(root, f))
                     continue
@@ -1076,9 +1129,7 @@ def extract_nested_archives(
                 )
 
                 if user_password == "SKIP_ALL":
-                    print_info(
-                        "Skipping all future password prompts 跳过所有未来的密码提示", 2
-                    )
+                    print_info("Skipping all future password prompts 跳过所有未来的密码提示", 2)
                     return False, "", True
                 elif user_password is None:
                     print_info(f"Skipping archive 跳过档案: {archive_name}", 2)
@@ -1165,9 +1216,7 @@ def extract_nested_archives(
                 ) as e:
                     # These are archive-related errors that should stop user password attempts
                     print_error(f"Archive error 档案错误: {str(e)}", 1)
-                    print_info(
-                        "Cannot continue with this archive 无法继续处理此档案", 2
-                    )
+                    print_info("Cannot continue with this archive 无法继续处理此档案", 2)
                     return False, "", False
 
                 except ArchiveError as e:
@@ -1175,9 +1224,7 @@ def extract_nested_archives(
                     error_msg = str(e).lower()
                     if any(keyword in error_msg for keyword in PATH_ERROR_KEYWORDS):
                         print_error(f"File system error 文件系统错误: {str(e)}", 1)
-                        print_info(
-                            "Cannot continue with this archive 无法继续处理此档案", 2
-                        )
+                        print_info("Cannot continue with this archive 无法继续处理此档案", 2)
                         return False, "", False
                     else:
                         # Other archive errors might be password-related, continue
@@ -1185,16 +1232,12 @@ def extract_nested_archives(
                             f"Extraction failed with user password 使用用户密码提取失败: {str(e)}",
                             1,
                         )
-                        print_info(
-                            "Cannot continue with this archive 无法继续处理此档案", 2
-                        )
+                        print_info("Cannot continue with this archive 无法继续处理此档案", 2)
                         return False, "", True
 
                 except Exception as e:
                     print_error(f"Unexpected error 意外错误: {str(e)}", 1)
-                    print_info(
-                        "Cannot continue with this archive 无法继续处理此档案", 2
-                    )
+                    print_info("Cannot continue with this archive 无法继续处理此档案", 2)
                     return False, "", False
         else:
             # If no password was required but extraction still failed, show appropriate message
@@ -1204,9 +1247,7 @@ def extract_nested_archives(
                     1,
                 )
             else:
-                print_warning(
-                    f"Failed to extract archive 提取档案失败: {archive_name}", 1
-                )
+                print_warning(f"Failed to extract archive 提取档案失败: {archive_name}", 1)
 
         return False, "", password_required
 
@@ -1243,7 +1284,9 @@ def extract_nested_archives(
                 # For nested levels, do not treat non-archives as errors; they can appear
                 # due to concurrent processing/cleanup or false positives from signature scans.
                 if depth == 0:
-                    error_msg = f"File is not a valid archive 文件不是有效档案: {current_archive}"
+                    error_msg = (
+                        f"File is not a valid archive 文件不是有效档案: {current_archive}"
+                    )
                     result["errors"].append(error_msg)
                     print_warning(error_msg, 1)
                 else:
@@ -1256,10 +1299,12 @@ def extract_nested_archives(
             # Extract directly to the current output directory to preserve structure
             print_extracting_archive(os.path.basename(current_archive), depth)
 
-            extract_success, used_password, failed_due_to_password = (
-                _tryExtractWithPasswords(
-                    current_archive, current_output, active_progress_bars
-                )
+            (
+                extract_success,
+                used_password,
+                failed_due_to_password,
+            ) = _tryExtractWithPasswords(
+                current_archive, current_output, active_progress_bars
             )
 
             # If extraction failed for a nested multipart primary, attempt to match/move
@@ -1287,12 +1332,14 @@ def extract_nested_archives(
                         )
 
                         # Retry extraction after bringing parts together.
-                        extract_success, used_password, failed_due_to_password = (
-                            _tryExtractWithPasswords(
-                                current_archive,
-                                current_output,
-                                active_progress_bars,
-                            )
+                        (
+                            extract_success,
+                            used_password,
+                            failed_due_to_password,
+                        ) = _tryExtractWithPasswords(
+                            current_archive,
+                            current_output,
+                            active_progress_bars,
                         )
 
                         # If retry still fails, preserve the multipart set by emitting
@@ -1329,9 +1376,7 @@ def extract_nested_archives(
                     f"Testing {len(extracted_files)} extracted files for nested archives",
                     2,
                 )
-                print_info(
-                    f"正在测试 {len(extracted_files)} 个提取的文件是否为嵌套档案...", 3
-                )
+                print_info(f"正在测试 {len(extracted_files)} 个提取的文件是否为嵌套档案...", 3)
 
                 for file_path in extracted_files:
                     file_name = os.path.basename(file_path)
@@ -1377,6 +1422,28 @@ def extract_nested_archives(
                             if m and int(m.group(1)) != 1:
                                 skip_continuation = True
 
+                        # 7-Zip generic numbered split of ANY extension
+                        # (.zip.002, .rar.002, .iso.002, …): only .001 is primary.
+                        if not skip_continuation:
+                            m = re.search(r"\.[a-z0-9]+\.(\d{3,})$", fname)
+                            if m and int(m.group(1)) != 1:
+                                skip_continuation = True
+
+                        # ZIPX spanned: .zx01+ are continuations; primary .zipx
+                        if not skip_continuation:
+                            if re.search(r"\.zx\d{2}$", fname):
+                                skip_continuation = True
+
+                        # ARJ volumes: .a01+ are continuations; primary .arj
+                        if not skip_continuation:
+                            if re.search(r"\.a\d{2}$", fname):
+                                skip_continuation = True
+
+                        # ACE volumes: .c00+ are continuations; primary .ace
+                        if not skip_continuation:
+                            if re.search(r"\.c\d{2}$", fname):
+                                skip_continuation = True
+
                         if skip_continuation:
                             # Attempt to relocate continuation parts to known multipart groups
                             if group_relocator:
@@ -1413,9 +1480,7 @@ def extract_nested_archives(
                     if is_valid_archive(
                         file_path, password=password, seven_zip_path=seven_zip_path
                     ):
-                        print_info(
-                            f"📦 Found nested archive 发现嵌套档案: {file_name}", 3
-                        )
+                        print_info(f"📦 Found nested archive 发现嵌套档案: {file_name}", 3)
                         nested_archives.append(file_path)
                     else:
                         regular_files.append(file_path)
@@ -1456,9 +1521,7 @@ def extract_nested_archives(
                 # If we found nested archives, extract them recursively in their current location
                 if nested_archives:
                     print_info(f"Found {len(nested_archives)} nested archive(s)", 2)
-                    print_info(
-                        f"在深度 {depth} 发现 {len(nested_archives)} 个嵌套档案", 3
-                    )
+                    print_info(f"在深度 {depth} 发现 {len(nested_archives)} 个嵌套档案", 3)
                     for nested_archive in nested_archives:
                         # Skip if already processed in a deeper recursion step
                         if nested_archive in result["extracted_archives"]:
@@ -1480,7 +1543,6 @@ def extract_nested_archives(
 
                         # Derive folder name by stripping known archive suffixes
                         def _derive_folder_name(filename: str) -> str:
-
                             name = filename
                             # Iteratively strip extensions like .zip, .7z, .rar, .tar.gz, .001, .z01, .r00, .part1
                             while True:
