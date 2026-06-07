@@ -230,7 +230,12 @@ def _should_group_files(
         if dir1 == dir2:
             return True
 
-    # Third check: Only allow grouping if similarity is very high AND they share exact base name AND same directory
+    # Third check: Only allow grouping if similarity is very high AND they share
+    # exact base name AND same directory AND the same archive family/extension.
+    # The extension guard is essential: without it, unrelated archive types that
+    # merely share a base name (e.g. foo.7z and foo.zip) would be merged into one
+    # group. That corrupts handling — e.g. a standalone .7z swept into a spanned
+    # .zip set gets deleted with the set instead of being extracted on its own.
     similarity = get_string_similarity(group_name1, group_name2)
     if similarity >= 0.95:
         # Extract directory and filename parts
@@ -239,8 +244,9 @@ def _should_group_files(
         name1_only = group_name1.split("-")[-1] if "-" in group_name1 else group_name1
         name2_only = group_name2.split("-")[-1] if "-" in group_name2 else group_name2
 
-        # Only group if the file base names are identical AND they're in the same directory
-        return name1_only == name2_only and dir1 == dir2
+        # Only group if the file base names are identical AND they're in the same
+        # directory AND they belong to the same archive family/extension.
+        return name1_only == name2_only and dir1 == dir2 and ext1 == ext2
 
     # For all other cases, don't group
     return False

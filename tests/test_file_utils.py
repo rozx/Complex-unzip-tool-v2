@@ -377,6 +377,20 @@ class TestShouldGroupFiles:
                 fu._should_group_files("a", "b", "/path/a.zip", "/path/b.zip") is False
             )
 
+    def test_same_base_different_archive_type_not_grouped(self):
+        """Files sharing a base name but with different archive families must
+        NOT be grouped together (e.g. foo.zip vs foo.7z).
+
+        Regression: the similarity (third) check ignored the extension, so a
+        standalone .7z was merged into a spanned .zip group, corrupting both.
+        """
+        assert (
+            fu._should_group_files(
+                "in-foo", "in-foo", r"C:\in\foo.7z", r"C:\in\foo.zip"
+            )
+            is False
+        )
+
 
 class TestAreMultipartRelated:
     """Tests for _are_multipart_related function."""
@@ -464,6 +478,42 @@ class TestCreateGroupsByName:
         # All files should be processed without any validation errors
         groups = fu.create_groups_by_name(self.test_files)
         assert len(groups) > 0  # All files should result in groups
+
+    def test_7z_not_merged_into_spanned_zip_group(self):
+        """A standalone .7z sharing a base name with a spanned .zip set must
+        stay in its own group, not get merged into the multipart zip group.
+
+        Regression for the reported bug where a .7z grouped with a .zip/.z01
+        set caused the .7z to be deleted (and the zip mishandled).
+        """
+        files = [
+            r"C:\in\foo.7z",
+            r"C:\in\foo.zip",
+            r"C:\in\foo.z01",
+            r"C:\in\foo.z02",
+        ]
+        groups = fu.create_groups_by_name(files)
+
+        # Exactly two groups: the standalone 7z, and the spanned zip set.
+        assert len(groups) == 2
+
+        by_main = {os.path.basename(g.mainArchiveFile): g for g in groups}
+
+        # The 7z is its own single (non-multipart) group containing only itself.
+        assert "foo.7z" in by_main
+        sevenz_group = by_main["foo.7z"]
+        assert sevenz_group.isMultiPart is False
+        assert sevenz_group.files == [r"C:\in\foo.7z"]
+
+        # The spanned zip set is multipart with .zip as the main entry point.
+        assert "foo.zip" in by_main
+        zip_group = by_main["foo.zip"]
+        assert zip_group.isMultiPart is True
+        assert set(zip_group.files) == {
+            r"C:\in\foo.zip",
+            r"C:\in\foo.z01",
+            r"C:\in\foo.z02",
+        }
 
 
 class TestMoveFilesPreservingStructure:
