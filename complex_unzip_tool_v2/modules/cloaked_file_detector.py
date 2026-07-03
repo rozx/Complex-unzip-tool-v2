@@ -17,6 +17,7 @@ from complex_unzip_tool_v2.modules.rich_utils import (
 )
 from complex_unzip_tool_v2.modules.archive_extension_utils import (
     detect_archive_extension,
+    uncloak_archive_filename,
 )
 from complex_unzip_tool_v2.modules.regex import multipart_regex
 
@@ -311,6 +312,20 @@ class CloakedFileDetector:
                     # If signature verification fails, continue to next rule
                     continue
 
+        # Fallback: cloaking characters embedded *inside* the extension or the
+        # part-number digits (e.g. "12.7z.0删02", "1.part2.r删ar") cannot be
+        # expressed by the flat rules above, which only strip trailing garbage.
+        # Reconstruct via the flexible archive-name uncloaker and accept it only
+        # when the result is an unambiguous multipart/volume form, so ordinary
+        # files are never renamed into bogus parts.
+        embedded = uncloak_archive_filename(file_path)
+        if (
+            embedded
+            and embedded != filename
+            and re.search(multipart_regex, embedded, re.IGNORECASE)
+        ):
+            return os.path.join(dirname, embedded)
+
         return None
 
     def _is_already_proper_format(self, filename: str, archive_type: str) -> bool:
@@ -412,7 +427,22 @@ class CloakedFileDetector:
             # trailing numeric suffix (e.g. "2382" -> "2.7z.382"). Require a real
             # archive signature so ordinary files are never mistaken for parts.
             detected_type = detect_archive_extension(file_path)
-            return bool(detected_type)
+            if not detected_type:
+                return False
+
+            # A lone file that carries an archive signature can only be a whole
+            # archive or the FIRST volume of a multipart set; the first
+            # 7z/zip/rar volume is always ".001". If the type was guessed from
+            # trailing digits that resolve to any other part number, those digits
+            # are not a part index -- they are just part of the name (e.g. the
+            # "705" of an "..._192705" timestamp). Refuse such renames so real
+            # archives keep their name instead of becoming a bogus "part 705".
+            if part_number:
+                stripped = part_number.lstrip("0") or "0"
+                if not (stripped.isdigit() and int(stripped) == 1):
+                    return False
+
+            return True
 
         except Exception as e:
             print_warning(f"Could not verify file signature for {file_path}: {e}")
