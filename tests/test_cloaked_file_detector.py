@@ -658,6 +658,89 @@ class TestCloakedFalsePositives:
         assert result is not None
         assert os.path.basename(result) == "secret.7z.001"
 
+    def test_signature_bearing_file_with_timestamp_suffix_not_split(
+        self, detector_with_real_config, tmp_path
+    ):
+        """A real archive named after a timestamp must not become a bogus part.
+
+        Field bug: an SFX (PE ``MZ``) archive named ``jk_20260629_192705`` was
+        sliced into ``jk_20260629_192.7z.705`` -- the trailing ``705`` of the
+        ``HHMMSS`` timestamp was mistaken for a 7z multipart part number. A lone
+        file that carries an archive signature can only be a whole archive or the
+        FIRST volume (``.001``); any other trailing number is not a part number.
+        """
+        f = tmp_path / "jk_20260629_192705"
+        # Real 7z signature so the signature gate passes, mirroring the SFX
+        # archive that triggered the bug in the field.
+        f.write_bytes(b"7z\xbc\xaf\x27\x1c" + b"\x00" * 32)
+
+        result = detector_with_real_config.detect_cloaked_file(str(f))
+
+        assert result is None
+        assert not os.path.exists(str(tmp_path / "jk_20260629_192.7z.705"))
+
+
+class TestCloakedEmbeddedGarbage:
+    """Cloaking characters embedded INSIDE the archive extension or the part
+    number (not merely trailing) must still be uncloaked, otherwise multipart
+    sets lose a volume and fail to extract.
+
+    The flat regex rules can only strip garbage that trails a *clean* part
+    (``.001删`` -> ``.001``). When the cloaking character is interleaved with
+    the digits (``.0删02``) or splits the extension itself (``r删ar``) the rules
+    no longer match, so a dedicated flexible-reconstruction fallback is needed.
+    """
+
+    # pylint: disable=protected-access
+    @pytest.fixture
+    def detector_with_real_config(self):
+        """Detector backed by the shipped production rules file."""
+        config_path = os.path.join(
+            os.path.dirname(os.path.dirname(__file__)),
+            "complex_unzip_tool_v2",
+            "config",
+            "cloaked_file_rules.json",
+        )
+        with patch.object(CloakedFileRule, "__post_init__", return_value=None):
+            return CloakedFileDetector(config_path)
+
+    @pytest.mark.parametrize(
+        "cloaked,expected",
+        [
+            ("12.7z.0删02", "12.7z.002"),
+            ("6.7z.0删01", "6.7z.001"),
+            ("H6.7z.0删02", "H6.7z.002"),
+            ("1.part1.rar删", "1.part1.rar"),
+            ("1.part2.r删ar", "1.part2.rar"),
+            ("1.part3.ra删r", "1.part3.rar"),
+        ],
+    )
+    def test_embedded_garbage_uncloaked(
+        self, detector_with_real_config, tmp_path, cloaked, expected
+    ):
+        """Garbage inside the digits/extension of an explicit archive volume is
+        stripped so the multipart set stays complete."""
+        f = tmp_path / cloaked
+        f.write_bytes(b"\x00" * 16)
+
+        result = detector_with_real_config.detect_cloaked_file(str(f))
+
+        assert result is not None
+        assert os.path.basename(result) == expected
+
+    def test_non_archive_with_part_word_not_renamed(
+        self, detector_with_real_config, tmp_path
+    ):
+        """A non-archive whose name merely contains ``.partN.`` must be left
+        alone -- the reconstruction only fires for real multipart/volume forms.
+        """
+        f = tmp_path / "chapter.part2.data"
+        f.write_bytes(b"just some text, not an archive\n")
+
+        result = detector_with_real_config.detect_cloaked_file(str(f))
+
+        assert result is None
+
 
 class TestCloakedFileDetectorEdgeCases:
     """Tests for edge cases and error conditions."""

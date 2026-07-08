@@ -42,6 +42,27 @@ def detect_archive_extension(filepath: str) -> str | None:
     return None
 
 
+def uncloak_archive_filename(filepath: str) -> str | None:
+    """
+    Reconstruct the clean basename when cloaking characters are embedded
+    *inside* a recognizable archive extension or its part number -- cases the
+    flat rename rules cannot express because they only strip trailing garbage.
+
+    Name-based only (does not read file contents). Returns the de-cloaked
+    basename, or None when no archive extension is found in the name.
+
+    Examples:
+        '12.7z.0删02'   -> '12.7z.002'
+        '6.7z.0删01'    -> '6.7z.001'
+        '1.part2.r删ar' -> '1.part2.rar'
+        'ordinary.txt'  -> None
+    """
+    clean_path = _uncloakFilename(filepath)
+    if clean_path == filepath:
+        return None
+    return os.path.basename(clean_path)
+
+
 def _uncloakFilename(filepath: str) -> str:
     """
     Internal function to remove cloaking patterns from filename.
