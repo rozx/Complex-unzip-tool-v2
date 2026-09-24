@@ -9,6 +9,8 @@
 
 **One-click extraction for disguised ("cloaked") archives downloaded from cloud drives — built for 百度网盘 / Baidu Netdisk.**
 
+**v1.3.0** adds macOS / Linux support, bundles 7-Zip 26.03, and fixes password-book locations, single-file multipart cleanup, and redirected Windows output. See the [1.3.0 release notes](ReleaseNotes/RELEASE_NOTES_v1.3.0.md).
+
 ---
 
 ## 🤔 What problem does it solve?
@@ -23,23 +25,28 @@ This tool automatically **restores the real filenames (uncloaks)**, **regroups**
 
 ## 🚀 Quick Start
 
-1. **Download** the package for your OS and architecture from **[Releases](https://github.com/rozx/Complex-unzip-tool-v2/releases)**. On Windows, extract `windows-x64.zip` to get `complex-unzip-tool-v2.exe` (older releases may provide the `.exe` directly).
+1. **Download** the package for your OS and architecture from **[Releases](https://github.com/rozx/Complex-unzip-tool-v2/releases)**. On Windows, extract the `.zip` to get `complex-unzip-tool-v2.exe`.
 2. **Drag & drop** your archive files or folders onto the `.exe` on Windows.
 3. **Done** — it uncloaks, groups, and extracts everything automatically.
 
-On macOS / Linux, extract the matching `.tar.gz` and run `./complex-unzip-tool-v2 "archive directory"` in a terminal. Alternatively, follow Development below to run from source, or run `poetry run build` on your machine and then:
+On macOS / Linux, extract the matching `.tar.gz` and run the program in a terminal. This example uses an Apple Silicon Mac; substitute the package name for your platform:
 
 ```bash
-./dist/complex-unzip-tool-v2 "$HOME/Downloads/Archives"
+tar -xzf complex-unzip-tool-v2-v1.3.0-macos-arm64.tar.gz
+./complex-unzip-tool-v2 "$HOME/Downloads/Archives"
 ```
 
-| Platform | Supported architectures | Bundled 7-Zip 26.03 |
+| Platform | v1.3.0 package | Bundled 7-Zip 26.03 |
 | --- | --- | --- |
-| Windows | x64 | `7z.exe` + `7z.dll` |
-| macOS | Intel / Apple Silicon | Universal `7zz` |
-| Linux | x64 / ARM64 | Static `7zzs` |
+| Windows x64 | `complex-unzip-tool-v2-v1.3.0-windows-x64.zip` | `7z.exe` + `7z.dll` |
+| macOS Intel | `complex-unzip-tool-v2-v1.3.0-macos-x64.tar.gz` | Universal `7zz` |
+| macOS Apple Silicon | `complex-unzip-tool-v2-v1.3.0-macos-arm64.tar.gz` | Universal `7zz` |
+| Linux x64 | `complex-unzip-tool-v2-v1.3.0-linux-x64.tar.gz` | Static `7zzs` |
+| Linux ARM64 | `complex-unzip-tool-v2-v1.3.0-linux-arm64.tar.gz` | Static `7zzs` |
 
-No separate 7-Zip installation or runtime download is required. See [7z/README.md](7z/README.md) for upstream sources, checksums, and licenses.
+Packages include Python and 7-Zip, so no separate installation or runtime engine download is required. Each package includes documentation and licenses; the release also includes `SHA256SUMS`. See [7z/README.md](7z/README.md) for upstream sources, checksums, and licenses.
+
+The macOS application has separate Intel and Apple Silicon builds. Linux executables are built on Ubuntu 24.04 and require compatible system libraries. macOS signing/notarization and Windows publisher signing are not configured. See Development below to run from source or build locally.
 
 ---
 
@@ -79,6 +86,8 @@ mypassword
 - 📝 **Auto-learn**: passwords cracked during a run are written back to the tool-directory `passwords.txt` for reuse next time.
 - The target-directory password book is read only, unless it is also the tool-directory book. If the tool directory is not writable, the program warns and completes extraction cleanup; move it to a writable directory to save new passwords. Builds do not embed personal password books.
 - 🈶 **Encoding-aware**: auto-detects UTF-8 / GBK / GB2312 / Big5 / UTF-16 (with BOM), so Chinese passwords work without mojibake.
+
+When upgrading, check whether an older version saved passwords in a launch directory such as Desktop or Downloads. Merge any entries you want to reuse into `passwords.txt` beside the new executable.
 
 ### Options
 
@@ -142,19 +151,16 @@ See [AGENTS.md](AGENTS.md) and [CLAUDE.md](CLAUDE.md) for architecture, conventi
 2. The PR has the `release` label at merge time.
 3. The PR is merged into `main`.
 
-Before merging, use `poetry run bump-minor`, `poetry run bump-patch`, or the other existing bump commands on the release branch, then commit the version changes. `pyproject.toml`, package `__version__`, and `.bumpversion.cfg` must agree on an unpublished stable `X.Y.Z`. The branch name controls eligibility; the project version supplies the tag, such as `v1.3.0`. The current `1.2.2` version is already released and must be bumped before the first automatic release. Include the matching notes in the same PR, for example `ReleaseNotes/RELEASE_NOTES_v1.3.0.md`. Missing or empty notes fail before platform builds start.
+Before merging, check that `pyproject.toml`, package `__version__`, and `.bumpversion.cfg` agree on an unpublished stable `X.Y.Z`. Use `poetry run bump-minor`, `poetry run bump-patch`, or the other bump commands when preparing subsequent versions. The branch name controls eligibility; the project version supplies the tag, such as `v1.3.0`. Include the matching notes in the same PR; the 1.3.0 notes are in [ReleaseNotes/RELEASE_NOTES_v1.3.0.md](ReleaseNotes/RELEASE_NOTES_v1.3.0.md). Missing or empty notes fail before platform builds start.
 
-The release workflow rebuilds all platforms from the PR's exact merge commit. After every build succeeds, it creates a GitHub Release using the exact contents of `ReleaseNotes/RELEASE_NOTES_vX.Y.Z.md` as its body, with these downloads:
+Check the version and notes locally before committing:
 
-| Platform | Download (v1.3.0 example) |
-| --- | --- |
-| Windows x64 | `complex-unzip-tool-v2-v1.3.0-windows-x64.zip` |
-| macOS Intel | `complex-unzip-tool-v2-v1.3.0-macos-x64.tar.gz` |
-| macOS Apple Silicon | `complex-unzip-tool-v2-v1.3.0-macos-arm64.tar.gz` |
-| Linux x64 | `complex-unzip-tool-v2-v1.3.0-linux-x64.tar.gz` |
-| Linux ARM64 | `complex-unzip-tool-v2-v1.3.0-linux-arm64.tar.gz` |
+```powershell
+poetry run python -m scripts.release version
+poetry run python -m scripts.release verify-notes
+```
 
-Each package includes the program, documentation, and licenses. The release also includes `SHA256SUMS`. Linux executables are built on Ubuntu 24.04 and require compatible system libraries; macOS and Windows distribution signing is not configured.
+The release workflow rebuilds all platforms from the PR's exact merge commit. After every build succeeds, it creates a GitHub Release using the exact contents of `ReleaseNotes/RELEASE_NOTES_vX.Y.Z.md` as its body, and uploads the five platform packages listed above plus `SHA256SUMS`.
 
 The workflow must first exist on `main`; subsequent eligible merges trigger publication. Add the label before merging. Closing an unmerged PR, adding the label after merge, or pushing a tag alone does not publish. The built-in `GITHUB_TOKEN` is sufficient; only the final publishing job has `contents: write`.
 

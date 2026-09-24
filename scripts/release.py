@@ -13,7 +13,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 TARGETS = {
-    "windows-x64": (".exe", "7z", ".zip"),
+    "windows-x64": (".exe", "7z/windows-x64", ".zip"),
     "macos-x64": ("", "7z/macos", ".tar.gz"),
     "macos-arm64": ("", "7z/macos", ".tar.gz"),
     "linux-x64": ("", "7z/linux-x64", ".tar.gz"),

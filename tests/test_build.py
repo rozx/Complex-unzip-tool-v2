@@ -10,7 +10,11 @@ from scripts import build
 @pytest.mark.parametrize(
     "system,machine,files",
     [
-        ("Windows", "AMD64", ["7z/7z.exe", "7z/7z.dll"]),
+        (
+            "Windows",
+            "AMD64",
+            ["7z/windows-x64/7z.exe", "7z/windows-x64/7z.dll"],
+        ),
         ("Darwin", "arm64", ["7z/macos/7zz"]),
         ("Linux", "x86_64", ["7z/linux-x64/7zzs"]),
         ("Linux", "aarch64", ["7z/linux-arm64/7zzs"]),
@@ -50,20 +54,22 @@ def test_spec_packages_only_native_engine(monkeypatch, system, machine, files):
 
 
 @pytest.mark.parametrize("missing", ["engine", "library", "license"])
-def test_missing_assets_keep_previous_build(monkeypatch, tmp_path, missing):
+def test_missing_assets_keep_previous_build(monkeypatch, tmp_path, capsys, missing):
     monkeypatch.setattr(platform, "system", lambda: "Windows")
     monkeypatch.setattr(platform, "machine", lambda: "AMD64")
     monkeypatch.setattr(build, "__file__", str(tmp_path / "scripts" / "build.py"))
     (tmp_path / "scripts").mkdir()
     assets = {"engine": "7z.exe", "library": "7z.dll", "license": "License.txt"}
-    (tmp_path / "7z").mkdir()
+    engine_dir = tmp_path / "7z" / "windows-x64"
+    engine_dir.mkdir(parents=True)
     for kind, name in assets.items():
         if kind != missing:
-            (tmp_path / "7z" / name).touch(mode=0o755)
+            (engine_dir / name).touch(mode=0o755)
     previous = tmp_path / "dist" / "previous.exe"
     previous.parent.mkdir()
     previous.write_bytes(b"previous build")
     assert build.main() == 1
+    assert str(engine_dir / assets[missing]) in capsys.readouterr().out
     assert previous.read_bytes() == b"previous build"
 
 

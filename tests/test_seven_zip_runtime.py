@@ -12,8 +12,8 @@ from complex_unzip_tool_v2.modules import archive_utils as au
 @pytest.mark.parametrize(
     "system,machine,relative",
     [
-        ("Windows", "AMD64", "7z/7z.exe"),
-        ("Windows", "x86_64", "7z/7z.exe"),
+        ("Windows", "AMD64", "7z/windows-x64/7z.exe"),
+        ("Windows", "x86_64", "7z/windows-x64/7z.exe"),
         ("Darwin", "arm64", "7z/macos/7zz"),
         ("Darwin", "x86_64", "7z/macos/7zz"),
         ("Linux", "x86_64", "7z/linux-x64/7zzs"),

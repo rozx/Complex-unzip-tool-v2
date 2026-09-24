@@ -9,6 +9,8 @@
 
 **一键解压从网盘下载的"伪装"压缩包 —— 专为百度网盘等网盘场景打造。**
 
+**v1.3.0**：新增 macOS / Linux 支持，内置 7-Zip 26.03，修复密码本位置、单文件分卷清理和 Windows 重定向输出。详见 [1.3.0 发布说明](ReleaseNotes/RELEASE_NOTES_v1.3.0.md)。
+
 ---
 
 ## 🤔 解决什么问题？
@@ -23,23 +25,28 @@
 
 ## 🚀 快速开始
 
-1. **下载**：从 **[Releases](https://github.com/rozx/Complex-unzip-tool-v2/releases)** 页面选择对应系统和架构的发布包。Windows 解开 `windows-x64.zip` 后得到 `complex-unzip-tool-v2.exe`（旧版可能直接提供 `.exe`）。
+1. **下载**：从 **[Releases](https://github.com/rozx/Complex-unzip-tool-v2/releases)** 页面选择对应系统和架构的发布包。Windows 解开 `.zip` 后得到 `complex-unzip-tool-v2.exe`。
 2. **拖拽**：在 Windows 上，将压缩包文件或文件夹拖拽到 `.exe` 上。
 3. **完成**：工具会自动解伪装、分组并解压所有内容。
 
-macOS / Linux 下载对应的 `.tar.gz` 并解开后，在终端运行 `./complex-unzip-tool-v2 "待解压目录"`。也可按下方「开发」步骤从源码运行，或在本机执行 `poetry run build` 后运行：
+macOS / Linux 下载对应的 `.tar.gz`，解开后在终端运行。以下以 Apple Silicon Mac 为例，其他平台请替换包名：
 
 ```bash
-./dist/complex-unzip-tool-v2 "$HOME/Downloads/Archives"
+tar -xzf complex-unzip-tool-v2-v1.3.0-macos-arm64.tar.gz
+./complex-unzip-tool-v2 "$HOME/Downloads/Archives"
 ```
 
-| 平台 | 支持架构 | 内置 7-Zip 26.03 |
+| 平台 | v1.3.0 发布包 | 内置 7-Zip 26.03 |
 | --- | --- | --- |
-| Windows | x64 | `7z.exe` + `7z.dll` |
-| macOS | Intel / Apple Silicon | 通用二进制 `7zz` |
-| Linux | x64 / ARM64 | 静态二进制 `7zzs` |
+| Windows x64 | `complex-unzip-tool-v2-v1.3.0-windows-x64.zip` | `7z.exe` + `7z.dll` |
+| macOS Intel | `complex-unzip-tool-v2-v1.3.0-macos-x64.tar.gz` | 通用二进制 `7zz` |
+| macOS Apple Silicon | `complex-unzip-tool-v2-v1.3.0-macos-arm64.tar.gz` | 通用二进制 `7zz` |
+| Linux x64 | `complex-unzip-tool-v2-v1.3.0-linux-x64.tar.gz` | 静态二进制 `7zzs` |
+| Linux ARM64 | `complex-unzip-tool-v2-v1.3.0-linux-arm64.tar.gz` | 静态二进制 `7zzs` |
 
-不需要另行安装 7-Zip，运行时不联网下载。二进制来源、校验值和许可证见 [7z/README.md](7z/README.md)。
+发布包已包含 Python 和 7-Zip，无需另行安装，运行时不联网下载引擎。每个包附带说明和许可证，Release 另附 `SHA256SUMS`。二进制来源、校验值和许可证见 [7z/README.md](7z/README.md)。
+
+macOS 的应用分别按 Intel 和 Apple Silicon 架构构建。Linux 独立包在 Ubuntu 24.04 上构建，需要兼容的系统库；macOS 签名及公证、Windows 发行者签名尚未配置。也可按下方「开发」步骤从源码运行或自行构建。
 
 ---
 
@@ -79,6 +86,8 @@ mypassword
 - 📝 **自动记忆**：运行中新破解出的密码会自动写回工具目录的 `passwords.txt`，下次直接复用。
 - 目标目录的密码本仅作为读取来源（与工具目录相同时除外）。工具目录不可写时会提示保存失败，仍会完成解压收尾；请将程序放到可写目录以保存新密码。构建不会将个人密码本内嵌到程序中。
 - 🈶 **编码自适应**：自动识别 UTF-8 / GBK / GB2312 / Big5 / UTF-16（含 BOM），中文密码无需担心乱码。
+
+从旧版本升级时，如果密码本曾被写到桌面、下载目录等启动目录，请将需要长期使用的条目合并到新程序旁的 `passwords.txt`。
 
 ### 命令行选项
 
@@ -142,19 +151,16 @@ poetry run build
 2. PR 在合并时带有 `release` 标签。
 3. PR 被合并到 `main`。
 
-发布前，在 release 分支通过 `poetry run bump-minor`、`poetry run bump-patch` 等命令更新版本，并提交改动。`pyproject.toml`、包内 `__version__` 和 `.bumpversion.cfg` 必须一致，且使用尚未发布的 `X.Y.Z`。分支名只控制触发，发布标签取自项目版本，例如 `v1.3.0`。当前仓库的 `1.2.2` 已发布，首次自动发布前需要升版。在同一 PR 中准备对应版本的说明，例如 `ReleaseNotes/RELEASE_NOTES_v1.3.0.md`；文件缺失或为空时，会在启动各平台构建前报错。
+合并前，确认 `pyproject.toml`、包内 `__version__` 和 `.bumpversion.cfg` 使用一致且尚未发布的 `X.Y.Z`。准备后续版本时，可通过 `poetry run bump-minor`、`poetry run bump-patch` 等命令升版。分支名只控制触发，发布标签取自项目版本，例如 `v1.3.0`。同一 PR 必须包含对应的发布说明；1.3.0 的说明位于 [ReleaseNotes/RELEASE_NOTES_v1.3.0.md](ReleaseNotes/RELEASE_NOTES_v1.3.0.md)。文件缺失或为空时，会在平台构建前报错。
 
-发布流程会从该 PR 的确切合并提交重新构建全部平台；全部成功后创建 GitHub Release，以 `ReleaseNotes/RELEASE_NOTES_vX.Y.Z.md` 的原文作为发布说明，并附带以下文件：
+提交前可本地检查版本和发布说明：
 
-| 平台 | 下载文件（以 v1.3.0 为例） |
-| --- | --- |
-| Windows x64 | `complex-unzip-tool-v2-v1.3.0-windows-x64.zip` |
-| macOS Intel | `complex-unzip-tool-v2-v1.3.0-macos-x64.tar.gz` |
-| macOS Apple Silicon | `complex-unzip-tool-v2-v1.3.0-macos-arm64.tar.gz` |
-| Linux x64 | `complex-unzip-tool-v2-v1.3.0-linux-x64.tar.gz` |
-| Linux ARM64 | `complex-unzip-tool-v2-v1.3.0-linux-arm64.tar.gz` |
+```powershell
+poetry run python -m scripts.release version
+poetry run python -m scripts.release verify-notes
+```
 
-每个包包含程序、说明和许可证；Release 另附 `SHA256SUMS`。Linux 独立包在 Ubuntu 24.04 上构建，需要兼容的系统库；macOS 和 Windows 程序未配置发行者签名。
+发布流程会从该 PR 的确切合并提交重新构建全部平台；全部成功后创建 GitHub Release，以 `ReleaseNotes/RELEASE_NOTES_vX.Y.Z.md` 的原文作为正文，并上传上方列出的五个平台发布包和 `SHA256SUMS`。
 
 工作流需先存在于 `main`，之后符合条件的合并才会触发自动发布。标签应在合并前添加；仅关闭 PR、合并后补标签或直接推送 tag 都不会发布。使用内置 `GITHUB_TOKEN`，仅最终发布任务拥有 `contents: write`。
 

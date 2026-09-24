@@ -262,7 +262,7 @@ poetry run pytest -v
 
 ### Runtime Dependencies
 - **7-Zip**: Native bundled engine for the host platform (required for archive operations)
-  - Locations: `7z/7z.exe` + `7z.dll`, `7z/macos/7zz`, `7z/linux-x64/7zzs`, `7z/linux-arm64/7zzs`
+  - Locations: `7z/windows-x64/7z.exe` + `7z.dll`, `7z/macos/7zz`, `7z/linux-x64/7zzs`, `7z/linux-arm64/7zzs`
   - License: Must include the `License.txt` next to the selected engine in distribution
   - Version: 26.03 (managed separately from Python dependencies)
 

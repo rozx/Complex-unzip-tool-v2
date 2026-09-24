@@ -288,7 +288,7 @@ The tool treats every file as a potential archive by default. During nested extr
   - Smoke: running against directories containing non‑archive files (e.g., .mp4) should not produce “corrupted archive” messages for those files.
 
 ## Common Local Paths
-- 7-Zip: `./7z/7z.exe` + `7z.dll` (Windows), `./7z/macos/7zz`, `./7z/linux-x64/7zzs`, or `./7z/linux-arm64/7zzs`
+- 7-Zip: `./7z/windows-x64/7z.exe` + `7z.dll` (Windows), `./7z/macos/7zz`, `./7z/linux-x64/7zzs`, or `./7z/linux-arm64/7zzs`; each platform directory also contains its `License.txt`.
 - Config: `complex_unzip_tool_v2/config/cloaked_file_rules.json`
 - CLI Entrypoint: `complex_unzip_tool_v2/__main__.py`
 

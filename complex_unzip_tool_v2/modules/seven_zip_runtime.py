@@ -26,7 +26,7 @@ def bundled_engine_path(root: Optional[Path] = None) -> Path:
         "aarch64": "arm64",
     }.get(machine)
     if system == "Windows" and architecture == "x64":
-        return root / "7z" / "7z.exe"
+        return root / "7z" / "windows-x64" / "7z.exe"
     if system == "Darwin" and architecture in {"x64", "arm64"}:
         return root / "7z" / "macos" / "7zz"
     if system == "Linux" and architecture in {"x64", "arm64"}:

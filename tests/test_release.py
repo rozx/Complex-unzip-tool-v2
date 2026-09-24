@@ -57,7 +57,12 @@ def test_release_version_rejects_inconsistent_or_nonstable_versions(
 @pytest.mark.parametrize(
     "target,executable,license_path,suffix",
     [
-        ("windows-x64", "complex-unzip-tool-v2.exe", "7z/License.txt", ".zip"),
+        (
+            "windows-x64",
+            "complex-unzip-tool-v2.exe",
+            "7z/windows-x64/License.txt",
+            ".zip",
+        ),
         ("macos-arm64", "complex-unzip-tool-v2", "7z/macos/License.txt", ".tar.gz"),
     ],
 )
