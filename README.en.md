@@ -64,7 +64,7 @@ complex-unzip-tool-v2.exe "D:\file.zip" "D:\movie.7z.001"
 
 Extracted contents are written to an `unzipped/` folder. On success, original archives are moved to the system **Recycle Bin / Trash** (recoverable). Linux needs an available desktop trash directory; originals are retained if recycling fails.
 
-Passing a single volume collects its matching parts from the same directory and naming convention. All parts are cleaned up on success and retained on extraction or password failure. On Windows, output redirected to a file or pipe uses UTF-8 and the program exits without waiting for Enter.
+Passing a single volume collects matching parts from the same directory and naming convention by their uncloaked names, including cloaked continuation parts. All parts are cleaned up on success and retained on extraction or password failure. On Windows, output redirected to a file or pipe uses UTF-8 and the program exits without waiting for Enter.
 
 ### Passwords
 
@@ -144,6 +144,8 @@ See [AGENTS.md](AGENTS.md) and [CLAUDE.md](CLAUDE.md) for architecture, conventi
 ### GitHub CI and automatic releases
 
 [CI](.github/workflows/ci.yml) runs on pushes and PRs targeting `main` or `release/**`. Each of the five platforms runs the complete test suite, engine checksum validation, real archive smoke tests, a standalone build, and standalone smoke tests. Downloadable packages remain in Actions artifacts for 14 days.
+
+New commits cancel older CI runs for the same branch or PR event. Release builds use a separate concurrency group and are not cancelled by ordinary CI. Release merges still run both the `main` push checks and the release builds so publication uses only artifacts from its own workflow run.
 
 [Release](.github/workflows/release.yml) publishes only when all of these conditions hold:
 

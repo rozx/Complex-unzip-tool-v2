@@ -16,6 +16,12 @@ on:
 permissions:
   contents: read
 
+# Keep PR/push checks independent. Reusable release builds use their exact SHA
+# and must not be cancelled: publication consumes artifacts from that same run.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event_name }}-${{ inputs.ref || github.ref }}
+  cancel-in-progress: ${{ !inputs.ref }}
+
 jobs:
   build:
     name: Build (${{ matrix.target }})

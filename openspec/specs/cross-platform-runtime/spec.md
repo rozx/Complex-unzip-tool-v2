@@ -24,6 +24,7 @@ The CLI SHALL report an actionable error and exit unsuccessfully before modifyin
 - **WHEN** extraction is requested with an unavailable engine
 - **THEN** input names and contents SHALL remain unchanged
 - **AND** the CLI SHALL identify the engine or platform problem
+- **AND** an interactive frozen Windows invocation SHALL pause so the error remains readable, then exit unsuccessfully
 
 ### Requirement: Platform-native standalone distribution
 The build command SHALL produce a standalone console program for the host platform, including only its native engine and required redistribution notices. It SHALL validate required assets before removing previous build output.

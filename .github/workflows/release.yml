@@ -85,7 +85,7 @@ jobs:
           RELEASE_SHA: ${{ needs.prepare.outputs.sha }}
         with:
           script: |
-            const publish = require('./scripts/publish_release.cjs');
+            const publish = require(process.env.GITHUB_WORKSPACE + '/scripts/publish_release.cjs');
             await publish({github, context, core,
               tag: process.env.RELEASE_TAG,
               sha: process.env.RELEASE_SHA,

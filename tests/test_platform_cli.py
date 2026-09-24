@@ -48,6 +48,37 @@ def test_cli_missing_engine_preserves_input(monkeypatch, tmp_path):
 
 
 @pytest.mark.parametrize(
+    "terminal,interruption",
+    [(True, None), (False, None), (True, EOFError), (True, KeyboardInterrupt)],
+)
+def test_missing_engine_keeps_error_visible_without_losing_exit_code(
+    monkeypatch, tmp_path, terminal, interruption
+):
+    monkeypatch.setattr(platform, "system", lambda: "Windows")
+    monkeypatch.setattr(platform, "machine", lambda: "AMD64")
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "_MEIPASS", str(tmp_path / "missing"), raising=False)
+    prompts = []
+
+    def answer(prompt):
+        prompts.append(prompt)
+        if interruption:
+            raise interruption()
+        return ""
+
+    monkeypatch.setattr(builtins, "input", answer)
+    runner = CliRunner()
+    with runner.isolation():
+        monkeypatch.setattr(sys.stdin, "isatty", lambda: terminal)
+        monkeypatch.setattr(sys.stdout, "isatty", lambda: terminal)
+        with pytest.raises(SystemExit) as exc:
+            main.app(args=[str(tmp_path)])
+    assert exc.value.code == 1
+    assert len(prompts) == int(terminal)
+    assert not (tmp_path / "unzipped").exists()
+
+
+@pytest.mark.parametrize(
     "system,terminal,output_terminal,expected_prompts",
     [
         ("Darwin", True, True, 0),

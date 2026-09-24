@@ -12,6 +12,11 @@ CI SHALL test and build Windows x64, macOS x64/ARM64, and Linux x64/ARM64 using 
 - **WHEN** any platform's tests, build, or smoke check fails
 - **THEN** the run SHALL fail and SHALL NOT publish a release
 
+#### Scenario: A newer commit supersedes ordinary CI
+- **WHEN** another push or PR update starts checks for the same event and ref
+- **THEN** the older ordinary CI run SHALL be cancelled
+- **AND** reusable release builds SHALL remain isolated from ordinary CI cancellation and publish only artifacts from their own workflow run
+
 ### Requirement: Release trigger is an eligible merged PR
 Publication SHALL occur only after a PR from `release/*` merges into `main` with the `release` label present at merge time. Every release build and tag SHALL correspond to that PR's merge commit.
 

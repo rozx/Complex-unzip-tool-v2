@@ -40,9 +40,9 @@ If the global book cannot be saved, the CLI reports the path and write-permissio
 
 ### Single-file inputs include matching volumes / 单文件输入自动收集同组分卷 — [#18](https://github.com/rozx/Complex-unzip-tool-v2/issues/18)
 
-Passing only `movie.7z.001` now discovers its matching sibling volumes before extraction. Successful extraction cleans up the entire discovered set instead of leaving `.002` and later parts behind. Discovery is limited to the same directory, archive name, and split convention; unrelated archives and subdirectories are excluded. Extraction or password failure still preserves all source parts.
+Passing only `movie.7z.001` now discovers its matching sibling volumes before extraction, including cloaked names such as `movie.7z.002删除`. A cloaked primary is also recognized. Successful extraction cleans up the entire discovered set instead of leaving `.002` and later parts behind. Discovery is limited to the same directory, archive name, and split convention; unrelated archives and subdirectories are excluded. Extraction or password failure still preserves all source parts.
 
-只传入 `movie.7z.001` 时，现在会先收集同组分卷再解压。成功后统一清理已收集的整组源文件，不再遗留 `.002` 等续卷。收集范围限定为同目录、同名且采用同一分卷格式的文件，不包含无关档案和子目录。解压或密码失败时，仍会保留全部源分卷。
+只传入 `movie.7z.001` 时，现在会先收集同组分卷再解压，包括 `movie.7z.002删除` 等伪装续卷；传入伪装主卷同样可以识别。成功后统一清理已收集的整组源文件，不再遗留 `.002` 等续卷。收集范围限定为同目录、同名且采用同一分卷格式的文件，不包含无关档案和子目录。解压或密码失败时，仍会保留全部源分卷。
 
 ### Redirected Windows output uses UTF-8 / Windows 重定向输出使用 UTF-8 — [#17](https://github.com/rozx/Complex-unzip-tool-v2/issues/17)
 
@@ -76,6 +76,6 @@ Windows 的 stdout 和 stderr 被重定向到文件或管道时，会在首次�
 
 ## Validation / 验证
 
-The **280-test** suite passes locally on macOS ARM64. Source and standalone smoke tests passed with nested ZIPs, encrypted 7z archives, Unicode filenames/passwords, and both directory and single-file multipart inputs. Regression coverage includes GBK-encoded redirected streams, password-save failures, and source retention on extraction/password failure. Native builds for all five platforms are enforced by the release CI.
+The **300-test** suite passes locally on macOS ARM64. Source and standalone smoke tests passed with nested ZIPs, encrypted 7z archives, Unicode filenames/passwords, and both directory and single-file multipart inputs. Regression coverage includes GBK-encoded redirected streams, password-save failures, and source retention on extraction/password failure. Native builds for all five platforms are enforced by the release CI.
 
-**280 项测试**已在本地 macOS ARM64 上通过。源码与独立程序均通过了嵌套 ZIP、加密 7z、中文文件名及密码、目录输入和单文件分卷输入的冒烟验证。回归测试覆盖 GBK 重定向输出、密码本保存失败，以及解压或密码失败时的源文件保留。五个平台的原生构建由发布 CI 检查。
+**300 项测试**已在本地 macOS ARM64 上通过。源码与独立程序均通过了嵌套 ZIP、加密 7z、中文文件名及密码、目录输入和单文件分卷输入的冒烟验证。回归测试覆盖 GBK 重定向输出、密码本保存失败，以及解压或密码失败时的源文件保留。五个平台的原生构建由发布 CI 检查。

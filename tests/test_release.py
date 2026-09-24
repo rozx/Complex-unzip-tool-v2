@@ -106,6 +106,7 @@ def test_package_contains_executable_notices_and_checksum(
 
 
 def release_assets(directory):
+    expected = {}
     for target in (
         "windows-x64",
         "macos-x64",
@@ -117,16 +118,18 @@ def release_assets(directory):
         archive = directory / f"complex-unzip-tool-v2-v1.3.0-{target}.{extension}"
         archive.write_bytes(target.encode())
         digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+        expected[archive.name] = f"{digest}  {archive.name}\n"
         archive.with_name(archive.name + ".sha256").write_text(
             f"{digest}  {archive.name}\n"
         )
+    return expected
 
 
 def test_verify_complete_release_writes_checksum_index(tmp_path):
-    release_assets(tmp_path)
+    expected = release_assets(tmp_path)
     index = release.verify_assets(tmp_path, "1.3.0")
     assert index.name == "SHA256SUMS"
-    assert len(index.read_text().splitlines()) == 5
+    assert index.read_text() == "".join(expected[name] for name in sorted(expected))
 
 
 @pytest.mark.parametrize("problem", ["missing", "tampered", "unexpected"])

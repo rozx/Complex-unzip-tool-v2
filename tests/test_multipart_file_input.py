@@ -1,4 +1,5 @@
 import pytest
+import os
 from pathlib import Path
 from typer.testing import CliRunner
 
@@ -18,6 +19,34 @@ def test_single_primary_input_collects_only_its_numbered_volumes(tmp_path):
     (nested / continuation.name).write_bytes(b"other set")
 
     assert set(read_dir([str(selected)])) == {str(selected), str(continuation)}
+
+
+@pytest.mark.parametrize("primary", ["sample.7z.001", "sample.7z.00删1"])
+def test_file_input_discovers_cloaked_siblings_without_renaming(tmp_path, primary):
+    names = [primary, "sample.7z.002删除", "sample.7z.0删03"]
+    unrelated = ["sample.zip.002删除", "other.7z.002删除", "invoice002", "notes.txt"]
+    for name in names + unrelated:
+        (tmp_path / name).write_bytes(b"fixture")
+    before = {p.name: p.read_bytes() for p in tmp_path.iterdir()}
+    assert set(read_dir([str(tmp_path / primary)])) == {
+        str(tmp_path / name) for name in names
+    }
+    assert {p.name: p.read_bytes() for p in tmp_path.iterdir()} == before
+
+
+@pytest.mark.parametrize("error", [PermissionError, FileNotFoundError])
+def test_unavailable_sibling_directory_preserves_explicit_input(
+    monkeypatch, tmp_path, error
+):
+    primary = tmp_path / "sample.7z.001"
+    primary.write_bytes(b"source")
+
+    def unavailable(path):
+        raise error("Directory unavailable")
+
+    monkeypatch.setattr(os, "scandir", unavailable)
+    assert read_dir([str(primary)]) == [str(primary)]
+    assert primary.read_bytes() == b"source"
 
 
 @pytest.mark.parametrize(
@@ -46,17 +75,19 @@ def test_file_input_discovers_its_volume_family(monkeypatch, tmp_path, parts, ot
 
 @pytest.mark.parametrize("outcome", ["success", "failure", "password-skip"])
 @pytest.mark.parametrize("recycle", [False, True])
+@pytest.mark.parametrize("cloaked", [False, True])
 def test_cli_handles_all_selected_set_parts_safely(
-    monkeypatch, tmp_path, outcome, recycle
+    monkeypatch, tmp_path, outcome, recycle, cloaked
 ):
-    parts = [tmp_path / f"sample.7z.{n:03d}" for n in (1, 2, 3)]
+    normalized = [tmp_path / f"sample.7z.{n:03d}" for n in (1, 2, 3)]
+    parts = [Path(str(part) + "删除") for part in normalized] if cloaked else normalized
     for part in parts:
         part.write_bytes(b"source volume")
     unrelated = tmp_path / "unrelated.7z.001"
     unrelated.write_bytes(b"unrelated source")
 
     def extract(archive_path, output_path, **kwargs):
-        assert Path(archive_path) == parts[0]
+        assert Path(archive_path) == normalized[0]
         output = Path(output_path) / "result.txt"
         output.parent.mkdir()
         output.write_text("extracted", encoding="utf-8")
@@ -82,9 +113,13 @@ def test_cli_handles_all_selected_set_parts_safely(
     assert result.exit_code == 0, result.output
     if outcome == "success":
         assert all(not part.exists() for part in parts)
+        assert all(not part.exists() for part in normalized)
         assert (tmp_path / "unzipped/result.txt").read_text() == "extracted"
-        assert sorted(recycled) == ([part.name for part in parts] if recycle else [])
+        assert sorted(recycled) == (
+            [part.name for part in normalized] if recycle else []
+        )
     else:
         assert all(part.read_bytes() == b"source volume" for part in parts)
         assert not recycled
     assert unrelated.read_bytes() == b"unrelated source"
+    assert not (tmp_path / ".unzip-rename-history.tmp.json").exists()

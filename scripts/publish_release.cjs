@@ -75,6 +75,9 @@ module.exports = async function publish({github, context, core, tag, sha, assetD
     throw new Error('Uploaded asset checksums differ; keeping the release as a draft');
   }
   await assertTag();
+  // Let GitHub choose Latest by creation date and semantic version, rather than
+  // unconditionally promoting a possibly older release that finishes later.
+  // https://docs.github.com/en/rest/releases/releases#update-a-release
   const published = await github.rest.repos.updateRelease({
     ...repo, release_id: release.id, body: notes, draft: false, make_latest: 'legacy',
   });

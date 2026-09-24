@@ -1,4 +1,5 @@
 import importlib
+import codecs
 import sys
 from pathlib import Path
 
@@ -18,8 +19,11 @@ def test_password_book_uses_tool_directory_across_working_directories(
     tool = tmp_path / "tool"
     target = tmp_path / "archives"
     working = tmp_path / "working"
-    for directory in (tool, target, working):
+    bundle = tmp_path / "bundle"
+    for directory in (tool, target, working, bundle):
         directory.mkdir()
+    (bundle / "passwords.txt").write_text("embedded-decoy\n", encoding="utf-8")
+    monkeypatch.setattr(sys, "_MEIPASS", str(bundle), raising=False)
     global_book = tool / "passwords.txt"
     global_book.write_text("全局密码\n", encoding="utf-8")
     target_book = target / "passwords.txt"
@@ -67,3 +71,33 @@ def test_cli_finishes_when_password_book_is_not_writable(monkeypatch, tmp_path):
     assert "synthetic-secret" not in result.output
     assert book.has_unsaved_changes()
     assert not (tmp_path / ".unzip-rename-history.tmp.json").exists()
+
+
+@pytest.mark.parametrize(
+    "encoding,bom",
+    [
+        ("utf-8-sig", b""),
+        ("gbk", b""),
+        ("gb2312", b""),
+        ("utf-16-le", codecs.BOM_UTF16_LE),
+        ("utf-16-be", codecs.BOM_UTF16_BE),
+    ],
+)
+def test_password_book_reads_encoded_books_and_strips_bom(
+    monkeypatch, tmp_path, encoding, bom
+):
+    module = importlib.import_module("complex_unzip_tool_v2.classes.PasswordBook")
+    monkeypatch.setattr(sys, "frozen", False, raising=False)
+    monkeypatch.setattr(
+        module,
+        "__file__",
+        str(tmp_path / "complex_unzip_tool_v2/classes/PasswordBook.py"),
+    )
+    data = bom + "密码\n\n123456\n密码\n".encode(encoding)
+    path = tmp_path / "passwords.txt"
+    path.write_bytes(data)
+    book = PasswordBook()
+    assert set(book.get_passwords()) == {"密码", "123456"}
+    assert not book.has_unsaved_changes()
+    book.save_passwords()
+    assert path.read_bytes() == data

@@ -147,7 +147,7 @@ def _maybe_recover_pending_renames(input_root: str) -> None:
     )
 
 
-def _ask_for_user_input_and_exit() -> None:
+def _ask_for_user_input_and_exit(exit_code: int = 0) -> None:
     """Ask for random user input before exiting the application."""
     # Only ask for input in standalone builds (PyInstaller frozen executables)
     if (
@@ -158,8 +158,11 @@ def _ask_for_user_input_and_exit() -> None:
         and sys.stdout is not None
         and sys.stdout.isatty()
     ):
-        input("Press Enter to exit... 按回车键退出...")
-    sys.exit(0)
+        try:
+            input("Press Enter to exit... 按回车键退出...")
+        except (EOFError, KeyboardInterrupt):
+            pass
+    sys.exit(exit_code)
 
 
 @app.callback(invoke_without_command=True)
@@ -192,7 +195,7 @@ def main_callback(
                 archive_utils.resolve_seven_zip_path()
             except archive_utils.SevenZipNotFoundError as exc:
                 print_error(str(exc))
-                raise typer.Exit(code=1) from exc
+                _ask_for_user_input_and_exit(1)
             # Call extract_files directly instead of extract command
             extract_files(paths, use_recycle_bin=not permanent_delete)
         else:

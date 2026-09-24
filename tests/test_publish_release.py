@@ -2,6 +2,8 @@
 
 import shutil
 import subprocess
+import os
+import textwrap
 from pathlib import Path
 
 import pytest
@@ -87,6 +89,7 @@ const repos = {
   updateRelease: async args => {
     assert.equal(args.draft, false);
     assert.equal(args.body, notes);
+    assert.equal(args.make_latest, 'legacy');
     assert.equal(assets.length, 6);
     effects.push('publish');
     return {data: {html_url: 'https://example.invalid/release'}};
@@ -128,3 +131,36 @@ const github = {rest: {repos, git: {
         timeout=20,
     )
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="Requires Node")
+def test_workflow_loads_publisher_from_workspace_not_action_bundle(tmp_path):
+    root = Path(__file__).resolve().parents[1]
+    workflow = (root / ".github/workflows/release.yml").read_text()
+    script = textwrap.dedent(workflow.split("script: |\n", 1)[1])
+    workspace = tmp_path / "workspace"
+    (workspace / "scripts").mkdir(parents=True)
+    (workspace / "scripts/publish_release.cjs").write_text(
+        "module.exports = async args => { console.log(args.tag); };"
+    )
+    action_bundle = tmp_path / "action" / "dist"
+    action_bundle.mkdir(parents=True)
+    harness = """
+const {createRequire} = require('node:module');
+const actionFile = require('node:path').join(process.cwd(), 'index.js');
+const actionRequire = createRequire(actionFile);
+const AsyncFunction = Object.getPrototypeOf(async function() {}).constructor;
+new AsyncFunction('require', 'github', 'context', 'core', process.argv[1])(
+  actionRequire, {}, {}, {}
+).catch(error => { console.error(error); process.exitCode = 1; });
+"""
+    result = subprocess.run(
+        ["node", "-e", harness, script],
+        cwd=action_bundle,
+        env={**os.environ, "GITHUB_WORKSPACE": str(workspace), "RELEASE_TAG": "v1.3.0"},
+        capture_output=True,
+        text=True,
+        timeout=20,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "v1.3.0"

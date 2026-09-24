@@ -162,6 +162,7 @@ This repo uses **OpenSpec**. Active specs live in `openspec/specs/`, proposed ch
 
 ## Single-file multipart inputs
 - `file_utils.read_dir` includes matching sibling volumes when a file is selected, using the same directory, exact archive name, and split convention. It must not pull in unrelated archives, subdirectories, or another split convention with the same base name.
+- Discovery previews the configured uncloaking rules without renaming files. Step 4 still owns all renames and recovery history. If sibling scanning raises `OSError`, retain explicitly selected inputs.
 - Reuse the existing group extraction and cleanup paths: clean all discovered parts on success; retain them all on extraction/password failure.
 - Regression coverage: `tests/test_multipart_file_input.py`; real source/frozen coverage: `scripts/smoke_test.py`.
 

@@ -159,6 +159,25 @@ def _multipart_input_key(filename: str) -> tuple[str, str] | None:
 def read_dir(file_paths: list[str]) -> list[str]:
     """Read directory contents 读取目录内容"""
     result = []
+    detector: CloakedFileDetector | None = None
+
+    def multipart_key(path: str) -> tuple[str, str] | None:
+        nonlocal detector
+        key = _multipart_input_key(os.path.basename(path))
+        if key is not None:
+            return key
+        if detector is None:
+            rules = os.path.join(
+                os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                "config",
+                "cloaked_file_rules.json",
+            )
+            detector = CloakedFileDetector(rules)
+        # Preview only. Step 4 owns actual renames and their recovery history.
+        normalized = detector.detect_cloaked_file(path)
+        return (
+            _multipart_input_key(os.path.basename(normalized)) if normalized else None
+        )
 
     # Use ignored files from constants
     for path in file_paths:
@@ -176,16 +195,22 @@ def read_dir(file_paths: list[str]) -> list[str]:
             basename = os.path.basename(path)
             if basename not in IGNORED_FILES:
                 result.append(path)
-                key = _multipart_input_key(basename)
+                key = multipart_key(path) if os.path.isfile(path) else None
                 if key is not None and os.path.isfile(path):
                     directory = os.path.dirname(path)
-                    with os.scandir(directory or ".") as siblings:
-                        for sibling in siblings:
-                            if (
-                                sibling.is_file()
-                                and _multipart_input_key(sibling.name) == key
-                            ):
-                                result.append(os.path.join(directory, sibling.name))
+                    try:
+                        with os.scandir(directory or ".") as siblings:
+                            for sibling in siblings:
+                                sibling_path = os.path.join(directory, sibling.name)
+                                if (
+                                    sibling.name not in IGNORED_FILES
+                                    and sibling.is_file()
+                                    and multipart_key(sibling_path) == key
+                                ):
+                                    result.append(sibling_path)
+                    except OSError:
+                        # Discovery is best-effort; keep the explicitly selected file.
+                        pass
 
     # make sure the result is unique
     return list(set(result))

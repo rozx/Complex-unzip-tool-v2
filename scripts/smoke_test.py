@@ -63,7 +63,13 @@ def smoke(executable: Path | None = None) -> None:
         source.mkdir()
         payload = source / "中文 file.txt"
         payload.write_bytes(bytes(range(256)) * 1024)
-        for case_name in ("nested", "encrypted", "multipart", "multipart-file"):
+        for case_name in (
+            "nested",
+            "encrypted",
+            "multipart",
+            "multipart-file",
+            "multipart-cloaked-file",
+        ):
             case = root / f"{case_name} archives"
             case.mkdir()
             if case_name == "nested":
@@ -108,10 +114,15 @@ def smoke(executable: Path | None = None) -> None:
                     source,
                 )
                 assert (case / "split.7z.002").is_file()
+                if case_name == "multipart-cloaked-file":
+                    for part in case.glob("split.7z.*"):
+                        part.rename(part.with_name(part.name + "删除"))
             originals = [p for p in case.iterdir() if p.name != "passwords.txt"]
             target = case
-            if case_name == "multipart-file":
-                target = case / "split.7z.001"
+            single_input = case_name in {"multipart-file", "multipart-cloaked-file"}
+            if single_input:
+                suffix = "删除" if case_name == "multipart-cloaked-file" else ""
+                target = case / f"split.7z.001{suffix}"
                 unrelated = case / "split.zip"
                 with zipfile.ZipFile(unrelated, "w") as archive:
                     archive.writestr("unrelated.txt", b"keep me")
@@ -123,11 +134,14 @@ def smoke(executable: Path | None = None) -> None:
                 p.read_bytes() == payload.read_bytes() for p in outputs
             ), case_name
             assert all(not p.exists() for p in originals), case_name
-            if case_name == "multipart-file":
+            if single_input:
                 assert unrelated.read_bytes() == unrelated_bytes
+                assert not list(case.glob("split.7z.*"))
+                assert not (case / ".unzip-rename-history.tmp.json").exists()
         print(
             "Passed: help, version, nested ZIP, encrypted 7z, wrong password, "
-            "split 7z (directory and single-file input), redirected UTF-8 output"
+            "split 7z (directory, single-file and cloaked input), "
+            "redirected UTF-8 output"
         )
 
 
