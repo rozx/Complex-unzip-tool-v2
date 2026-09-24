@@ -1,4 +1,5 @@
 import hashlib
+import stat
 import tarfile
 import zipfile
 
@@ -73,6 +74,8 @@ def test_package_contains_executable_notices_and_checksum(
     binary = project / "dist" / executable
     binary.write_bytes(b"standalone program")
     binary.chmod(0o755)
+    # Windows chmod cannot set POSIX execute bits; preserve the host's file mode.
+    expected_mode = stat.S_IMODE(binary.stat().st_mode)
     notice = project / license_path
     notice.parent.mkdir(parents=True)
     notice.write_text("upstream notice")
@@ -95,7 +98,7 @@ def test_package_contains_executable_notices_and_checksum(
     else:
         with tarfile.open(archive) as tar:
             assert set(tar.getnames()) == expected_names
-            assert tar.getmember(executable).mode & 0o111
+            assert tar.getmember(executable).mode == expected_mode
             assert tar.extractfile(executable).read() == binary.read_bytes()
     assert archive.with_name(archive.name + ".sha256").read_text() == (
         f"{hashlib.sha256(archive.read_bytes()).hexdigest()}  {archive.name}\n"
