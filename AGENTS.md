@@ -146,7 +146,7 @@ This repo uses **OpenSpec**. Active specs live in `openspec/specs/`, proposed ch
 ## Passwords handling
 - Password discovery sources (in this order):
   1) Target directory: `passwords.txt` located in the directory you pass to the CLI.
-  2) Tool root directory: `passwords.txt` at the repository root (next to `AGENTS.md`).
+  2) Tool directory: `passwords.txt` beside `sys.executable` in frozen builds; repository root (next to `AGENTS.md`) in source runs. Never use CWD or `_MEIPASS` for the global book.
 
 - File format: one password per line; blank lines are ignored.
 
@@ -158,6 +158,17 @@ This repo uses **OpenSpec**. Active specs live in `openspec/specs/`, proposed ch
 - Saving behavior:
   - When new passwords are learned during a run, they are saved to the local `passwords.txt` in UTF-8.
   - Save only occurs when there are actual changes.
+  - Save to the same tool-directory path used for loading; target-directory books are read-only sources unless they are the same file. If saving raises `OSError`, warn without interrupting rename-history finalization or CLI completion. Builds must not embed `passwords.txt`.
+
+## Single-file multipart inputs
+- `file_utils.read_dir` includes matching sibling volumes when a file is selected, using the same directory, exact archive name, and split convention. It must not pull in unrelated archives, subdirectories, or another split convention with the same base name.
+- Reuse the existing group extraction and cleanup paths: clean all discovered parts on success; retain them all on extraction/password failure.
+- Regression coverage: `tests/test_multipart_file_input.py`; real source/frozen coverage: `scripts/smoke_test.py`.
+
+## Redirected Windows output
+- Configure redirected stdout/stderr as UTF-8 before the first Rich output. Preserve interactive terminal streams and wrappers without `reconfigure`.
+- Keep the PyInstaller `X utf8` option. The frozen CLI pauses only when both stdin and stdout are interactive Windows terminals.
+- Smoke tests deliberately use legacy GBK Python stream settings on Windows and validate UTF-8 output bytes.
 
 ## Renaming/Uncloaking rules
 The tool normalizes “cloaked” filenames before grouping/extracting. This is Step 4 in the CLI (“Uncloaking file extensions”).

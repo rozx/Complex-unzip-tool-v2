@@ -44,5 +44,10 @@ The build command SHALL produce a standalone console program for the host platfo
 Standalone programs SHALL pause on exit only for interactive Windows terminals.
 
 #### Scenario: POSIX or redirected invocation
-- **WHEN** a macOS/Linux standalone command completes or Windows stdin is redirected
+- **WHEN** a macOS/Linux standalone command completes or Windows stdin or stdout is redirected
 - **THEN** the application SHALL exit without requesting an additional Enter key
+
+#### Scenario: Windows output uses a legacy code page
+- **WHEN** Windows stdout or stderr is redirected to a pipe or file under a legacy encoding such as GBK
+- **THEN** the CLI SHALL emit UTF-8 output without an encoding error for Chinese text or emoji
+- **AND** both source and standalone invocations SHALL support this behavior without requiring Python environment variables

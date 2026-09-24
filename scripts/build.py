@@ -37,11 +37,6 @@ def generate_spec_content(project_root: Path, scripts_dir: Path) -> str:
         raise SevenZipNotFoundError(f"7-Zip license not found at: {license_file}")
     data_files.append(f"    ({str(license_file)!r}, {destination!r}),")
 
-    # Add passwords.txt if it exists
-    passwords_file = project_root / "passwords.txt"
-    if passwords_file.exists():
-        data_files.append(f'    (r"{passwords_file}", "."),')
-
     # Add config files
     config_dir = project_root / "complex_unzip_tool_v2" / "config"
     cloaked_rules_file = config_dir / "cloaked_file_rules.json"

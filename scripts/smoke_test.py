@@ -3,6 +3,7 @@
 import argparse
 import io
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -26,15 +27,27 @@ def smoke(executable: Path | None = None) -> None:
     engine = resolve_seven_zip_path()
     with tempfile.TemporaryDirectory(prefix="cuz-smoke-") as temporary:
         root = Path(temporary)
+        if executable:
+            portable = root / "portable tool"
+            portable.mkdir()
+            copied = portable / executable.name
+            shutil.copy2(executable, copied)
+            command = [str(copied)]
+            # The frozen CLI must find this from a different working directory.
+            (portable / "passwords.txt").write_text("测试 password\n", encoding="utf-8")
 
-        def run(arguments: list[str], cwd: Path = root) -> None:
+        def run(arguments: list[str], cwd: Path = root) -> bytes:
             result = subprocess.run(
                 arguments,
                 cwd=cwd,
                 stdin=subprocess.DEVNULL,
                 capture_output=True,
                 timeout=120,
-                env={**os.environ, "PYTHONUTF8": "1"},
+                env={
+                    **os.environ,
+                    "PYTHONUTF8": "0" if sys.platform == "win32" else "1",
+                    "PYTHONIOENCODING": "gbk" if sys.platform == "win32" else "utf-8",
+                },
             )
             if result.returncode:
                 raise RuntimeError(
@@ -42,6 +55,7 @@ def smoke(executable: Path | None = None) -> None:
                     + result.stdout.decode("utf-8", errors="replace")
                     + result.stderr.decode("utf-8", errors="replace")
                 )
+            return result.stdout
 
         run(command + ["--help"])
         run(command + ["--version"])
@@ -49,7 +63,7 @@ def smoke(executable: Path | None = None) -> None:
         source.mkdir()
         payload = source / "中文 file.txt"
         payload.write_bytes(bytes(range(256)) * 1024)
-        for case_name in ("nested", "encrypted", "multipart"):
+        for case_name in ("nested", "encrypted", "multipart", "multipart-file"):
             case = root / f"{case_name} archives"
             case.mkdir()
             if case_name == "nested":
@@ -77,7 +91,10 @@ def smoke(executable: Path | None = None) -> None:
                     pass
                 else:
                     raise AssertionError("Wrong password was accepted")
-                (case / "passwords.txt").write_text("测试 password\n", encoding="utf-8")
+                if not executable:
+                    (case / "passwords.txt").write_text(
+                        "测试 password\n", encoding="utf-8"
+                    )
             else:
                 run(
                     [
@@ -92,14 +109,25 @@ def smoke(executable: Path | None = None) -> None:
                 )
                 assert (case / "split.7z.002").is_file()
             originals = [p for p in case.iterdir() if p.name != "passwords.txt"]
-            run(command + ["--permanent-delete", str(case)])
+            target = case
+            if case_name == "multipart-file":
+                target = case / "split.7z.001"
+                unrelated = case / "split.zip"
+                with zipfile.ZipFile(unrelated, "w") as archive:
+                    archive.writestr("unrelated.txt", b"keep me")
+                unrelated_bytes = unrelated.read_bytes()
+            output = run(command + ["--permanent-delete", str(target)])
+            assert "🚀" in output.decode("utf-8"), case_name
             outputs = [p for p in (case / "unzipped").rglob("*") if p.is_file()]
             assert any(
                 p.read_bytes() == payload.read_bytes() for p in outputs
             ), case_name
             assert all(not p.exists() for p in originals), case_name
+            if case_name == "multipart-file":
+                assert unrelated.read_bytes() == unrelated_bytes
         print(
-            "Passed: help, version, nested ZIP, encrypted 7z, wrong password, split 7z"
+            "Passed: help, version, nested ZIP, encrypted 7z, wrong password, "
+            "split 7z (directory and single-file input), redirected UTF-8 output"
         )
 
 

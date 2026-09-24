@@ -65,3 +65,15 @@ def test_missing_assets_keep_previous_build(monkeypatch, tmp_path, missing):
     previous.write_bytes(b"previous build")
     assert build.main() == 1
     assert previous.read_bytes() == b"previous build"
+
+
+def test_build_does_not_embed_personal_passwords(monkeypatch, tmp_path):
+    monkeypatch.setattr(platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(platform, "machine", lambda: "arm64")
+    engine_dir = tmp_path / "7z" / "macos"
+    engine_dir.mkdir(parents=True)
+    (engine_dir / "7zz").touch(mode=0o755)
+    (engine_dir / "License.txt").touch()
+    (tmp_path / "passwords.txt").write_text("private-password", encoding="utf-8")
+    spec = build.generate_spec_content(tmp_path, tmp_path / "scripts")
+    assert "passwords.txt" not in spec

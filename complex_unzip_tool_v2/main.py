@@ -155,6 +155,8 @@ def _ask_for_user_input_and_exit() -> None:
         and platform.system() == "Windows"
         and sys.stdin is not None
         and sys.stdin.isatty()
+        and sys.stdout is not None
+        and sys.stdout.isatty()
     ):
         input("Press Enter to exit... 按回车键退出...")
     sys.exit(0)
@@ -1277,7 +1279,14 @@ def extract_files(paths: List[str], use_recycle_bin: bool = True) -> None:
     # save user provided passwords only if there are changes
     if passwordBook.has_unsaved_changes():
         print_info("💾 Saving passwords 正在保存密码...")
-        passwordBook.save_passwords()
+        try:
+            passwordBook.save_passwords()
+        except OSError as exc:
+            print_warning(
+                f"Could not save passwords 无法保存密码本: "
+                f"{passwordBook.password_file} ({exc}). "
+                "Check write permissions 请检查目录写入权限。"
+            )
     else:
         print_info("📝 No new passwords to save 没有新密码需要保存")
 

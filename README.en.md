@@ -51,11 +51,13 @@ No separate 7-Zip installation or runtime download is required. See [7z/README.m
 # Extract every archive inside a folder
 complex-unzip-tool-v2.exe "D:\Downloads\Archives"
 
-# Extract specific files (multipart parts can be listed together)
-complex-unzip-tool-v2.exe "D:\file.zip" "D:\movie.7z.001" "D:\movie.7z.002"
+# Extract specific files (the primary volume discovers matching sibling parts)
+complex-unzip-tool-v2.exe "D:\file.zip" "D:\movie.7z.001"
 ```
 
 Extracted contents are written to an `unzipped/` folder. On success, original archives are moved to the system **Recycle Bin / Trash** (recoverable). Linux needs an available desktop trash directory; originals are retained if recycling fails.
+
+Passing a single volume collects its matching parts from the same directory and naming convention. All parts are cleaned up on success and retained on extraction or password failure. On Windows, output redirected to a file or pipe uses UTF-8 and the program exits without waiting for Enter.
 
 ### Passwords
 
@@ -64,7 +66,7 @@ Many netdisk archives are password-protected. Put your passwords in a `passwords
 **Two locations are supported and merged automatically:**
 
 1. **Target directory** — place `passwords.txt` in the folder you pass to the tool (or next to the file you pass). Best for passwords specific to that batch of files.
-2. **Tool directory** — place `passwords.txt` next to the `.exe` (its working directory) as a global password book used for every run.
+2. **Tool directory** — place `passwords.txt` next to the executable (`.exe` on Windows; `complex-unzip-tool-v2` on macOS / Linux). Source runs use the project root. This location is independent of the working directory and drag-and-drop launch behavior.
 
 **File format** (one password per line; blank lines ignored; duplicates removed automatically):
 
@@ -75,6 +77,7 @@ mypassword
 ```
 
 - 📝 **Auto-learn**: passwords cracked during a run are written back to the tool-directory `passwords.txt` for reuse next time.
+- The target-directory password book is read only, unless it is also the tool-directory book. If the tool directory is not writable, the program warns and completes extraction cleanup; move it to a writable directory to save new passwords. Builds do not embed personal password books.
 - 🈶 **Encoding-aware**: auto-detects UTF-8 / GBK / GB2312 / Big5 / UTF-16 (with BOM), so Chinese passwords work without mojibake.
 
 ### Options
