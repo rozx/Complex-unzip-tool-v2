@@ -11,8 +11,22 @@ from rich.progress import (
 )
 from rich.table import Table
 from typing import List, Any, Optional
+import platform
+import sys
 import time
 from complex_unzip_tool_v2 import __version__
+
+
+def _configure_redirected_output() -> None:
+    """Keep Windows pipes/logs Unicode-safe before Rich emits the first banner."""
+    if platform.system() == "Windows":
+        for stream in (sys.stdout, sys.stderr):
+            reconfigure = getattr(stream, "reconfigure", None)
+            if callable(reconfigure) and not stream.isatty():
+                reconfigure(encoding="utf-8", errors="backslashreplace")
+
+
+_configure_redirected_output()
 
 # Initialize console with better width handling and proper encoding support
 console = Console(width=120, force_terminal=True)

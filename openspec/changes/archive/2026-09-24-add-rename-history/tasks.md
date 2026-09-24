@@ -5,7 +5,7 @@
 - [x] 1.3 Implement `bind(renamed_path: str, group_key: str)` — find entry by `renamed` path and set its `group`; persist.
 - [x] 1.4 Implement `revert_group(group_key: str) -> tuple[int, list[tuple[str, str]]]` — for every entry bound to that group, attempt `os.rename(renamed → original)`; skip missing renamed files; use collision-safe fallback when original already exists; remove successfully-reverted entries; persist after each entry; return `(count, sample)` for UI.
 - [x] 1.5 Implement `clear_group(group_key: str)` — drop all entries bound to that group; persist.
-- [x] 1.6 Implement `revert_unbound() -> int` — revert any entries whose `group is None` at finalize time.
+- [x] 1.6 Implement `revert_unbound() -> tuple[int, list[tuple[str, str]]]` — revert any entries whose `group is None` at finalize time.
 - [x] 1.7 Implement `finalize()` — if no entries remain, delete the JSON file; otherwise leave it for next-run recovery.
 - [x] 1.8 Implement `RenameHistory.load_pending(input_root: str) -> RenameHistory | None` classmethod — return a populated instance if a leftover file exists with non-empty entries; return None otherwise.
 - [x] 1.9 Implement atomic JSON write helper (`_persist`): write `<file>.tmp` then `os.replace`. Use `json.dump` with stable key order.
@@ -52,5 +52,5 @@
 ## 6. Validation
 
 - [x] 6.1 Run `poetry run pytest -q` — all tests pass.
-- [ ] 6.2 Run the tool against a real cloaked input dir, observe rename happens, force a failure (e.g. wrong password / Ctrl+C), confirm files are reverted and the JSON file is properly cleaned up or preserved as designed.
-- [ ] 6.3 Run `openspec verify --change add-rename-history --json` and resolve any issues.
+- [x] 6.2 Run the tool against a real cloaked input dir, observe rename happens, force a failure (e.g. wrong password / Ctrl+C), confirm files are reverted and the JSON file is properly cleaned up or preserved as designed.
+- [x] 6.3 Verify implementation/spec/test coverage and run `openspec validate add-rename-history --strict`; record remaining non-blocking differences in `validation.md`. The installed CLI has no `verify` subcommand.

@@ -8,7 +8,8 @@ This document defines how AI agents (and humans using them) should operate in th
 - Package/Deps: Poetry (`pyproject.toml`, `poetry.lock`)
 - Tests: `pytest` in `tests/`
 - Bundling: scripts in `scripts/` and `7z/` binaries bundled for archive ops
-- Default dev shell: Windows PowerShell
+- Supported platforms: Windows x64, macOS Intel/Apple Silicon, Linux x64/ARM64
+- Dev shells: PowerShell on Windows; bash/zsh on macOS/Linux
 
 ## Project Summary
 A command-line tool to unzip/extract various archive formats, including nested and password-protected archives, with cloaked file detection.
@@ -24,12 +25,12 @@ A command-line tool to unzip/extract various archive formats, including nested a
 ## Goals
 - Keep the app stable and easy to maintain.
 - Prefer minimal, well-scoped changes with tests.
-- Follow a clear workflow so changes are reproducible locally on Windows.
+- Follow a clear workflow so changes are reproducible locally on each supported platform.
 - **When making changes, ensure all existing behavior is preserved unless intentionally modified.**
 
 ## Ground Rules
 - Do not exfiltrate secrets or make network calls unless explicitly required.
-- Assume local execution on Windows with PowerShell; keep commands compatible.
+- Keep code portable across supported platforms; use PowerShell-compatible commands on Windows and native shell commands on macOS/Linux.
 - Respect the existing structure under `complex_unzip_tool_v2/` and `scripts/`.
 - Use `pytest` for tests; add or update tests when changing behavior.
 - Keep public APIs stable unless the change is intentional and documented.
@@ -81,7 +82,7 @@ poetry run main --help
 poetry run build
 ```
 
-Note: The project bundles `7z/7z.exe`; code paths may assume this local binary.
+The project bundles 7-Zip 26.03 for each supported platform. Use `modules/seven_zip_runtime.py` for engine selection; see `7z/README.md` for paths, checksums, and licenses. Build on the target OS/architecture with `poetry run build`.
 
 ## Repository Facts
 - Entry points: `complex_unzip_tool_v2/__main__.py`, `complex_unzip_tool_v2/main.py`.
@@ -113,6 +114,14 @@ Note: The project bundles `7z/7z.exe`; code paths may assume this local binary.
 ## Spec-driven development (OpenSpec)
 This repo uses **OpenSpec**. Active specs live in `openspec/specs/`, proposed changes in `openspec/changes/`, and project conventions in `openspec/project.md`. For non-trivial features or behavior changes, create/advance an OpenSpec change (via the `openspec-*` skills) instead of ad-hoc edits, then archive it once implemented. Small bugfixes can skip this, but still follow TDD.
 
+## CI and releases
+
+- `.github/workflows/ci.yml` tests and builds Windows x64, macOS x64/ARM64, and Linux x64/ARM64. `scripts/smoke_test.py` verifies real native source/standalone extraction using temporary fixtures.
+- `.github/workflows/release.yml` publishes only after a `release/*` PR carrying the `release` label merges into `main`. Build and tag the exact merge commit.
+- Versions in `pyproject.toml`, package `__version__`, and `.bumpversion.cfg` must match and be bumped before release. `scripts/release.py` validates versions and packages assets/checksums.
+- Release bodies come verbatim from `ReleaseNotes/RELEASE_NOTES_vX.Y.Z.md` in the merge commit. Missing or empty notes block publication; do not fall back to generated GitHub notes or another version.
+- Only the publication job has write permissions. Never move an existing version tag or overwrite a published release; `scripts/publish_release.cjs` can resume a matching draft.
+
 ## Quality Gates (Definition of Done)
 - Build/Run: CLI `--help` works without errors.
 - Tests: all tests pass locally; new behavior is covered by tests.
@@ -125,7 +134,7 @@ This repo uses **OpenSpec**. Active specs live in `openspec/specs/`, proposed ch
 - Put tests in `tests/`, named `test_*.py`.
 - Cover happy path and at least one edge case (e.g., missing password, invalid archive, cloaked file detection).
 - Prefer small, deterministic examples; avoid large fixtures unless needed.
-- Tests do **not** require the real `7z.exe`: mock the subprocess/extraction calls with `monkeypatch` and use the `tmp_path` fixture for filesystem effects. Pure helpers (regex / grouping / uncloaking / path normalization) are tested directly. See `tests/test_archive_utils.py` for the mocking pattern.
+- Unit tests do **not** execute the real 7-Zip engine: mock the subprocess/extraction calls with `monkeypatch` and use the `tmp_path` fixture for filesystem effects. Pure helpers (regex / grouping / uncloaking / path normalization) are tested directly. See `tests/test_archive_utils.py` for the mocking pattern.
 
 ## Coding Conventions
 - Keep functions small; prefer pure helpers in `modules/` when feasible.
@@ -137,7 +146,7 @@ This repo uses **OpenSpec**. Active specs live in `openspec/specs/`, proposed ch
 ## Passwords handling
 - Password discovery sources (in this order):
   1) Target directory: `passwords.txt` located in the directory you pass to the CLI.
-  2) Tool root directory: `passwords.txt` at the repository root (next to `AGENTS.md`).
+  2) Tool directory: `passwords.txt` beside `sys.executable` in frozen builds; repository root (next to `AGENTS.md`) in source runs. Never use CWD or `_MEIPASS` for the global book.
 
 - File format: one password per line; blank lines are ignored.
 
@@ -149,6 +158,18 @@ This repo uses **OpenSpec**. Active specs live in `openspec/specs/`, proposed ch
 - Saving behavior:
   - When new passwords are learned during a run, they are saved to the local `passwords.txt` in UTF-8.
   - Save only occurs when there are actual changes.
+  - Save to the same tool-directory path used for loading; target-directory books are read-only sources unless they are the same file. If saving raises `OSError`, warn without interrupting rename-history finalization or CLI completion. Builds must not embed `passwords.txt`.
+
+## Single-file multipart inputs
+- `file_utils.read_dir` includes matching sibling volumes when a file is selected, using the same directory, exact archive name, and split convention. It must not pull in unrelated archives, subdirectories, or another split convention with the same base name.
+- Discovery previews the configured uncloaking rules without renaming files. Step 4 still owns all renames and recovery history. If sibling scanning raises `OSError`, retain explicitly selected inputs.
+- Reuse the existing group extraction and cleanup paths: clean all discovered parts on success; retain them all on extraction/password failure.
+- Regression coverage: `tests/test_multipart_file_input.py`; real source/frozen coverage: `scripts/smoke_test.py`.
+
+## Redirected Windows output
+- Configure redirected stdout/stderr as UTF-8 before the first Rich output. Preserve interactive terminal streams and wrappers without `reconfigure`.
+- Keep the PyInstaller `X utf8` option. The frozen CLI pauses only when both stdin and stdout are interactive Windows terminals.
+- Smoke tests deliberately use legacy GBK Python stream settings on Windows and validate UTF-8 output bytes.
 
 ## Renaming/Uncloaking rules
 The tool normalizes “cloaked” filenames before grouping/extracting. This is Step 4 in the CLI (“Uncloaking file extensions”).
@@ -268,7 +289,7 @@ The tool treats every file as a potential archive by default. During nested extr
   - Smoke: running against directories containing non‑archive files (e.g., .mp4) should not produce “corrupted archive” messages for those files.
 
 ## Common Local Paths
-- 7-Zip: `./7z/7z.exe`
+- 7-Zip: `./7z/windows-x64/7z.exe` + `7z.dll` (Windows), `./7z/macos/7zz`, `./7z/linux-x64/7zzs`, or `./7z/linux-arm64/7zzs`; each platform directory also contains its `License.txt`.
 - Config: `complex_unzip_tool_v2/config/cloaked_file_rules.json`
 - CLI Entrypoint: `complex_unzip_tool_v2/__main__.py`
 
@@ -281,12 +302,12 @@ The tool treats every file as a potential archive by default. During nested extr
 ## Troubleshooting
 - Poetry not found: install Poetry or run via system Python if necessary.
 - Windows path issues: use raw strings or `pathlib` to avoid backslash escapes.
-- 7z missing: ensure `./7z/7z.exe` exists; code should refer to the bundled binary.
+- 7-Zip missing: restore the bundled engine for the host platform (and the DLL on Windows). Unix engines require executable permissions. The CLI validates the engine before extraction changes input files.
 
 ## Scope for Agents
 - Keep PRs atomic and under ~300 lines of changes when possible.
 - Avoid introducing new dependencies unless clearly justified and added to `pyproject.toml`.
-- Do not modify bundled binaries under `7z/`.
+- Do not modify bundled binaries under `7z/` except for an explicitly requested upstream upgrade. Preserve official bytes and licenses, and update `7z/manifest.json`.
 
 ---
 

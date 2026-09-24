@@ -3,6 +3,7 @@
 import os
 import shutil
 import sys
+import platform
 import typer
 from typing import List, Optional, Annotated
 from . import __version__
@@ -146,12 +147,22 @@ def _maybe_recover_pending_renames(input_root: str) -> None:
     )
 
 
-def _ask_for_user_input_and_exit() -> None:
+def _ask_for_user_input_and_exit(exit_code: int = 0) -> None:
     """Ask for random user input before exiting the application."""
     # Only ask for input in standalone builds (PyInstaller frozen executables)
-    if getattr(sys, "frozen", False):
-        input("Press Enter to exit... 按回车键退出...")
-    sys.exit(0)
+    if (
+        getattr(sys, "frozen", False)
+        and platform.system() == "Windows"
+        and sys.stdin is not None
+        and sys.stdin.isatty()
+        and sys.stdout is not None
+        and sys.stdout.isatty()
+    ):
+        try:
+            input("Press Enter to exit... 按回车键退出...")
+        except (EOFError, KeyboardInterrupt):
+            pass
+    sys.exit(exit_code)
 
 
 @app.callback(invoke_without_command=True)
@@ -180,6 +191,11 @@ def main_callback(
     # If no command is provided, run the default extract command
     if ctx.invoked_subcommand is None:
         if paths:
+            try:
+                archive_utils.resolve_seven_zip_path()
+            except archive_utils.SevenZipNotFoundError as exc:
+                print_error(str(exc))
+                _ask_for_user_input_and_exit(1)
             # Call extract_files directly instead of extract command
             extract_files(paths, use_recycle_bin=not permanent_delete)
         else:
@@ -1266,7 +1282,14 @@ def extract_files(paths: List[str], use_recycle_bin: bool = True) -> None:
     # save user provided passwords only if there are changes
     if passwordBook.has_unsaved_changes():
         print_info("💾 Saving passwords 正在保存密码...")
-        passwordBook.save_passwords()
+        try:
+            passwordBook.save_passwords()
+        except OSError as exc:
+            print_warning(
+                f"Could not save passwords 无法保存密码本: "
+                f"{passwordBook.password_file} ({exc}). "
+                "Check write permissions 请检查目录写入权限。"
+            )
     else:
         print_info("📝 No new passwords to save 没有新密码需要保存")
 

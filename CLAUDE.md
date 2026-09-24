@@ -11,7 +11,7 @@ This repository follows **Test-Driven Development**. For every feature or bugfix
 3. Write the minimum code to make it pass.
 4. Refactor with the test green.
 
-Tests do **not** require the real `7z.exe` — the extraction engine's subprocess calls are mocked with `monkeypatch` and filesystem effects use the `tmp_path` fixture. Pure helpers (regex/grouping/uncloaking/path-normalization) are tested directly. Prefer this style: small, deterministic, no real archives.
+Unit tests do **not** execute the real 7-Zip engine — the extraction engine's subprocess calls are mocked with `monkeypatch` and filesystem effects use the `tmp_path` fixture. Pure helpers (regex/grouping/uncloaking/path-normalization) are tested directly. Prefer this style: small, deterministic, no real archives.
 
 ## Commands
 
@@ -29,13 +29,13 @@ poetry run mypy complex_unzip_tool_v2/          # type check (strict: disallow_u
 
 poetry run main "C:\path\to\archives"           # run the tool (alias: poetry run cuz)
 poetry run main --help                          # CLI smoke test
-poetry run build                                # build standalone exe -> dist/
+poetry run build                                # build native standalone -> dist/
 poetry run bump-patch | bump-minor | bump-major # version bump (bump2version)
 ```
 
 **Quality gates before committing:** `pytest -q` green, `flake8` clean, `mypy` clean, `black` applied, `--help` works.
 
-Platform is **Windows-only** (bundles `./7z/7z.exe`); the default shell is PowerShell.
+Supported platforms: **Windows x64, macOS Intel/Apple Silicon, Linux x64/ARM64**. Native 7-Zip 26.03 engines are bundled; `modules/seven_zip_runtime.py` selects the correct one for source and frozen execution. See `7z/README.md` for paths, checksums, and licenses. Build on the target OS/architecture; Windows uses PowerShell and macOS/Linux use a native shell.
 
 ## Architecture
 

@@ -133,9 +133,51 @@ def get_archive_base_name(file_path: str) -> tuple[str, str]:
     return name, ext.lstrip(".")
 
 
+def _multipart_input_key(filename: str) -> tuple[str, str] | None:
+    """Identify an exact volume set without merging different split conventions."""
+    if re.search(multipart_regex, filename, re.IGNORECASE):
+        numbered = re.match(r"^(.*)\.\d+$", filename)
+        if numbered:
+            return "numbered", os.path.normcase(numbered.group(1))
+    rar_part = re.match(r"^(.*)\.part\d+\.rar$", filename, re.IGNORECASE)
+    if rar_part:
+        return "rar-part", os.path.normcase(rar_part.group(1))
+    # Ambiguous primary names (.zip/.rar/...) only match their own continuations.
+    for family, suffix in (
+        ("rar", r"rar|r\d{2}"),
+        ("zip", r"zip|z\d{2}"),
+        ("zipx", r"zipx|zx\d{2}"),
+        ("arj", r"arj|a\d{2}"),
+        ("ace", r"ace|c\d{2}"),
+    ):
+        match = re.match(rf"^(.*)\.(?:{suffix})$", filename, re.IGNORECASE)
+        if match:
+            return family, os.path.normcase(match.group(1))
+    return None
+
+
 def read_dir(file_paths: list[str]) -> list[str]:
     """Read directory contents 读取目录内容"""
     result = []
+    detector: CloakedFileDetector | None = None
+
+    def multipart_key(path: str) -> tuple[str, str] | None:
+        nonlocal detector
+        key = _multipart_input_key(os.path.basename(path))
+        if key is not None:
+            return key
+        if detector is None:
+            rules = os.path.join(
+                os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                "config",
+                "cloaked_file_rules.json",
+            )
+            detector = CloakedFileDetector(rules)
+        # Preview only. Step 4 owns actual renames and their recovery history.
+        normalized = detector.detect_cloaked_file(path)
+        return (
+            _multipart_input_key(os.path.basename(normalized)) if normalized else None
+        )
 
     # Use ignored files from constants
     for path in file_paths:
@@ -153,6 +195,22 @@ def read_dir(file_paths: list[str]) -> list[str]:
             basename = os.path.basename(path)
             if basename not in IGNORED_FILES:
                 result.append(path)
+                key = multipart_key(path) if os.path.isfile(path) else None
+                if key is not None and os.path.isfile(path):
+                    directory = os.path.dirname(path)
+                    try:
+                        with os.scandir(directory or ".") as siblings:
+                            for sibling in siblings:
+                                sibling_path = os.path.join(directory, sibling.name)
+                                if (
+                                    sibling.name not in IGNORED_FILES
+                                    and sibling.is_file()
+                                    and multipart_key(sibling_path) == key
+                                ):
+                                    result.append(sibling_path)
+                    except OSError:
+                        # Discovery is best-effort; keep the explicitly selected file.
+                        pass
 
     # make sure the result is unique
     return list(set(result))

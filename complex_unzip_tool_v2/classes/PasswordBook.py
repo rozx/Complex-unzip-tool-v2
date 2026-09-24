@@ -1,11 +1,21 @@
+import sys
+from pathlib import Path
+
+
 class PasswordBook:
-    def __init__(self):
+    def __init__(self) -> None:
         self.local_entries: list[str] = []
         self.dest_entries: list[str] = []
         self._has_changes: bool = False  # Track if there are unsaved changes
 
-        # load passwords from local file
-        self.load_passwords("passwords.txt", True)
+        # Portable builds use the real executable directory, never _MEIPASS or CWD.
+        tool_root = (
+            Path(sys.executable).absolute().parent
+            if getattr(sys, "frozen", False)
+            else Path(__file__).resolve().parents[2]
+        )
+        self.password_file = tool_root / "passwords.txt"
+        self.load_passwords(str(self.password_file), True)
 
     def load_passwords(self, path: str, is_local: bool = False) -> None:
         """Load passwords from a file 从文件加载密码"""
@@ -63,7 +73,7 @@ class PasswordBook:
         if not self._has_changes and not force:
             return  # No changes to save
 
-        with open("passwords.txt", "w", encoding="utf-8") as f:
+        with open(self.password_file, "w", encoding="utf-8") as f:
             for entry in self.local_entries:
                 f.write(f"{entry}\n")
 
