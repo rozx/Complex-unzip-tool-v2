@@ -29,7 +29,7 @@ class TestGetArchiveBaseName:
     def test_path_with_directories(self):
         """Test with file paths containing directories."""
         assert fu.get_archive_base_name("/path/to/test.zip") == ("test", "zip")
-        assert fu.get_archive_base_name("C:\\folder\\archive.7z.001") == (
+        assert fu.get_archive_base_name(os.path.join("folder", "archive.7z.001")) == (
             "archive",
             "7z",
         )
@@ -598,19 +598,14 @@ class TestCreateGroupsByName:
         groups = fu.create_groups_by_name(self.test_files)
         assert len(groups) > 0  # All files should result in groups
 
-    def test_7z_not_merged_into_spanned_zip_group(self):
+    def test_7z_not_merged_into_spanned_zip_group(self, tmp_path):
         """A standalone .7z sharing a base name with a spanned .zip set must
         stay in its own group, not get merged into the multipart zip group.
 
         Regression for the reported bug where a .7z grouped with a .zip/.z01
         set caused the .7z to be deleted (and the zip mishandled).
         """
-        files = [
-            r"C:\in\foo.7z",
-            r"C:\in\foo.zip",
-            r"C:\in\foo.z01",
-            r"C:\in\foo.z02",
-        ]
+        files = [str(tmp_path / f"foo.{ext}") for ext in ("7z", "zip", "z01", "z02")]
         groups = fu.create_groups_by_name(files)
 
         # Exactly two groups: the standalone 7z, and the spanned zip set.
@@ -622,17 +617,13 @@ class TestCreateGroupsByName:
         assert "foo.7z" in by_main
         sevenz_group = by_main["foo.7z"]
         assert sevenz_group.isMultiPart is False
-        assert sevenz_group.files == [r"C:\in\foo.7z"]
+        assert sevenz_group.files == [files[0]]
 
         # The spanned zip set is multipart with .zip as the main entry point.
         assert "foo.zip" in by_main
         zip_group = by_main["foo.zip"]
         assert zip_group.isMultiPart is True
-        assert set(zip_group.files) == {
-            r"C:\in\foo.zip",
-            r"C:\in\foo.z01",
-            r"C:\in\foo.z02",
-        }
+        assert set(zip_group.files) == set(files[1:])
 
 
 class TestMoveFilesPreservingStructure:

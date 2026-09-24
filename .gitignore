@@ -163,6 +163,8 @@ cython_debug/
 .vscode/
 
 # Project specific
+artifacts/
+release-assets/
 output.txt
 passwords.txt
 demo/

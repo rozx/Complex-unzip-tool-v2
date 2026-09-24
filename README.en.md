@@ -3,7 +3,7 @@
 ![GitHub Release](https://img.shields.io/github/v/release/rozx/Complex-unzip-tool-v2)
 [![Python](https://img.shields.io/badge/python-3.11+-green.svg)](https://python.org)
 [![License](https://img.shields.io/badge/license-MIT-yellow.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/platform-Windows-lightgrey.svg)](https://github.com/rozx/Complex-unzip-tool-v2)
+[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)](https://github.com/rozx/Complex-unzip-tool-v2)
 
 🌐 [中文](README.md) | **English**
 
@@ -23,11 +23,23 @@ This tool automatically **restores the real filenames (uncloaks)**, **regroups**
 
 ## 🚀 Quick Start
 
-1. **Download** the latest `complex-unzip-tool-v2.exe` from the **[Releases](https://github.com/rozx/Complex-unzip-tool-v2/releases)** page — no installation needed.
-2. **Drag & drop** your archive files or folders onto the `.exe`.
+1. **Download** the package for your OS and architecture from **[Releases](https://github.com/rozx/Complex-unzip-tool-v2/releases)**. On Windows, extract `windows-x64.zip` to get `complex-unzip-tool-v2.exe` (older releases may provide the `.exe` directly).
+2. **Drag & drop** your archive files or folders onto the `.exe` on Windows.
 3. **Done** — it uncloaks, groups, and extracts everything automatically.
 
-> 🖱️ Drag & drop is the easiest way to use it.
+On macOS / Linux, extract the matching `.tar.gz` and run `./complex-unzip-tool-v2 "archive directory"` in a terminal. Alternatively, follow Development below to run from source, or run `poetry run build` on your machine and then:
+
+```bash
+./dist/complex-unzip-tool-v2 "$HOME/Downloads/Archives"
+```
+
+| Platform | Supported architectures | Bundled 7-Zip 26.03 |
+| --- | --- | --- |
+| Windows | x64 | `7z.exe` + `7z.dll` |
+| macOS | Intel / Apple Silicon | Universal `7zz` |
+| Linux | x64 / ARM64 | Static `7zzs` |
+
+No separate 7-Zip installation or runtime download is required. See [7z/README.md](7z/README.md) for upstream sources, checksums, and licenses.
 
 ---
 
@@ -43,7 +55,7 @@ complex-unzip-tool-v2.exe "D:\Downloads\Archives"
 complex-unzip-tool-v2.exe "D:\file.zip" "D:\movie.7z.001" "D:\movie.7z.002"
 ```
 
-Extracted contents are written to an `unzipped/` folder. On success, original archives are moved to the **Recycle Bin** (recoverable).
+Extracted contents are written to an `unzipped/` folder. On success, original archives are moved to the system **Recycle Bin / Trash** (recoverable). Linux needs an available desktop trash directory; originals are retained if recycling fails.
 
 ### Passwords
 
@@ -83,14 +95,14 @@ mypassword
 - 📦 **Multipart support** — `.001/.002`, `.part1/.part2`, `.rar/.r00`, `.zip/.z01`, and more; finds and regroups scattered parts.
 - 🔐 **Smart passwords** — tries a password book automatically and caches successful ones.
 - 🏗️ **Nested extraction** — recursively extracts archives inside archives.
-- 🖱️ **Drag & drop + standalone** — single self-contained `.exe` (Python + 7-Zip bundled), no install.
+- 🖱️ **Standalone** — build a single executable with Python and 7-Zip for each platform; Windows also supports dropping files onto the `.exe`.
 - 🌐 **Bilingual UI** — clear progress output in English and 中文.
 
 ---
 
 ## 🛠️ Development
 
-Requires Python 3.11+ and [Poetry](https://python-poetry.org/). Windows only (bundles `7z/7z.exe`).
+Requires Python 3.11+ and [Poetry](https://python-poetry.org/). Supports the platforms and architectures listed above.
 
 ```powershell
 git clone https://github.com/rozx/Complex-unzip-tool-v2.git
@@ -99,10 +111,51 @@ poetry install
 
 poetry run main "D:\path\to\archives"   # run the tool (alias: poetry run cuz)
 poetry run pytest -q                     # run tests
-poetry run build                         # build the standalone .exe -> dist/
+poetry run build                         # build for the current platform -> dist/
 ```
 
+On macOS / Linux:
+
+```bash
+poetry run main "$HOME/Downloads/Archives"
+poetry run pytest -q
+poetry run build
+./dist/complex-unzip-tool-v2 --help
+```
+
+Build on the target OS and architecture. Windows produces an `.exe`; macOS / Linux produce an executable without an extension. Only the native engine is packaged. The macOS application targets the current Python architecture while its bundled 7-Zip is universal. Distribution signing and notarization are not configured.
+
+If copying a source checkout loses Unix execute permissions, run `chmod +x` on the matching engine: `7z/macos/7zz`, `7z/linux-x64/7zzs`, or `7z/linux-arm64/7zzs`. Missing or non-executable engines are reported before the CLI modifies input files.
+
 See [AGENTS.md](AGENTS.md) and [CLAUDE.md](CLAUDE.md) for architecture, conventions, and the extraction pipeline.
+
+### GitHub CI and automatic releases
+
+[CI](.github/workflows/ci.yml) runs on pushes and PRs targeting `main` or `release/**`. Each of the five platforms runs the complete test suite, engine checksum validation, real archive smoke tests, a standalone build, and standalone smoke tests. Downloadable packages remain in Actions artifacts for 14 days.
+
+[Release](.github/workflows/release.yml) publishes only when all of these conditions hold:
+
+1. The PR source branch matches `release/*`, for example `release/v1.3`.
+2. The PR has the `release` label at merge time.
+3. The PR is merged into `main`.
+
+Before merging, use `poetry run bump-minor`, `poetry run bump-patch`, or the other existing bump commands on the release branch, then commit the version changes. `pyproject.toml`, package `__version__`, and `.bumpversion.cfg` must agree on an unpublished stable `X.Y.Z`. The branch name controls eligibility; the project version supplies the tag, such as `v1.3.0`. The current `1.2.2` version is already released and must be bumped before the first automatic release. Include the matching notes in the same PR, for example `ReleaseNotes/RELEASE_NOTES_v1.3.0.md`. Missing or empty notes fail before platform builds start.
+
+The release workflow rebuilds all platforms from the PR's exact merge commit. After every build succeeds, it creates a GitHub Release using the exact contents of `ReleaseNotes/RELEASE_NOTES_vX.Y.Z.md` as its body, with these downloads:
+
+| Platform | Download (v1.3.0 example) |
+| --- | --- |
+| Windows x64 | `complex-unzip-tool-v2-v1.3.0-windows-x64.zip` |
+| macOS Intel | `complex-unzip-tool-v2-v1.3.0-macos-x64.tar.gz` |
+| macOS Apple Silicon | `complex-unzip-tool-v2-v1.3.0-macos-arm64.tar.gz` |
+| Linux x64 | `complex-unzip-tool-v2-v1.3.0-linux-x64.tar.gz` |
+| Linux ARM64 | `complex-unzip-tool-v2-v1.3.0-linux-arm64.tar.gz` |
+
+Each package includes the program, documentation, and licenses. The release also includes `SHA256SUMS`. Linux executables are built on Ubuntu 24.04 and require compatible system libraries; macOS and Windows distribution signing is not configured.
+
+The workflow must first exist on `main`; subsequent eligible merges trigger publication. Add the label before merging. Closing an unmerged PR, adding the label after merge, or pushing a tag alone does not publish. The built-in `GITHUB_TOKEN` is sufficient; only the final publishing job has `contents: write`.
+
+Use Actions to rerun failed jobs. Interrupted uploads leave a draft that can be resumed for the same version and merge commit; its body is updated from that commit's matching release notes file. Publication waits until all remote assets pass checksum verification. Published releases are never overwritten, and a tag or draft belonging to another commit causes a clear failure.
 
 ---
 

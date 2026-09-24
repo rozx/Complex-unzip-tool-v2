@@ -1,0 +1,2 @@
+# Keep upstream license bytes and CRLF intact for manifest verification.
+7z/**/License.txt -text whitespace=cr-at-eol,-blank-at-eof

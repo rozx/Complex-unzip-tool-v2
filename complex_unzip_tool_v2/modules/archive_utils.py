@@ -1,6 +1,5 @@
 import subprocess
 import os
-import sys
 import shutil
 import tempfile
 from typing import List, Dict, Optional, Union, Tuple, Callable
@@ -28,6 +27,10 @@ from complex_unzip_tool_v2.modules.rich_utils import (
 from complex_unzip_tool_v2.modules.file_utils import safe_remove
 from complex_unzip_tool_v2.modules.utils import sanitize_path, sanitize_filename
 from complex_unzip_tool_v2.modules.const import PATH_ERROR_KEYWORDS
+from complex_unzip_tool_v2.modules.seven_zip_runtime import (
+    bundled_engine_path,
+    resolve_seven_zip_path,
+)
 
 from complex_unzip_tool_v2.classes.ArchiveTypes import (
     ArchiveError,
@@ -46,11 +49,8 @@ from complex_unzip_tool_v2.classes.ArchiveTypes import (
 
 
 def _resolve_seven_zip_path(seven_zip_path: Optional[str]) -> str:
-    """Return a valid path to 7z.exe, raising if it doesn't exist."""
-    path = seven_zip_path or _get_default_7z_path()
-    if not os.path.exists(path):
-        raise SevenZipNotFoundError(f"7z executable not found at: {path}")
-    return path
+    """Return a validated native 7-Zip executable path."""
+    return resolve_seven_zip_path(seven_zip_path)
 
 
 def _ensure_archive_exists(archive_path: str) -> None:
@@ -173,21 +173,8 @@ def is_valid_archive(
 
 
 def _get_default_7z_path() -> str:
-    """
-    Get the default path to 7z.exe executable.
-    Works for both development and PyInstaller standalone builds.
-    """
-    if getattr(sys, "frozen", False):
-        # Running in a PyInstaller bundle
-        bundle_dir = sys._MEIPASS
-        seven_zip_path = os.path.join(bundle_dir, "7z", "7z.exe")
-    else:
-        # Running in development mode
-        current_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        project_root = os.path.dirname(current_dir)
-        seven_zip_path = os.path.join(project_root, "7z", "7z.exe")
-
-    return seven_zip_path
+    """Return the native engine path for source and standalone execution."""
+    return str(bundled_engine_path())
 
 
 def _decode_subprocess_output(

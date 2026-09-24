@@ -3,50 +3,64 @@
 Build script for creating standalone executable of Complex Unzip Tool v2
 """
 
-import os
+import platform
 import shutil
 import subprocess
 import sys
 from pathlib import Path
 
+from complex_unzip_tool_v2.modules.seven_zip_runtime import (
+    SevenZipNotFoundError,
+    bundled_engine_path,
+    validate_engine,
+)
+
+
 def generate_spec_content(project_root: Path, scripts_dir: Path) -> str:
     """Generate the PyInstaller spec file content dynamically."""
-    
+
     # Define paths
     main_script = scripts_dir / "standalone_main.py"
-    
+
     # Define data files to include
     data_files = []
-    
-    # Add 7z binaries if they exist
-    seven_zip_files = [
-        (project_root / "7z" / "7z.exe", "7z"),
-        (project_root / "7z" / "7z.dll", "7z"),
-        (project_root / "7z" / "License.txt", "7z"),
-    ]
-    
-    for src_path, dest_dir in seven_zip_files:
-        if src_path.exists():
-            data_files.append(f'    (r"{src_path}", "{dest_dir}"),')
-    
+
+    # Include only the native engine; PyInstaller preserves executable mode.
+    engine = bundled_engine_path(project_root)
+    validate_engine(engine, bundled=True)
+    destination = engine.parent.relative_to(project_root).as_posix()
+    binaries = [(str(engine), destination)]
+    if platform.system() == "Windows":
+        binaries.append((str(engine.with_suffix(".dll")), destination))
+    license_file = engine.parent / "License.txt"
+    if not license_file.is_file():
+        raise SevenZipNotFoundError(f"7-Zip license not found at: {license_file}")
+    data_files.append(f"    ({str(license_file)!r}, {destination!r}),")
+
     # Add passwords.txt if it exists
     passwords_file = project_root / "passwords.txt"
     if passwords_file.exists():
         data_files.append(f'    (r"{passwords_file}", "."),')
-    
+
     # Add config files
     config_dir = project_root / "complex_unzip_tool_v2" / "config"
     cloaked_rules_file = config_dir / "cloaked_file_rules.json"
     if cloaked_rules_file.exists():
-        data_files.append(f'    (r"{cloaked_rules_file}", "complex_unzip_tool_v2/config"),')
-    
+        data_files.append(
+            f'    (r"{cloaked_rules_file}", "complex_unzip_tool_v2/config"),'
+        )
+
     data_files_str = "\n".join(data_files)
-    
+
     # Check for icon file
     icon_path = project_root / "icons" / "app_icon.ico"
-    icon_line = f'r"{icon_path}"' if icon_path.exists() else 'None'
-    
-    spec_content = f'''# -*- mode: python ; coding: utf-8 -*-
+    icon_line = (
+        repr(str(icon_path))
+        if platform.system() == "Windows" and icon_path.exists()
+        else "None"
+    )
+
+    spec_content = f"""# -*- mode: python ; coding: utf-8 -*-
 # This file is generated automatically by the build script
 
 import os
@@ -64,7 +78,7 @@ datas = [
 a = Analysis(
     [main_script],
     pathex=[project_root],
-    binaries=[],
+    binaries={binaries!r},
     datas=datas,
     hiddenimports=[
         'complex_unzip_tool_v2',
@@ -96,7 +110,7 @@ exe = EXE(
     a.scripts,
     a.binaries,
     a.datas,
-    [],
+    [('X utf8', None, 'OPTION')],  # Preserve Chinese output in redirected CI logs.
     name='complex-unzip-tool-v2',
     debug=False,
     bootloader_ignore_signals=False,
@@ -112,82 +126,83 @@ exe = EXE(
     entitlements_file=None,
     icon={icon_line},
 )
-'''
+"""
     return spec_content
 
-def main():
+
+def main() -> int:
     # Get project root directory (parent of scripts directory)
     project_root = Path(__file__).parent.parent.absolute()
     scripts_dir = Path(__file__).parent.absolute()
-    
+
+    # Validate native assets before removing any previous build output.
+    try:
+        spec_content = generate_spec_content(project_root, scripts_dir)
+    except SevenZipNotFoundError as exc:
+        print(f"❌ Error: {exc}")
+        return 1
+
     # Clean previous builds
     build_dir = project_root / "build"
     dist_dir = project_root / "dist"
-    
+
     print("🧹 Cleaning previous builds...")
     if build_dir.exists():
         shutil.rmtree(build_dir)
     if dist_dir.exists():
         shutil.rmtree(dist_dir)
-    
-    # Verify 7z files exist
-    seven_zip_exe = project_root / "7z" / "7z.exe"
-    seven_zip_dll = project_root / "7z" / "7z.dll"
-    
-    if not seven_zip_exe.exists():
-        print(f"❌ Error: 7z.exe not found at {seven_zip_exe}")
-        return 1
-    
-    if not seven_zip_dll.exists():
-        print(f"❌ Error: 7z.dll not found at {seven_zip_dll}")
-        return 1
-    
-    print("✅ 7z binaries found")
-    
+
     # Generate spec file dynamically
     print("📝 Generating PyInstaller spec file...")
-    spec_content = generate_spec_content(project_root, scripts_dir)
     spec_file = scripts_dir / "build_standalone_generated.spec"
-    
-    with open(spec_file, 'w', encoding='utf-8') as f:
+
+    with open(spec_file, "w", encoding="utf-8") as f:
         f.write(spec_content)
-    
+
     print(f"✅ Spec file generated: {spec_file}")
-    
+
     # Run PyInstaller
     print("🔨 Building standalone executable...")
     try:
-        result = subprocess.run([
-            "poetry", "run", "pyinstaller",
-            "--clean",
-            "--noconfirm",
-            str(spec_file)
-        ], cwd=project_root, check=True)
-        
+        subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "PyInstaller",
+                "--clean",
+                "--noconfirm",
+                str(spec_file),
+            ],
+            cwd=project_root,
+            check=True,
+        )
+
         print("✅ Build completed successfully!")
-        
+
         # Check if executable was created
-        exe_path = dist_dir / "complex-unzip-tool-v2.exe"
+        suffix = ".exe" if platform.system() == "Windows" else ""
+        exe_path = dist_dir / f"complex-unzip-tool-v2{suffix}"
         if exe_path.exists():
             size_mb = exe_path.stat().st_size / (1024 * 1024)
             print(f"📦 Executable created: {exe_path}")
             print(f"📏 Size: {size_mb:.1f} MB")
-            print(f"🎯 You can now distribute this single file!")
+            print("🎯 You can now distribute this single file!")
         else:
             print("❌ Error: Executable not found in dist folder")
             return 1
-            
+
     except subprocess.CalledProcessError as e:
         print(f"❌ Build failed with error code {e.returncode}")
         return 1
-    
+
     finally:
         # Clean up generated spec file
         if spec_file.exists():
             print("🧹 Cleaning up generated spec file...")
             spec_file.unlink()
-    
+
     return 0
+
 
 if __name__ == "__main__":
     sys.exit(main())

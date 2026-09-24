@@ -3,6 +3,7 @@
 import os
 import shutil
 import sys
+import platform
 import typer
 from typing import List, Optional, Annotated
 from . import __version__
@@ -149,7 +150,12 @@ def _maybe_recover_pending_renames(input_root: str) -> None:
 def _ask_for_user_input_and_exit() -> None:
     """Ask for random user input before exiting the application."""
     # Only ask for input in standalone builds (PyInstaller frozen executables)
-    if getattr(sys, "frozen", False):
+    if (
+        getattr(sys, "frozen", False)
+        and platform.system() == "Windows"
+        and sys.stdin is not None
+        and sys.stdin.isatty()
+    ):
         input("Press Enter to exit... 按回车键退出...")
     sys.exit(0)
 
@@ -180,6 +186,11 @@ def main_callback(
     # If no command is provided, run the default extract command
     if ctx.invoked_subcommand is None:
         if paths:
+            try:
+                archive_utils.resolve_seven_zip_path()
+            except archive_utils.SevenZipNotFoundError as exc:
+                print_error(str(exc))
+                raise typer.Exit(code=1) from exc
             # Call extract_files directly instead of extract command
             extract_files(paths, use_recycle_bin=not permanent_delete)
         else:

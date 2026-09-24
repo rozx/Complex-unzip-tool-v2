@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Complex Unzip Tool v2 is a robust and intelligent command-line archive extraction utility designed for Windows. It handles complex archive scenarios including password-protected files, multipart archives, nested structures, and cloaked/obfuscated filenames. The tool provides automated extraction with smart features like drag-and-drop support, intelligent password management, and multilingual support (English/Chinese).
+Complex Unzip Tool v2 is a robust and intelligent command-line archive extraction utility for Windows x64, macOS Intel/Apple Silicon, and Linux x64/ARM64. It handles complex archive scenarios including password-protected files, multipart archives, nested structures, and cloaked/obfuscated filenames. The tool provides automated extraction with smart features like drag-and-drop support, intelligent password management, and multilingual support (English/Chinese).
 
 Inspired by: https://github.com/TR-Supowe/Complex-Unzip-Tool
 
@@ -14,7 +14,7 @@ Inspired by: https://github.com/TR-Supowe/Complex-Unzip-Tool
 - **Typer**: CLI framework (version ^0.17.3)
 - **Rich**: Rich terminal output and progress display (version ^14.1.0)
 - **send2trash**: Safe file deletion to recycle bin (version ^1.8.3)
-- **7-Zip**: Archive extraction engine (bundled as `7z/7z.exe` and `7z/7z.dll`)
+- **7-Zip**: Archive extraction engine (26.03; native assets and licenses under `7z/`, selected by `modules/seven_zip_runtime.py`)
 
 ### Development Tools
 - **pytest**: Testing framework (version ^7.4.0)
@@ -233,15 +233,15 @@ poetry run pytest -v
 ## Important Constraints
 
 ### Technical Constraints
-- **Platform**: Windows-only (uses `7z/7z.exe` bundled binary)
+- **Platform**: Windows x64, macOS Intel/Apple Silicon, Linux x64/ARM64
 - **Python Version**: 3.11+ required for development
-- **Shell**: Default dev shell is Windows PowerShell
-- **File System**: Uses Windows path conventions (backslashes)
+- **Shell**: PowerShell on Windows; bash/zsh on macOS/Linux
+- **File System**: Use host-native paths via pathlib/os.path
 - **Encoding**: Multiple encoding support for password files (Chinese character support)
 
 ### Business Constraints
 - **No Network Calls**: Do not exfiltrate secrets or make network calls unless explicitly required
-- **Local Execution**: Assume local execution on Windows
+- **Local Execution**: Offline execution on supported platforms
 - **Backward Compatibility**: Preserve existing behavior unless intentionally modified
 - **Stability**: Keep the app stable and easy to maintain
 - **Minimal Changes**: Prefer minimal, well-scoped changes with tests
@@ -255,16 +255,16 @@ poetry run pytest -v
 ### Development Constraints
 - **PR Size**: Keep PRs atomic and under ~300 lines when possible
 - **Dependencies**: Avoid introducing new dependencies unless clearly justified
-- **Bundled Binaries**: Do not modify bundled binaries under `7z/`
+- **Bundled Binaries**: Upgrade only when explicitly requested; preserve upstream bytes, platform licenses, and provenance in `7z/manifest.json`
 - **Public APIs**: Keep public APIs stable unless change is intentional and documented
 
 ## External Dependencies
 
 ### Runtime Dependencies
-- **7-Zip**: Bundled as `7z/7z.exe` and `7z/7z.dll` (required for archive operations)
-  - Location: `./7z/7z.exe` (relative to project root)
-  - License: Must include `7z/License.txt` in distribution
-  - Version: Bundled binary (managed separately from Python dependencies)
+- **7-Zip**: Native bundled engine for the host platform (required for archive operations)
+  - Locations: `7z/7z.exe` + `7z.dll`, `7z/macos/7zz`, `7z/linux-x64/7zzs`, `7z/linux-arm64/7zzs`
+  - License: Must include the `License.txt` next to the selected engine in distribution
+  - Version: 26.03 (managed separately from Python dependencies)
 
 ### Python Dependencies (via Poetry)
 - **typer** (^0.17.3): CLI framework for command-line interface
@@ -300,7 +300,7 @@ poetry run pytest -v
 ### Entry Points
 - **CLI Entry**: `complex_unzip_tool_v2/__main__.py` and `complex_unzip_tool_v2/main.py`
 - **Poetry Scripts**: `main`, `cuz`, `build`, `bump`, `bump-patch`, `bump-minor`, `bump-major`
-- **Standalone Executable**: `dist/complex-unzip-tool-v2.exe` (after build)
+- **Standalone Executable**: `dist/complex-unzip-tool-v2.exe` on Windows; `dist/complex-unzip-tool-v2` on macOS/Linux (build on the target OS/architecture)
 
 ### Testing Infrastructure
 - **Test Runner**: pytest
@@ -310,7 +310,7 @@ poetry run pytest -v
 ### Documentation
 - **README.md**: User-facing documentation (bilingual: English/Chinese)
 - **AGENTS.md**: AI agent guidelines and project conventions
-- **Release Notes**: `RelaseNotes/` directory with version-specific notes
+- **Release Notes**: `ReleaseNotes/` directory with version-specific notes
 - **OpenSpec**: `openspec/` directory for spec-driven development
 
 ## Quick Reference
@@ -337,7 +337,7 @@ poetry run mypy complex_unzip_tool_v2/
 ```
 
 ### Key File Locations
-- **7-Zip Binary**: `./7z/7z.exe`
+- **7-Zip Binary**: See `7z/README.md` for the native platform paths
 - **Config**: `complex_unzip_tool_v2/config/cloaked_file_rules.json`
 - **CLI Entry**: `complex_unzip_tool_v2/__main__.py`
 - **Main Logic**: `complex_unzip_tool_v2/main.py`
