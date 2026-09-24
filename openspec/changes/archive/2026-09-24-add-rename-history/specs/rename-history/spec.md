@@ -1,3 +1,7 @@
+## Purpose
+
+Preserve the recognizability of source archive files by tracking uncloaking renames, restoring names when originals are retained, and supporting recovery after interrupted runs.
+
 ## ADDED Requirements
 
 ### Requirement: Track every successful uncloak rename
