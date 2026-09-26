@@ -1,5 +1,7 @@
 import os
 
+import pytest
+
 import complex_unzip_tool_v2.main as main
 from complex_unzip_tool_v2.modules import const
 
@@ -367,7 +369,9 @@ def test_rename_history_recovery_prompt_yes_reverts(monkeypatch, tmp_path):
         },
     )
     monkeypatch.setattr(main.file_utils, "safe_remove", lambda *a, **k: False)
-    monkeypatch.setattr(main.file_utils, "uncloak_file_extensions", lambda paths, **k: paths)
+    monkeypatch.setattr(
+        main.file_utils, "uncloak_file_extensions", lambda paths, **k: paths
+    )
 
     main.extract_files([str(tmp_path)], use_recycle_bin=False)
 
@@ -410,7 +414,9 @@ def test_rename_history_recovery_prompt_no_keeps_file(monkeypatch, tmp_path):
         },
     )
     monkeypatch.setattr(main.file_utils, "safe_remove", lambda *a, **k: False)
-    monkeypatch.setattr(main.file_utils, "uncloak_file_extensions", lambda paths, **k: paths)
+    monkeypatch.setattr(
+        main.file_utils, "uncloak_file_extensions", lambda paths, **k: paths
+    )
 
     main.extract_files([str(tmp_path)], use_recycle_bin=False)
 
@@ -420,3 +426,105 @@ def test_rename_history_recovery_prompt_no_keeps_file(monkeypatch, tmp_path):
     # History file deleted by finalize() since the new run did not record anything
     # (so the in-memory history was empty by end of run)
     assert not (tmp_path / HISTORY_FILENAME).exists()
+
+
+def _capture_cli_extract(monkeypatch) -> list:
+    """Stub out the real extraction so CLI parsing can be observed in isolation."""
+    calls: list = []
+    monkeypatch.setattr(
+        main,
+        "extract_files",
+        lambda paths, use_recycle_bin=True: calls.append((paths, use_recycle_bin)),
+    )
+    monkeypatch.setattr(main, "_ask_for_user_input_and_exit", lambda *a, **k: None)
+    monkeypatch.setattr(main.archive_utils, "resolve_seven_zip_path", lambda: "7z")
+    return calls
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        ["IN", "--permanent-delete"],
+        ["IN", "-pd"],
+        ["--permanent-delete", "IN"],
+        ["-pd", "IN"],
+    ],
+)
+def test_cli_options_are_parsed_in_any_position(monkeypatch, tmp_path, args):
+    """Regression: a flag after the path (drag-and-drop order) must not be
+    swallowed as an input path."""
+    from typer.testing import CliRunner
+
+    calls = _capture_cli_extract(monkeypatch)
+    argv = [str(tmp_path) if a == "IN" else a for a in args]
+
+    result = CliRunner().invoke(main.app, argv)
+
+    assert result.exit_code == 0, result.output
+    assert calls == [([str(tmp_path)], False)]
+
+
+def test_cli_defaults_to_recycle_bin_without_flag(monkeypatch, tmp_path):
+    from typer.testing import CliRunner
+
+    calls = _capture_cli_extract(monkeypatch)
+
+    result = CliRunner().invoke(main.app, [str(tmp_path), str(tmp_path / "b.7z")])
+
+    assert result.exit_code == 0, result.output
+    assert calls == [([str(tmp_path), str(tmp_path / "b.7z")], True)]
+
+
+def test_cli_unknown_option_after_path_is_rejected_not_used_as_path(
+    monkeypatch, tmp_path
+):
+    from typer.testing import CliRunner
+
+    calls = _capture_cli_extract(monkeypatch)
+
+    result = CliRunner().invoke(main.app, [str(tmp_path), "--bogus"])
+
+    assert result.exit_code != 0
+    assert calls == []
+
+
+def test_cli_dash_token_that_is_not_a_path_is_never_an_input_path(
+    monkeypatch, tmp_path
+):
+    """Even after `--`, a dash-prefixed token that does not exist is dropped."""
+    from typer.testing import CliRunner
+
+    calls = _capture_cli_extract(monkeypatch)
+
+    result = CliRunner().invoke(main.app, [str(tmp_path), "--", "--permanent-delete"])
+
+    assert result.exit_code == 0, result.output
+    assert calls == [([str(tmp_path)], True)]
+
+
+def test_cli_existing_dash_prefixed_path_is_kept(monkeypatch, tmp_path):
+    from typer.testing import CliRunner
+
+    calls = _capture_cli_extract(monkeypatch)
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "-odd.zip").write_bytes(b"x")
+
+    result = CliRunner().invoke(main.app, ["--", "-odd.zip"])
+
+    assert result.exit_code == 0, result.output
+    assert calls == [(["-odd.zip"], True)]
+
+
+def test_cli_version_subcommand_still_works(monkeypatch, tmp_path):
+    from typer.testing import CliRunner
+
+    calls = _capture_cli_extract(monkeypatch)
+    shown: list = []
+    monkeypatch.setattr(main, "print_version", lambda v: shown.append(v))
+    monkeypatch.chdir(tmp_path)
+
+    result = CliRunner().invoke(main.app, ["version"])
+
+    assert result.exit_code == 0, result.output
+    assert shown == [main.__version__]
+    assert calls == []
