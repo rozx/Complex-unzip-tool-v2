@@ -252,6 +252,7 @@ _ZIP_DOCUMENT_MARKERS: Dict[str, Tuple[str, ...]] = {
     ".apks": ("toc.pb",),
     ".ipa": ("payload",),
     **dict.fromkeys((".xpi", ".crx"), ("manifest.json", "install.rdf")),
+    ".oxt": ("meta-inf",),  # LibreOffice extension
     ".whl": ("*.dist-info",),
 }
 _ZIP_DOCUMENT_EXTENSIONS = frozenset(_ZIP_DOCUMENT_MARKERS)
@@ -295,7 +296,7 @@ def is_valid_archive(
     also contain that format's required entry).
     """
     try:
-        archive_type, content = _list_archive_with7z(
+        archive_type, content, split_volumes = _list_archive_with7z(
             archive_path=file_path,
             password=password,
             seven_zip_path=seven_zip_path,
@@ -304,6 +305,11 @@ def is_valid_archive(
             archive_type.lower() not in _CONTAINER_ARCHIVE_TYPES
         ):
             return False
+        # A bare Split with one volume is a lone numbered file (report.001)
+        # with nothing to join; real splits of raw files have 2+ volumes.
+        if archive_type is not None and archive_type.lower() == "split":
+            if split_volumes is not None and split_volumes < 2:
+                return False
         if (
             archive_type is not None
             and archive_type.lower() == "zip"
@@ -417,7 +423,7 @@ def readArchiveContentWith7z(
         ArchiveUnsupportedError: If archive format is not supported
         ArchiveParsingError: If unable to parse 7z output
     """
-    _archive_type, files_info = _list_archive_with7z(
+    _archive_type, files_info, _volumes = _list_archive_with7z(
         archive_path, password=password, seven_zip_path=seven_zip_path
     )
     return files_info
@@ -427,8 +433,9 @@ def _list_archive_with7z(
     archive_path: str,
     password: Optional[str] = "",
     seven_zip_path: Optional[str] = None,
-) -> Tuple[Optional[str], List[ArchiveFileInfo]]:
-    """Run `7z l -slt` once and return (archive-level type, file entries).
+) -> Tuple[Optional[str], List[ArchiveFileInfo], Optional[int]]:
+    """Run `7z l -slt` once and return (archive-level type, file entries,
+    split volume count from the header, if any).
 
     Raises the same exceptions as :func:`readArchiveContentWith7z`.
     """
@@ -445,7 +452,11 @@ def _list_archive_with7z(
         _raise_for_7z_error(code, stderr, archive_path, stdout=stdout)
 
         try:
-            return _parse7zArchiveType(stdout), _parse7zListOutput(stdout)
+            return (
+                _parse7zArchiveType(stdout),
+                _parse7zListOutput(stdout),
+                _parse7zSplitVolumes(stdout),
+            )
         except Exception as e:
             raise ArchiveParsingError(f"Failed to parse 7z output: {str(e)}") from e
     except FileNotFoundError as exc:
@@ -471,6 +482,20 @@ def _parse7zArchiveType(output: str) -> Optional[str]:
         if line.startswith("Type = "):
             archive_type = line.split(" = ", 1)[1].strip()
     return archive_type
+
+
+def _parse7zSplitVolumes(output: str) -> Optional[int]:
+    """Return ``Volumes = N`` from the `7z l -slt` header (Split archives)."""
+    for raw_line in output.split("\n"):
+        line = raw_line.strip()
+        if line.startswith("----------"):
+            break
+        if line.startswith("Volumes = "):
+            try:
+                return int(line.split(" = ", 1)[1].strip())
+            except ValueError:
+                return None
+    return None
 
 
 def _parse7zListOutput(output: str) -> List[ArchiveFileInfo]:

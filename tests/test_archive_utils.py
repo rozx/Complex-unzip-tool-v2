@@ -1051,3 +1051,38 @@ def test_nested_cloaked_zip_named_like_document_is_extracted(monkeypatch, tmp_pa
 
     assert extracted == ["outer.7z", "资源.zip.docx"]
     assert any(p.endswith("readme.txt") for p in result["final_files"])
+
+
+def test_libreoffice_extension_kept_unless_plain_zip(monkeypatch):
+    """PR review: .oxt packages (META-INF/manifest.xml) are kept."""
+    _fake_7z_listing(
+        monkeypatch,
+        _slt_header("tool.oxt", "zip", entries=["META-INF/manifest.xml", "x.xcu"]),
+    )
+    assert au.is_valid_archive("tool.oxt") is False
+    _fake_7z_listing(
+        monkeypatch, _slt_header("tool.oxt", "zip", entries=_PLAIN_ZIP_ENTRIES)
+    )
+    assert au.is_valid_archive("tool.oxt") is True
+
+
+def _slt_split(name: str, volumes: int, inner_type=None) -> str:
+    inner = name.rsplit(".", 1)[0]
+    listing = (
+        f"--\nPath = {name}\nType = Split\nVolumes = {volumes}\n----\n"
+        f"Path = {inner}\nSize = 3000\n"
+    )
+    if inner_type:
+        listing += f"--\nPath = {inner}\nType = {inner_type}\n"
+    return listing + f"\n----------\nPath = {inner}\nSize = 3000\n"
+
+
+def test_bare_split_needs_at_least_two_volumes(monkeypatch):
+    """PR review: a lone ordinary report.001 is not an archive to extract,
+    but a real multi-volume split of a raw file (movie.mkv.001) is joined."""
+    _fake_7z_listing(monkeypatch, _slt_split("report.001", 1))
+    assert au.is_valid_archive("report.001") is False
+    _fake_7z_listing(monkeypatch, _slt_split("movie.mkv.001", 2))
+    assert au.is_valid_archive("movie.mkv.001") is True
+    _fake_7z_listing(monkeypatch, _slt_split("set.7z.001", 1, inner_type="7z"))
+    assert au.is_valid_archive("set.7z.001") is True
