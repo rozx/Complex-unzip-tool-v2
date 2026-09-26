@@ -909,3 +909,20 @@ def test_nested_archive_kept_when_recycle_bin_fails(monkeypatch, tmp_path):
     finals = result["final_files"]
     assert any(p.endswith("inner.7z") for p in finals)
     assert any(p.endswith("a.txt") for p in finals)
+
+
+def test_top_level_damaged_archive_with_unknown_extension_is_reported(
+    monkeypatch, tmp_path
+):
+    """PR review: a partial 7z saved as .dat still has its magic bytes, so it
+    is reported as a failure rather than silently skipped."""
+    result = _run_top_level(
+        monkeypatch,
+        tmp_path,
+        "partial.dat",
+        b"7z\xbc\xaf\x27\x1c" + b"\x00" * 26,
+        "ERROR: partial.dat : Cannot open the file as archive\n",
+        2,
+    )
+    assert len(result["errors"]) == 1
+    assert not result.get("skipped_non_archive")
