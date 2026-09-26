@@ -926,3 +926,10 @@ def test_top_level_damaged_archive_with_unknown_extension_is_reported(
     )
     assert len(result["errors"]) == 1
     assert not result.get("skipped_non_archive")
+
+
+def test_is_valid_archive_false_for_apple_iwork_documents(monkeypatch):
+    """PR review: modern Pages/Numbers/Keynote files are zip packages."""
+    for name in ("essay.pages", "sheet.numbers", "talk.key", "TALK.KEY"):
+        _fake_7z_listing(monkeypatch, _slt_header(name, "zip"))
+        assert au.is_valid_archive(name) is False, name

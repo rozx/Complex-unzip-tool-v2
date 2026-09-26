@@ -218,6 +218,10 @@ _ZIP_DOCUMENT_EXTENSIONS = frozenset(
         ".ots",
         ".otp",
         ".otg",
+        # Apple iWork (Pages, Numbers, Keynote)
+        ".pages",
+        ".numbers",
+        ".key",
         # Other documents
         ".epub",
         ".xps",
