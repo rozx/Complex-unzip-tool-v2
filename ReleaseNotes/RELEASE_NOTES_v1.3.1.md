@@ -36,12 +36,12 @@ Office 文档（`.docx`、`.xlsx`、`.pptx`）、OpenDocument 文件（`.odt`、
 
 ### Readme and other non-archive files no longer reported as errors / 说明文件等非档案不再报错
 
-Files next to the archives that are clearly not archives, such as a `请先看我.txt` readme, `.url` shortcuts or cover images, are now skipped with an info line and kept in place. They no longer add "Failed to extract" / "File is not a valid archive" entries to the final summary, which now lists them as "skipped". A file that looks like an archive by name or signature but cannot be opened (for example a damaged `.7z`) is still reported as an error.
+Files next to the archives that are clearly not archives, such as a `请先看我.txt` readme, `.url` shortcuts or cover images, are now skipped with an info line and kept in place. They no longer add "Failed to extract" / "File is not a valid archive" entries to the final summary, which now lists them as "skipped". A lone numbered file such as `report.001`, with no other volumes to join, is also kept as it is. A file that looks like an archive by name or signature but cannot be opened (for example a damaged `.7z`) is still reported as an error.
 
-与档案放在一起、明显不是档案的文件（如 `请先看我.txt` 说明、`.url` 快捷方式、封面图片）现在会提示跳过并原样保留，不再在最终摘要中产生“提取失败”/“文件不是有效档案”错误，摘要中改为计入“跳过”。按名称或文件签名看起来是档案但无法打开的文件（例如损坏的 `.7z`）仍会报告为错误。
+与档案放在一起、明显不是档案的文件（如 `请先看我.txt` 说明、`.url` 快捷方式、封面图片）现在会提示跳过并原样保留，不再在最终摘要中产生“提取失败”/“文件不是有效档案”错误，摘要中改为计入“跳过”。没有其他分卷可合并的单个编号文件（如 `report.001`）同样原样保留。按名称或文件签名看起来是档案但无法打开的文件（例如损坏的 `.7z`）仍会报告为错误。
 
 ### Options work after input paths / 选项可写在输入路径之后
 
-Options such as `--permanent-delete` are now recognized anywhere on the command line, including after the paths (for example `complex-unzip-tool-v2 "D:\Downloads" --permanent-delete`). Previously an option after a path was silently ignored and treated as another input path, which added bogus "archive not found" errors. Unrecognized `-`-prefixed arguments that are not existing files are now skipped with a warning. The `version` subcommand works again; `--version` is unchanged.
+Options such as `--permanent-delete` are now recognized anywhere on the command line, including after the paths (for example `complex-unzip-tool-v2 "D:\Downloads" --permanent-delete`). Previously an option after a path was silently ignored and treated as another input path, which added bogus "archive not found" errors. An unknown option (for example a typo such as `--permanant-delete`) now stops with a "No such option" error instead of being treated as an input path. The `version` subcommand works again; `--version` is unchanged.
 
-`--permanent-delete` 等选项现在可以写在命令行任意位置，包括输入路径之后（例如 `complex-unzip-tool-v2 "D:\Downloads" --permanent-delete`）。此前写在路径之后的选项会被静默忽略并被当作另一个输入路径，产生多余的“档案未找到”错误。无法识别、且不是现有文件的 `-` 开头参数现在会提示后跳过。`version` 子命令恢复可用，`--version` 不变。
+`--permanent-delete` 等选项现在可以写在命令行任意位置，包括输入路径之后（例如 `complex-unzip-tool-v2 "D:\Downloads" --permanent-delete`）。此前写在路径之后的选项会被静默忽略并被当作另一个输入路径，产生多余的“档案未找到”错误。未知选项（例如拼错的 `--permanant-delete`）现在会报“No such option”错误并停止，而不会被当作输入路径。`version` 子命令恢复可用，`--version` 不变。
