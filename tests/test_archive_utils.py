@@ -852,3 +852,60 @@ def test_top_level_zip_document_is_skipped_without_error(monkeypatch, tmp_path):
     )
     assert result["errors"] == []
     assert result.get("skipped_non_archive") is True
+
+
+def test_is_valid_archive_false_for_remaining_ooxml_and_odf_extensions(monkeypatch):
+    """PR review: add-ins, slides and Visio stencils/templates are OOXML too."""
+    for name in (
+        "addin.xlam",
+        "addin.ppam",
+        "one.sldx",
+        "one.sldm",
+        "shapes.vssx",
+        "shapes.vssm",
+        "diagram.vstx",
+        "diagram.vstm",
+        "base.odb",
+        "master.odm",
+    ):
+        _fake_7z_listing(monkeypatch, _slt_header(name, "zip"))
+        assert au.is_valid_archive(name) is False, name
+
+
+def test_nested_archive_kept_when_recycle_bin_fails(monkeypatch, tmp_path):
+    """PR review: if recycling a processed nested archive fails, keep it in
+    final_files; otherwise the temp-folder rmtree deletes it permanently."""
+    archive_path = str(tmp_path / "outer.7z")
+    (tmp_path / "outer.7z").write_bytes(b"dummy")
+    output_path = str(tmp_path / "out")
+
+    listings = {
+        "outer.7z": _slt_header("outer.7z", "7z"),
+        "inner.7z": _slt_header("inner.7z", "7z"),
+    }
+    monkeypatch.setattr(au, "_resolve_seven_zip_path", lambda *a, **k: "7z.exe")
+    monkeypatch.setattr(
+        au, "_run_7z_cmd", lambda cmd: (listings[os.path.basename(cmd[-1])], "", 0)
+    )
+    monkeypatch.setattr(au, "safe_remove", lambda *a, **k: False)
+
+    def fake_extract(archive_path: str, output_path: str, *args, **kwargs) -> bool:
+        _ = (args, kwargs)
+        os.makedirs(output_path, exist_ok=True)
+        name = "inner.7z" if os.path.basename(archive_path) == "outer.7z" else "a.txt"
+        with open(os.path.join(output_path, name), "wb") as f:
+            f.write(b"data")
+        return True
+
+    monkeypatch.setattr(au, "extractArchiveWith7z", fake_extract)
+
+    result = au.extract_nested_archives(
+        archive_path=archive_path,
+        output_path=output_path,
+        interactive=False,
+        use_recycle_bin=True,
+    )
+
+    finals = result["final_files"]
+    assert any(p.endswith("inner.7z") for p in finals)
+    assert any(p.endswith("a.txt") for p in finals)

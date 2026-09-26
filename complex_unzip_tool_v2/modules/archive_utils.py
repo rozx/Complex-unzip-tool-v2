@@ -2,7 +2,7 @@ import subprocess
 import os
 import shutil
 import tempfile
-from typing import List, Dict, Optional, Union, Tuple, Callable
+from typing import List, Dict, Optional, Union, Tuple, Callable, cast
 import re
 from complex_unzip_tool_v2.modules.rich_utils import (
     print_nested_extraction_header,
@@ -195,8 +195,16 @@ _ZIP_DOCUMENT_EXTENSIONS = frozenset(
         ".potm",
         ".ppsx",
         ".ppsm",
+        ".ppam",
+        ".sldx",
+        ".sldm",
+        ".xlam",
         ".vsdx",
         ".vsdm",
+        ".vssx",
+        ".vssm",
+        ".vstx",
+        ".vstm",
         ".thmx",
         # OpenDocument
         ".odt",
@@ -204,6 +212,8 @@ _ZIP_DOCUMENT_EXTENSIONS = frozenset(
         ".odp",
         ".odg",
         ".odf",
+        ".odb",
+        ".odm",
         ".ott",
         ".ots",
         ".otp",
@@ -1661,7 +1671,18 @@ def extract_nested_archives(
                             use_recycle_bin=use_recycle_bin,
                             error_callback=print_error,
                         )
-                        if success:
+                        if not success and use_recycle_bin:
+                            # Recycling failed: keep the archive as an output file,
+                            # or the temp-folder cleanup would delete it for good.
+                            cast(List[str], result["final_files"]).append(
+                                current_archive
+                            )
+                            print_warning(
+                                "Kept nested archive, recycle bin unavailable "
+                                f"回收站不可用，已保留嵌套档案: {os.path.basename(current_archive)}",
+                                2,
+                            )
+                        elif success:
                             if use_recycle_bin:
                                 print_success(
                                     f"Moved nested archive to recycle bin 已将嵌套档案移至回收站: {os.path.basename(current_archive)}",

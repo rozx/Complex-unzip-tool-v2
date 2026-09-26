@@ -22,11 +22,11 @@ A password that really starts with `#` is written with a leading backslash: `\#a
 
 A file found inside an extracted archive is now extracted only when 7-Zip identifies it as a real container (7z, RAR, ZIP, TAR, gzip, CAB, ISO, …). Plain `.exe`/`.dll` files, which 7-Zip can open to list their PE sections, are now kept unchanged instead of becoming `NAME.dll_2\` folders. The same applies to other formats 7-Zip merely opens, such as ELF/Mach-O binaries, `.msi`/`.doc` (Compound) files, NSIS installers and FLV videos. Self-extracting archives, where 7-Zip reports the embedded container, are still extracted.
 
-Processed nested archives now follow the deletion mode: they go to the Recycle Bin by default and are deleted permanently only with `--permanent-delete`.
+Processed nested archives now follow the deletion mode: they go to the Recycle Bin by default and are deleted permanently only with `--permanent-delete`. If the Recycle Bin is unavailable, the nested archive is kept in the output folder instead of being deleted.
 
 解压出的文件现在只有在 7-Zip 识别为真正的档案容器（7z、RAR、ZIP、TAR、gzip、CAB、ISO 等）时才会继续解压。普通 `.exe`/`.dll` 虽然能被 7-Zip 打开并列出 PE 节区，但现在会原样保留，不再变成 `NAME.dll_2\` 目录。ELF/Mach-O 程序、`.msi`/`.doc`（Compound）文件、NSIS 安装包和 FLV 视频等 7-Zip 仅能“打开”的格式同样保留。7-Zip 能识别出内嵌容器的自解压包仍会正常解压。
 
-已处理的嵌套档案现在遵循删除模式：默认移入回收站，只有使用 `--permanent-delete` 时才永久删除。
+已处理的嵌套档案现在遵循删除模式：默认移入回收站，只有使用 `--permanent-delete` 时才永久删除。回收站不可用时，嵌套档案会保留在输出目录中，而不会被删除。
 
 ### Documents and app packages inside archives are kept intact / 档案内的文档和程序包保持完整
 
