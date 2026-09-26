@@ -178,7 +178,8 @@ _CONTAINER_ARCHIVE_TYPES = frozenset(
 # XML parts, so such a file is kept. The name alone is not trusted: each format
 # must also contain its required root entry, so a plain zip renamed to .docx or
 # .apk (a cloaked archive) is still extracted. Markers are lowercase root
-# names; ``*suffix`` matches a root name ending in that suffix.
+# names; ``*suffix`` matches a root name ending in that suffix and ``**suffix``
+# matches any entry, at any depth, ending in that suffix.
 # Comic archives (.cbz) are intentionally absent: users want their images.
 _OPC = ("[content_types].xml",)  # Office Open XML, XPS, 3MF, APPX/MSIX, NuGet
 _ODF = ("mimetype",)
@@ -245,7 +246,8 @@ _ZIP_DOCUMENT_MARKERS: Dict[str, Tuple[str, ...]] = {
         (".pages", ".numbers", ".key"), ("index", "index.zip", "index.xml")
     ),
     ".kmz": ("*.kml",),
-    **dict.fromkeys((".jar", ".war", ".ear"), ("meta-inf", "web-inf")),
+    # `jar --no-manifest` JARs have no META-INF, only compiled classes
+    **dict.fromkeys((".jar", ".war", ".ear"), ("meta-inf", "web-inf", "**.class")),
     **dict.fromkeys((".apk", ".aar"), ("androidmanifest.xml",)),
     ".aab": ("bundleconfig.pb",),
     ".xapk": ("manifest.json",),
@@ -269,14 +271,42 @@ def _is_zip_document(file_path: str, content: List[ArchiveFileInfo]) -> bool:
     markers = _ZIP_DOCUMENT_MARKERS.get(os.path.splitext(file_path)[1].lower())
     if not markers:
         return False
-    roots = {
-        entry.get("name", "").replace("\\", "/").lstrip("/").split("/", 1)[0].lower()
+    names = [
+        entry.get("name", "").replace("\\", "/").lstrip("/").lower()
         for entry in content
-    }
-    return any(
-        root.endswith(marker[1:]) if marker.startswith("*") else root == marker
-        for marker in markers
-        for root in roots
+    ]
+    roots = {name.split("/", 1)[0] for name in names}
+    for marker in markers:
+        if marker.startswith("**"):
+            if any(name.endswith(marker[2:]) for name in names):
+                return True
+        elif marker.startswith("*"):
+            if any(root.endswith(marker[1:]) for root in roots):
+                return True
+        elif marker in roots:
+            return True
+    return False
+
+
+def _is_intact_zip_document(
+    file_path: str,
+    password: Optional[str] = "",
+    seven_zip_path: Optional[str] = None,
+) -> bool:
+    """Return True only if 7-Zip lists the file as a zip carrying its format's
+    required entry; a damaged or disguised file named like a document is not."""
+    try:
+        archive_type, content, _volumes = _list_archive_with7z(
+            archive_path=file_path,
+            password=password,
+            seven_zip_path=seven_zip_path,
+        )
+    except Exception:
+        return False
+    return (
+        archive_type is not None
+        and archive_type.lower() == "zip"
+        and _is_zip_document(file_path, content)
     )
 
 
@@ -1483,7 +1513,13 @@ def extract_nested_archives(
                 # For nested levels, do not treat non-archives as errors; they can appear
                 # due to concurrent processing/cleanup or false positives from signature scans.
                 if depth == 0:
-                    if _has_zip_document_extension(current_archive):
+                    if _has_zip_document_extension(
+                        current_archive
+                    ) and _is_intact_zip_document(
+                        current_archive,
+                        password=password,
+                        seven_zip_path=seven_zip_path,
+                    ):
                         result["skipped_non_archive"] = True
                         print_warning(
                             "Kept document/package, not extracted "

@@ -1086,3 +1086,29 @@ def test_bare_split_needs_at_least_two_volumes(monkeypatch):
     assert au.is_valid_archive("movie.mkv.001") is True
     _fake_7z_listing(monkeypatch, _slt_split("set.7z.001", 1, inner_type="7z"))
     assert au.is_valid_archive("set.7z.001") is True
+
+
+def test_manifestless_jar_is_kept(monkeypatch):
+    """PR review: `jar --no-manifest` JARs have no META-INF, only classes."""
+    for entries in (
+        ["com/example/Foo.class", "com/example/Bar.class"],
+        ["com\\\\example\\\\Foo.class"],
+        ["Foo.class"],
+    ):
+        _fake_7z_listing(monkeypatch, _slt_header("lib.jar", "zip", entries=entries))
+        assert au.is_valid_archive("lib.jar") is False, entries
+
+
+def test_top_level_damaged_zip_named_like_document_is_reported(monkeypatch, tmp_path):
+    """PR review: a truncated zip named payload.docx must not be hidden as a
+    kept document; only an intact zip with the format marker is skipped."""
+    result = _run_top_level(
+        monkeypatch,
+        tmp_path,
+        "payload.docx",
+        b"PK\x03\x04" + b"\x00" * 28,
+        "ERROR: payload.docx : Cannot open the file as archive\n",
+        2,
+    )
+    assert len(result["errors"]) == 1
+    assert not result.get("skipped_non_archive")
