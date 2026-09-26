@@ -788,3 +788,67 @@ def test_top_level_zip_document_is_not_extracted_or_deleted(monkeypatch, tmp_pat
     assert doc.exists()
     assert result["success"] is False
     assert any("report.docx" in m and "文档" in m for m in warnings)
+
+
+# ---------------------------------------------------------------------------
+# Top-level non-archives (readme .txt, .url, images) are skipped, not errors
+# ---------------------------------------------------------------------------
+
+
+def _run_top_level(monkeypatch, tmp_path, name, data, stdout, code):
+    path = tmp_path / name
+    path.write_bytes(data)
+    _fake_7z_listing(monkeypatch, stdout, code=code)
+
+    def fail_extract(*args, **kwargs) -> bool:
+        raise AssertionError("non-archive must not be extracted")
+
+    monkeypatch.setattr(au, "extractArchiveWith7z", fail_extract)
+    result = au.extract_nested_archives(
+        archive_path=str(path),
+        output_path=str(tmp_path / f"temp.{name}"),
+        interactive=False,
+        use_recycle_bin=False,
+    )
+    assert path.exists()
+    assert result["success"] is False
+    return result
+
+
+def test_top_level_plain_file_is_skipped_without_error(monkeypatch, tmp_path):
+    result = _run_top_level(
+        monkeypatch,
+        tmp_path,
+        "请先看我.txt",
+        "解压密码见下方".encode("utf-8"),
+        "ERROR: 请先看我.txt : Cannot open the file as archive\n",
+        2,
+    )
+    assert result["errors"] == []
+    assert result.get("skipped_non_archive") is True
+
+
+def test_top_level_broken_archive_is_still_reported(monkeypatch, tmp_path):
+    result = _run_top_level(
+        monkeypatch,
+        tmp_path,
+        "data.7z",
+        b"\x00garbage",
+        "ERROR: data.7z : Cannot open the file as archive\n",
+        2,
+    )
+    assert len(result["errors"]) == 1
+    assert not result.get("skipped_non_archive")
+
+
+def test_top_level_zip_document_is_skipped_without_error(monkeypatch, tmp_path):
+    result = _run_top_level(
+        monkeypatch,
+        tmp_path,
+        "report.docx",
+        b"PK\x03\x04docx",
+        _slt_header("report.docx", "zip"),
+        0,
+    )
+    assert result["errors"] == []
+    assert result.get("skipped_non_archive") is True

@@ -24,6 +24,9 @@ from complex_unzip_tool_v2.modules.rich_utils import (
     print_invalid_yn_choice,
     clear_console,
 )
+from complex_unzip_tool_v2.modules.archive_extension_utils import (
+    detect_archive_extension,
+)
 from complex_unzip_tool_v2.modules.file_utils import safe_remove
 from complex_unzip_tool_v2.modules.utils import sanitize_path, sanitize_filename
 from complex_unzip_tool_v2.modules.const import PATH_ERROR_KEYWORDS
@@ -894,6 +897,9 @@ def extract_nested_archives(
         # on whether extraction of the multipart primary ultimately succeeds.
         "candidate_multipart_parts": [],
         "errors": [],
+        # True when the top-level input is kept as a regular file (readme, image,
+        # document): success stays False so it is not deleted, but it is no error.
+        "skipped_non_archive": False,
         "password_used": {},
         "user_provided_passwords": [],
         "password_failed_archives": [],
@@ -1415,16 +1421,27 @@ def extract_nested_archives(
                 # due to concurrent processing/cleanup or false positives from signature scans.
                 if depth == 0:
                     if _has_zip_document_extension(current_archive):
-                        error_msg = (
+                        result["skipped_non_archive"] = True
+                        print_warning(
                             "Kept document/package, not extracted "
-                            f"保留文档/程序包，未解压: {current_archive}"
+                            f"保留文档/程序包，未解压: {current_archive}",
+                            1,
+                        )
+                    elif detect_archive_extension(current_archive) is None:
+                        # Neither the name nor the magic bytes look like an archive
+                        # (readme .txt, .url, images): keep it quietly, not an error.
+                        result["skipped_non_archive"] = True
+                        print_info(
+                            "Skipping non-archive file (kept) 跳过非档案文件（已保留）: "
+                            f"{os.path.basename(current_archive)}",
+                            1,
                         )
                     else:
                         error_msg = (
                             f"File is not a valid archive 文件不是有效档案: {current_archive}"
                         )
-                    result["errors"].append(error_msg)
-                    print_warning(error_msg, 1)
+                        result["errors"].append(error_msg)
+                        print_warning(error_msg, 1)
                 else:
                     print_info(
                         f"Skipping non-archive at depth {depth} 跳过非档案: {os.path.basename(current_archive)}",
@@ -1802,17 +1819,18 @@ def extract_nested_archives(
             result["success"] and len(result["errors"]) == 0 and had_outputs
         )
 
-        # Show final summary
-        status = "SUCCESS" if result["success"] else "PARTIAL/FAILED"
-        print_extraction_summary(
-            status,
-            len(result["extracted_archives"]),
-            len(result["final_files"]),
-            len(result["errors"]),
-        )
+        # Show final summary (a kept non-archive already said so; no FAILED noise)
+        if not result["skipped_non_archive"]:
+            status = "SUCCESS" if result["success"] else "PARTIAL/FAILED"
+            print_extraction_summary(
+                status,
+                len(result["extracted_archives"]),
+                len(result["final_files"]),
+                len(result["errors"]),
+            )
 
-        if result["errors"]:
-            print_error_summary(result["errors"])
+            if result["errors"]:
+                print_error_summary(result["errors"])
 
     except Exception as e:
         error_msg = f"Fatal error during extraction 提取期间发生致命错误: {e}"

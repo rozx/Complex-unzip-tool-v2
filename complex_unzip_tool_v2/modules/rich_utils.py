@@ -10,7 +10,7 @@ from rich.progress import (
     MofNCompleteColumn,
 )
 from rich.table import Table
-from typing import List, Any, Optional
+from typing import List, Any, Optional, Dict
 import platform
 import sys
 import time
@@ -33,10 +33,11 @@ console = Console(width=120, force_terminal=True)
 
 # Global variables for tracking statistics
 _start_time = None
-_stats = {
+_stats: Dict[str, Any] = {
     "total_archives": 0,
     "successful_extractions": 0,
     "failed_extractions": 0,
+    "skipped_files": 0,
     "total_files_processed": 0,
     "errors": [],
 }
@@ -50,6 +51,7 @@ def init_statistics():
         "total_archives": 0,
         "successful_extractions": 0,
         "failed_extractions": 0,
+        "skipped_files": 0,
         "total_files_processed": 0,
         "errors": [],
     }
@@ -61,12 +63,14 @@ def update_stats(
     failed: int = 0,
     files: int = 0,
     error: str = None,
+    skipped: int = 0,
 ):
     """Update extraction statistics."""
     global _stats
     _stats["total_archives"] += archives
     _stats["successful_extractions"] += successful
     _stats["failed_extractions"] += failed
+    _stats["skipped_files"] += skipped
     _stats["total_files_processed"] += files
     if error:
         _stats["errors"].append(error)
@@ -270,7 +274,10 @@ def print_final_completion(output_location: str):
     table.add_row(
         "📦 Archives Processed 档案处理",
         str(_stats["total_archives"]),
-        f"{_stats['successful_extractions']} successful 成功, {_stats['failed_extractions']} failed 失败",
+        f"{_stats['successful_extractions']} successful 成功, {_stats['failed_extractions']} failed 失败"
+        + (
+            f", {_stats['skipped_files']} skipped 跳过" if _stats["skipped_files"] else ""
+        ),
     )
     table.add_row(
         "📄 Files Extracted 提取文件",
@@ -397,14 +404,16 @@ class ExtractionProgress:
 
         self.current_task = self.progress.add_task(task_desc, total=None)
 
-    def complete_group(self, success: bool = True):
-        """Mark current group as completed."""
+    def complete_group(self, success: bool = True, skipped: bool = False):
+        """Mark current group as completed; skipped non-archives are not failures."""
         if self.current_task is not None:
             self.progress.remove_task(self.current_task)
             self.current_task = None
 
         self.completed_groups += 1
-        if success:
+        if skipped:
+            update_stats(skipped=1)
+        elif success:
             update_stats(successful=1)
         else:
             update_stats(failed=1)

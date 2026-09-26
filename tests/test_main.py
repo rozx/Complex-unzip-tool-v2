@@ -175,6 +175,46 @@ def test_nested_cleanup_follows_user_recycle_bin_choice(monkeypatch, tmp_path):
     assert seen == {"outer.zip": True, "Set.7z.001": True}
 
 
+def test_top_level_non_archive_is_kept_and_not_counted_as_failure(
+    monkeypatch, tmp_path
+):
+    """A readme next to the archives must be skipped quietly: kept on disk,
+    no error lines, not counted as a failed extraction."""
+    from complex_unzip_tool_v2.modules import rich_utils
+
+    readme = tmp_path / "请先看我.txt"
+    readme.write_text("解压密码见下方", encoding="utf-8")
+
+    monkeypatch.setattr(main, "_ask_for_user_input_and_exit", lambda: None)
+    removed: list[str] = []
+    monkeypatch.setattr(
+        main.file_utils, "safe_remove", lambda p, *a, **k: removed.append(p)
+    )
+
+    def fake_extract_nested_archives(archive_path: str, output_path: str, *a, **k):
+        return {
+            "success": False,
+            "skipped_non_archive": True,
+            "final_files": [],
+            "extracted_archives": [],
+            "errors": [],
+            "password_failed_archives": [],
+            "user_provided_passwords": [],
+            "password_used": {},
+        }
+
+    monkeypatch.setattr(
+        main.archive_utils, "extract_nested_archives", fake_extract_nested_archives
+    )
+
+    main.extract_files([str(tmp_path)], use_recycle_bin=True)
+
+    assert readme.exists()
+    assert str(readme) not in removed
+    assert rich_utils._stats["errors"] == []
+    assert rich_utils._stats["failed_extractions"] == 0
+
+
 # ---------------------------------------------------------------------------
 # Rename history integration
 # ---------------------------------------------------------------------------

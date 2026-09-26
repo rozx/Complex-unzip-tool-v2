@@ -584,12 +584,14 @@ def extract_files(paths: List[str], use_recycle_bin: bool = True) -> None:
                         extraction_progress.complete_group(success=False)
 
                 else:
-                    print_error(f"Failed to extract 提取失败: {group.name}", 2)
+                    skipped = bool(result and result.get("skipped_non_archive"))
+                    if not skipped:
+                        print_error(f"Failed to extract 提取失败: {group.name}", 2)
                     if os.path.exists(extraction_temp_path):
                         shutil.rmtree(extraction_temp_path)
                     _reconcile_rename_history(rename_history, group.name, None)
                     groups.remove(group)
-                    extraction_progress.complete_group(success=False)
+                    extraction_progress.complete_group(success=False, skipped=skipped)
                     print_minor_section_break()
 
             except Exception as e:
@@ -1044,7 +1046,9 @@ def extract_files(paths: List[str], use_recycle_bin: bool = True) -> None:
                         multipart_progress.complete_group(success=False)
                         print_minor_section_break()
                 else:
-                    print_error(f"Failed to extract 提取失败: {group.name}", 2)
+                    skipped = bool(result and result.get("skipped_non_archive"))
+                    if not skipped:
+                        print_error(f"Failed to extract 提取失败: {group.name}", 2)
                     if os.path.exists(extraction_temp_path):
                         shutil.rmtree(extraction_temp_path)
                         print_info(
@@ -1053,7 +1057,7 @@ def extract_files(paths: List[str], use_recycle_bin: bool = True) -> None:
                         )
                     _reconcile_rename_history(rename_history, group.name, None)
                     groups.remove(group)
-                    multipart_progress.complete_group(success=False)
+                    multipart_progress.complete_group(success=False, skipped=skipped)
                     print_minor_section_break()
 
             except Exception as e:
