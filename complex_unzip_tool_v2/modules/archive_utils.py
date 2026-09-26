@@ -170,6 +170,74 @@ _CONTAINER_ARCHIVE_TYPES = frozenset(
     }
 )
 
+# Document and package formats that are zip files underneath. 7-Zip reports
+# them as ``Type = zip``; extracting them would explode e.g. a .docx into its
+# XML parts, so a zip carrying one of these extensions is kept as a file.
+# Comic archives (.cbz) are intentionally absent: users want their images.
+_ZIP_DOCUMENT_EXTENSIONS = frozenset(
+    {
+        # Office Open XML
+        ".docx",
+        ".docm",
+        ".dotx",
+        ".dotm",
+        ".xlsx",
+        ".xlsm",
+        ".xlsb",
+        ".xltx",
+        ".xltm",
+        ".pptx",
+        ".pptm",
+        ".potx",
+        ".potm",
+        ".ppsx",
+        ".ppsm",
+        ".vsdx",
+        ".vsdm",
+        ".thmx",
+        # OpenDocument
+        ".odt",
+        ".ods",
+        ".odp",
+        ".odg",
+        ".odf",
+        ".ott",
+        ".ots",
+        ".otp",
+        ".otg",
+        # Other documents
+        ".epub",
+        ".xps",
+        ".oxps",
+        ".3mf",
+        ".kmz",
+        # Application / extension packages
+        ".jar",
+        ".war",
+        ".ear",
+        ".aar",
+        ".apk",
+        ".aab",
+        ".xapk",
+        ".apks",
+        ".ipa",
+        ".xpi",
+        ".crx",
+        ".appx",
+        ".appxbundle",
+        ".msix",
+        ".msixbundle",
+        ".vsix",
+        ".nupkg",
+        ".whl",
+    }
+)
+
+
+def _has_zip_document_extension(file_path: str) -> bool:
+    """Return True if the name ends with a zip-based document/package extension."""
+    return os.path.splitext(file_path)[1].lower() in _ZIP_DOCUMENT_EXTENSIONS
+
 
 def is_valid_archive(
     file_path: str,
@@ -182,7 +250,8 @@ def is_valid_archive(
     archive-level 7-Zip type is a real container (self-extracting archives
     report their embedded container type, e.g. ``7z``).
     Returns False for non-archive/unreadable files and for formats 7-Zip can
-    merely open, such as plain executables (``Type = PE``).
+    merely open, such as plain executables (``Type = PE``), and for zip-based
+    documents/packages (``Type = zip`` named e.g. ``.docx`` or ``.jar``).
     """
     try:
         archive_type, content = _list_archive_with7z(
@@ -192,6 +261,12 @@ def is_valid_archive(
         )
         if archive_type is not None and (
             archive_type.lower() not in _CONTAINER_ARCHIVE_TYPES
+        ):
+            return False
+        if (
+            archive_type is not None
+            and archive_type.lower() == "zip"
+            and _has_zip_document_extension(file_path)
         ):
             return False
         return bool(content)
@@ -1339,9 +1414,15 @@ def extract_nested_archives(
                 # For nested levels, do not treat non-archives as errors; they can appear
                 # due to concurrent processing/cleanup or false positives from signature scans.
                 if depth == 0:
-                    error_msg = (
-                        f"File is not a valid archive 文件不是有效档案: {current_archive}"
-                    )
+                    if _has_zip_document_extension(current_archive):
+                        error_msg = (
+                            "Kept document/package, not extracted "
+                            f"保留文档/程序包，未解压: {current_archive}"
+                        )
+                    else:
+                        error_msg = (
+                            f"File is not a valid archive 文件不是有效档案: {current_archive}"
+                        )
                     result["errors"].append(error_msg)
                     print_warning(error_msg, 1)
                 else:
@@ -1538,6 +1619,12 @@ def extract_nested_archives(
                         print_info(f"📦 Found nested archive 发现嵌套档案: {file_name}", 3)
                         nested_archives.append(file_path)
                     else:
+                        if _has_zip_document_extension(file_name):
+                            print_info(
+                                "Keeping document/package as file "
+                                f"保留文档/程序包文件: {file_name}",
+                                3,
+                            )
                         regular_files.append(file_path)
 
                 # Add regular files to final files list

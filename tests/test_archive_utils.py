@@ -624,3 +624,167 @@ def test_nested_pe_is_kept_as_regular_file(monkeypatch, tmp_path):
     dll = [p for p in finals if p.endswith("UnityPlayer.dll")]
     assert len(dll) == 1
     assert os.path.exists(dll[0])
+
+
+# ---------------------------------------------------------------------------
+# Zip-based documents/packages (Type = zip) are kept as regular files
+# ---------------------------------------------------------------------------
+
+
+def _slt_header(name: str, archive_type: str) -> str:
+    return (
+        f"Listing archive: {name}\n"
+        "\n"
+        "--\n"
+        f"Path = {name}\n"
+        f"Type = {archive_type}\n"
+        "Physical Size = 2048\n"
+        "\n"
+        "----------\n"
+        "Path = [Content_Types].xml\n"
+        "Size = 1200\n"
+    )
+
+
+_ZIP_DOCUMENT_NAMES = (
+    "report.docx",
+    "budget.xlsx",
+    "slides.pptx",
+    "letter.odt",
+    "sheet.ods",
+    "talk.odp",
+    "novel.epub",
+    "lib.jar",
+    "LIB.JAR",
+    "app.apk",
+    "app.ipa",
+    "addon.xpi",
+    "pkg.appx",
+    "pkg.msix",
+    "ext.vsix",
+)
+
+
+def test_is_valid_archive_false_for_zip_based_documents(monkeypatch):
+    for name in _ZIP_DOCUMENT_NAMES:
+        _fake_7z_listing(monkeypatch, _slt_header(name, "zip"))
+        assert au.is_valid_archive(name) is False, name
+
+
+def test_is_valid_archive_true_for_zip_disguised_as_other_file(monkeypatch):
+    for name in ("photo.jpg", "clip.MP4", "notes.txt", "noext", "issue1.cbz"):
+        _fake_7z_listing(monkeypatch, _slt_header(name, "zip"))
+        assert au.is_valid_archive(name) is True, name
+
+
+def test_is_valid_archive_true_for_non_zip_container_named_like_document(
+    monkeypatch,
+):
+    for archive_type in ("7z", "Rar5"):
+        _fake_7z_listing(monkeypatch, _slt_header("pack.docx", archive_type))
+        assert au.is_valid_archive("pack.docx") is True, archive_type
+
+
+def test_is_valid_archive_true_for_password_error_on_document_name(monkeypatch):
+    _fake_7z_listing(
+        monkeypatch,
+        "",
+        stderr="ERROR: Wrong password : pack.docx\n",
+        code=2,
+    )
+    assert au.is_valid_archive("pack.docx") is True
+
+
+def _fake_7z_listings_by_name(monkeypatch, listings):
+    not_archive = ("", "ERROR: x : Cannot open the file as archive\n", 2)
+    monkeypatch.setattr(au, "_resolve_seven_zip_path", lambda *a, **k: "7z.exe")
+    monkeypatch.setattr(
+        au,
+        "_run_7z_cmd",
+        lambda cmd: (
+            (listings[os.path.basename(cmd[-1])], "", 0)
+            if os.path.basename(cmd[-1]) in listings
+            else not_archive
+        ),
+    )
+
+
+def test_nested_zip_document_is_kept_while_nested_zip_is_extracted(
+    monkeypatch, tmp_path
+):
+    archive_path = str(tmp_path / "outer.7z")
+    (tmp_path / "outer.7z").write_bytes(b"dummy")
+    output_path = str(tmp_path / "out")
+
+    _fake_7z_listings_by_name(
+        monkeypatch,
+        {
+            "outer.7z": _slt_header("outer.7z", "7z"),
+            "report.docx": _slt_header("report.docx", "zip"),
+            "inner.zip": _slt_header("inner.zip", "zip"),
+        },
+    )
+    messages: list[str] = []
+    monkeypatch.setattr(au, "print_info", lambda msg, *a, **k: messages.append(msg))
+
+    extracted: list[str] = []
+
+    def fake_extract(archive_path: str, output_path: str, *args, **kwargs) -> bool:
+        _ = (args, kwargs)
+        name = os.path.basename(archive_path)
+        extracted.append(name)
+        os.makedirs(output_path, exist_ok=True)
+        children = (
+            {"report.docx": b"PK-docx", "inner.zip": b"PK-zip"}
+            if name == "outer.7z"
+            else {"readme.txt": b"hello"}
+        )
+        for child, data in children.items():
+            with open(os.path.join(output_path, child), "wb") as f:
+                f.write(data)
+        return True
+
+    monkeypatch.setattr(au, "extractArchiveWith7z", fake_extract)
+
+    result = au.extract_nested_archives(
+        archive_path=archive_path,
+        output_path=output_path,
+        interactive=False,
+        use_recycle_bin=False,
+    )
+
+    assert extracted == ["outer.7z", "inner.zip"]
+    finals = result.get("final_files")
+    assert isinstance(finals, list)
+    docx = [p for p in finals if p.endswith("report.docx")]
+    assert len(docx) == 1
+    assert os.path.exists(docx[0])
+    assert any(p.endswith("readme.txt") for p in finals)
+    assert any("report.docx" in m and "保留" in m for m in messages)
+
+
+def test_top_level_zip_document_is_not_extracted_or_deleted(monkeypatch, tmp_path):
+    doc = tmp_path / "report.docx"
+    doc.write_bytes(b"PK-docx")
+
+    _fake_7z_listings_by_name(
+        monkeypatch, {"report.docx": _slt_header("report.docx", "zip")}
+    )
+    warnings: list[str] = []
+    monkeypatch.setattr(au, "print_warning", lambda msg, *a, **k: warnings.append(msg))
+
+    def fail_extract(*args, **kwargs) -> bool:
+        raise AssertionError("zip-based document must not be extracted")
+
+    monkeypatch.setattr(au, "extractArchiveWith7z", fail_extract)
+
+    result = au.extract_nested_archives(
+        archive_path=str(doc),
+        output_path=str(tmp_path / "temp.report"),
+        interactive=False,
+        use_recycle_bin=False,
+    )
+
+    assert doc.exists()
+    assert result["success"] is False
+    assert any("report.docx" in m and "文档" in m for m in warnings)
