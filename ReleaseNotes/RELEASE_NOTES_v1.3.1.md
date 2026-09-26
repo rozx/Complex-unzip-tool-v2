@@ -1,8 +1,8 @@
 # Release Notes v1.3.1 / 发布说明 v1.3.1
 
-Version 1.3.1 stops executables, documents and app packages inside archives from being unpacked and deleted, makes nested-archive cleanup recoverable, and adds `#` comments to `passwords.txt`.
+Version 1.3.1 stops executables, documents and app packages inside archives from being unpacked and deleted, and makes nested-archive cleanup recoverable. It also adds `#` comments to `passwords.txt`, stops readme files and other non-archives from being reported as errors, and accepts command-line options after the input paths.
 
-1.3.1 修复了档案内的可执行文件、文档和程序包被误解压并删除的问题，让嵌套档案的清理可以恢复，并支持在 `passwords.txt` 中使用 `#` 注释。
+1.3.1 修复了档案内的可执行文件、文档和程序包被误解压并删除的问题，并让嵌套档案的清理可以恢复。同时支持在 `passwords.txt` 中使用 `#` 注释，说明文件等非档案不再报错，命令行选项也可以写在输入路径之后。
 
 ## New Features / 新功能
 
@@ -26,12 +26,18 @@ Processed nested archives now follow the deletion mode: they go to the Recycle B
 
 ### Documents and app packages inside archives are kept intact / 档案内的文档和程序包保持完整
 
-Office documents (`.docx`, `.xlsx`, `.pptx`), OpenDocument files (`.odt`, `.ods`, `.odp`), e-books (`.epub`) and app or extension packages (`.jar`, `.apk`, `.ipa`, `.appx`/`.msix`, `.vsix`, `.xpi`, `.whl`, …) are ZIP files underneath. They are now kept as regular files instead of being unpacked into their internal XML or class files. The same files found directly in an input folder are left in place and reported as "Kept document/package". Only the file extension decides this, and only when 7-Zip reports ZIP: a ZIP disguised as `.jpg` or `.mp4`, a 7z/RAR named `.docx`, and `.cbz` comic archives are still extracted. To unpack such a file on purpose, rename it to `.zip`.
+Office documents (`.docx`, `.xlsx`, `.pptx`), OpenDocument files (`.odt`, `.ods`, `.odp`), e-books (`.epub`) and app or extension packages (`.jar`, `.apk`, `.ipa`, `.appx`/`.msix`, `.vsix`, `.xpi`, `.whl`, …) are ZIP files underneath. They are now kept as regular files instead of being unpacked into their internal XML or class files. The same files found directly in an input folder are left in place with a "Kept document/package" notice and counted as skipped, not as errors. Only the file extension decides this, and only when 7-Zip reports ZIP: a ZIP disguised as `.jpg` or `.mp4`, a 7z/RAR named `.docx`, and `.cbz` comic archives are still extracted. To unpack such a file on purpose, rename it to `.zip`.
 
-Office 文档（`.docx`、`.xlsx`、`.pptx`）、OpenDocument 文件（`.odt`、`.ods`、`.odp`）、电子书（`.epub`）以及应用或扩展程序包（`.jar`、`.apk`、`.ipa`、`.appx`/`.msix`、`.vsix`、`.xpi`、`.whl` 等）本质上是 ZIP 文件。现在它们会作为普通文件保留，不再被拆成内部的 XML 或 class 文件。直接位于输入目录中的此类文件也会原样保留，并提示“保留文档/程序包”。仅当 7-Zip 识别为 ZIP 时才按扩展名判断：伪装成 `.jpg`、`.mp4` 的 ZIP、以 `.docx` 命名的 7z/RAR，以及 `.cbz` 漫画档案仍会正常解压。如确需解开此类文件，请将其改名为 `.zip`。
+Office 文档（`.docx`、`.xlsx`、`.pptx`）、OpenDocument 文件（`.odt`、`.ods`、`.odp`）、电子书（`.epub`）以及应用或扩展程序包（`.jar`、`.apk`、`.ipa`、`.appx`/`.msix`、`.vsix`、`.xpi`、`.whl` 等）本质上是 ZIP 文件。现在它们会作为普通文件保留，不再被拆成内部的 XML 或 class 文件。直接位于输入目录中的此类文件也会原样保留，提示“保留文档/程序包”，并计入“跳过”而非错误。仅当 7-Zip 识别为 ZIP 时才按扩展名判断：伪装成 `.jpg`、`.mp4` 的 ZIP、以 `.docx` 命名的 7z/RAR，以及 `.cbz` 漫画档案仍会正常解压。如确需解开此类文件，请将其改名为 `.zip`。
 
 ### Readme and other non-archive files no longer reported as errors / 说明文件等非档案不再报错
 
 Files next to the archives that are clearly not archives, such as a `请先看我.txt` readme, `.url` shortcuts or cover images, are now skipped with an info line and kept in place. They no longer add "Failed to extract" / "File is not a valid archive" entries to the final summary, which now lists them as "skipped". A file that looks like an archive by name or signature but cannot be opened (for example a damaged `.7z`) is still reported as an error.
 
 与档案放在一起、明显不是档案的文件（如 `请先看我.txt` 说明、`.url` 快捷方式、封面图片）现在会提示跳过并原样保留，不再在最终摘要中产生“提取失败”/“文件不是有效档案”错误，摘要中改为计入“跳过”。按名称或文件签名看起来是档案但无法打开的文件（例如损坏的 `.7z`）仍会报告为错误。
+
+### Options work after input paths / 选项可写在输入路径之后
+
+Options such as `--permanent-delete` are now recognized anywhere on the command line, including after the paths (for example `complex-unzip-tool-v2 "D:\Downloads" --permanent-delete`). Previously an option after a path was silently ignored and treated as another input path, which added bogus "archive not found" errors. Unrecognized `-`-prefixed arguments that are not existing files are now skipped with a warning. The `version` subcommand works again; `--version` is unchanged.
+
+`--permanent-delete` 等选项现在可以写在命令行任意位置，包括输入路径之后（例如 `complex-unzip-tool-v2 "D:\Downloads" --permanent-delete`）。此前写在路径之后的选项会被静默忽略并被当作另一个输入路径，产生多余的“档案未找到”错误。无法识别、且不是现有文件的 `-` 开头参数现在会提示后跳过。`version` 子命令恢复可用，`--version` 不变。
