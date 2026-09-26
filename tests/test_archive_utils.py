@@ -631,7 +631,43 @@ def test_nested_pe_is_kept_as_regular_file(monkeypatch, tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def _slt_header(name: str, archive_type: str) -> str:
+_REAL_DOC_ENTRIES = {
+    "opc": ["[Content_Types].xml", "_rels/.rels", "word/document.xml"],
+    "odf": ["mimetype", "content.xml", "META-INF/manifest.xml"],
+    "java": ["META-INF/MANIFEST.MF", "com/example/Main.class"],
+    "android": ["AndroidManifest.xml", "classes.dex", "res/layout/main.xml"],
+    "ipa": ["Payload/App.app/Info.plist"],
+    "webext": ["manifest.json", "background.js"],
+    "iwork": ["Index/Document.iwa", "Metadata/Properties.plist"],
+}
+_DOC_FAMILY = {
+    ".odt": "odf",
+    ".ods": "odf",
+    ".odp": "odf",
+    ".odb": "odf",
+    ".odm": "odf",
+    ".epub": "odf",
+    ".jar": "java",
+    ".apk": "android",
+    ".ipa": "ipa",
+    ".xpi": "webext",
+    ".pages": "iwork",
+    ".numbers": "iwork",
+    ".key": "iwork",
+}
+# A plain zip of user files, as found in a cloaked archive.
+_PLAIN_ZIP_ENTRIES = ["photos/001.jpg", "photos/002.jpg", "readme.txt"]
+
+
+def _real_doc_entries(name: str) -> list:
+    ext = os.path.splitext(name)[1].lower()
+    return _REAL_DOC_ENTRIES[_DOC_FAMILY.get(ext, "opc")]
+
+
+def _slt_header(name: str, archive_type: str, entries=None) -> str:
+    if entries is None:
+        entries = _real_doc_entries(name)
+    listing = "".join(f"Path = {e}\nSize = 100\n\n" for e in entries)
     return (
         f"Listing archive: {name}\n"
         "\n"
@@ -640,9 +676,7 @@ def _slt_header(name: str, archive_type: str) -> str:
         f"Type = {archive_type}\n"
         "Physical Size = 2048\n"
         "\n"
-        "----------\n"
-        "Path = [Content_Types].xml\n"
-        "Size = 1200\n"
+        "----------\n" + listing
     )
 
 
@@ -933,3 +967,87 @@ def test_is_valid_archive_false_for_apple_iwork_documents(monkeypatch):
     for name in ("essay.pages", "sheet.numbers", "talk.key", "TALK.KEY"):
         _fake_7z_listing(monkeypatch, _slt_header(name, "zip"))
         assert au.is_valid_archive(name) is False, name
+
+
+# ---------------------------------------------------------------------------
+# A plain zip renamed to a document extension is a cloaked archive: extract it
+# ---------------------------------------------------------------------------
+
+_CLOAKED_DOC_NAMES = (
+    "资源.zip.docx",
+    "movie.docx",
+    "pack.xlsx",
+    "album.epub",
+    "tool.jar",
+    "game.apk",
+    "app.ipa",
+    "essay.pages",
+    "talk.key",
+)
+
+
+def test_is_valid_archive_true_for_plain_zip_named_like_document(monkeypatch):
+    for name in _CLOAKED_DOC_NAMES:
+        _fake_7z_listing(
+            monkeypatch, _slt_header(name, "zip", entries=_PLAIN_ZIP_ENTRIES)
+        )
+        assert au.is_valid_archive(name) is True, name
+
+
+def test_is_valid_archive_false_for_real_document_with_windows_paths(monkeypatch):
+    """7-Zip on Windows lists entries with backslashes."""
+    cases = {
+        "lib.jar": ["META-INF\\MANIFEST.MF", "a\\B.class"],
+        "app.ipa": ["Payload\\App.app\\Info.plist"],
+        "essay.pages": ["Index\\Document.iwa"],
+    }
+    for name, entries in cases.items():
+        _fake_7z_listing(monkeypatch, _slt_header(name, "zip", entries=entries))
+        assert au.is_valid_archive(name) is False, name
+
+
+def test_is_valid_archive_false_for_suffix_marker_formats(monkeypatch):
+    cases = {
+        "pkg-1.0-py3-none-any.whl": ["pkg/__init__.py", "pkg-1.0.dist-info/METADATA"],
+        "places.kmz": ["doc.kml", "files/icon.png"],
+        "old.pages": ["index.xml", "QuickLook/Thumbnail.jpg"],
+    }
+    for name, entries in cases.items():
+        _fake_7z_listing(monkeypatch, _slt_header(name, "zip", entries=entries))
+        assert au.is_valid_archive(name) is False, name
+
+
+def test_nested_cloaked_zip_named_like_document_is_extracted(monkeypatch, tmp_path):
+    archive_path = str(tmp_path / "outer.7z")
+    (tmp_path / "outer.7z").write_bytes(b"dummy")
+    listings = {
+        "outer.7z": _slt_header("outer.7z", "7z", entries=["资源.zip.docx"]),
+        "资源.zip.docx": _slt_header("资源.zip.docx", "zip", entries=_PLAIN_ZIP_ENTRIES),
+    }
+    monkeypatch.setattr(au, "_resolve_seven_zip_path", lambda *a, **k: "7z.exe")
+    monkeypatch.setattr(
+        au, "_run_7z_cmd", lambda cmd: (listings[os.path.basename(cmd[-1])], "", 0)
+    )
+    extracted: list = []
+
+    def fake_extract(archive_path: str, output_path: str, *args, **kwargs) -> bool:
+        _ = (args, kwargs)
+        name = os.path.basename(archive_path)
+        extracted.append(name)
+        os.makedirs(output_path, exist_ok=True)
+        child = "资源.zip.docx" if name == "outer.7z" else "readme.txt"
+        with open(os.path.join(output_path, child), "wb") as f:
+            f.write(b"PK\x03\x04data")
+        return True
+
+    monkeypatch.setattr(au, "extractArchiveWith7z", fake_extract)
+
+    result = au.extract_nested_archives(
+        archive_path=archive_path,
+        output_path=str(tmp_path / "out"),
+        interactive=False,
+        use_recycle_bin=False,
+    )
+
+    assert extracted == ["outer.7z", "资源.zip.docx"]
+    assert any(p.endswith("readme.txt") for p in result["final_files"])

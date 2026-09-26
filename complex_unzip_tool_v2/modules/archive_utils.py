@@ -175,85 +175,108 @@ _CONTAINER_ARCHIVE_TYPES = frozenset(
 
 # Document and package formats that are zip files underneath. 7-Zip reports
 # them as ``Type = zip``; extracting them would explode e.g. a .docx into its
-# XML parts, so a zip carrying one of these extensions is kept as a file.
+# XML parts, so such a file is kept. The name alone is not trusted: each format
+# must also contain its required root entry, so a plain zip renamed to .docx or
+# .apk (a cloaked archive) is still extracted. Markers are lowercase root
+# names; ``*suffix`` matches a root name ending in that suffix.
 # Comic archives (.cbz) are intentionally absent: users want their images.
-_ZIP_DOCUMENT_EXTENSIONS = frozenset(
-    {
-        # Office Open XML
-        ".docx",
-        ".docm",
-        ".dotx",
-        ".dotm",
-        ".xlsx",
-        ".xlsm",
-        ".xlsb",
-        ".xltx",
-        ".xltm",
-        ".pptx",
-        ".pptm",
-        ".potx",
-        ".potm",
-        ".ppsx",
-        ".ppsm",
-        ".ppam",
-        ".sldx",
-        ".sldm",
-        ".xlam",
-        ".vsdx",
-        ".vsdm",
-        ".vssx",
-        ".vssm",
-        ".vstx",
-        ".vstm",
-        ".thmx",
-        # OpenDocument
-        ".odt",
-        ".ods",
-        ".odp",
-        ".odg",
-        ".odf",
-        ".odb",
-        ".odm",
-        ".ott",
-        ".ots",
-        ".otp",
-        ".otg",
-        # Apple iWork (Pages, Numbers, Keynote)
-        ".pages",
-        ".numbers",
-        ".key",
-        # Other documents
-        ".epub",
-        ".xps",
-        ".oxps",
-        ".3mf",
-        ".kmz",
-        # Application / extension packages
-        ".jar",
-        ".war",
-        ".ear",
-        ".aar",
-        ".apk",
-        ".aab",
-        ".xapk",
-        ".apks",
-        ".ipa",
-        ".xpi",
-        ".crx",
-        ".appx",
-        ".appxbundle",
-        ".msix",
-        ".msixbundle",
-        ".vsix",
-        ".nupkg",
-        ".whl",
-    }
-)
+_OPC = ("[content_types].xml",)  # Office Open XML, XPS, 3MF, APPX/MSIX, NuGet
+_ODF = ("mimetype",)
+_ZIP_DOCUMENT_MARKERS: Dict[str, Tuple[str, ...]] = {
+    **dict.fromkeys(
+        (
+            ".docx",
+            ".docm",
+            ".dotx",
+            ".dotm",
+            ".xlsx",
+            ".xlsm",
+            ".xlsb",
+            ".xltx",
+            ".xltm",
+            ".xlam",
+            ".pptx",
+            ".pptm",
+            ".potx",
+            ".potm",
+            ".ppsx",
+            ".ppsm",
+            ".ppam",
+            ".sldx",
+            ".sldm",
+            ".vsdx",
+            ".vsdm",
+            ".vssx",
+            ".vssm",
+            ".vstx",
+            ".vstm",
+            ".thmx",
+            ".xps",
+            ".oxps",
+            ".3mf",
+            ".appx",
+            ".appxbundle",
+            ".msix",
+            ".msixbundle",
+            ".vsix",
+            ".nupkg",
+        ),
+        _OPC,
+    ),
+    **dict.fromkeys(
+        (
+            ".odt",
+            ".ods",
+            ".odp",
+            ".odg",
+            ".odf",
+            ".odb",
+            ".odm",
+            ".ott",
+            ".ots",
+            ".otp",
+            ".otg",
+        ),
+        _ODF,
+    ),
+    ".epub": ("mimetype", "meta-inf"),
+    # Apple iWork (Pages, Numbers, Keynote); index.xml is the pre-2013 layout
+    **dict.fromkeys(
+        (".pages", ".numbers", ".key"), ("index", "index.zip", "index.xml")
+    ),
+    ".kmz": ("*.kml",),
+    **dict.fromkeys((".jar", ".war", ".ear"), ("meta-inf", "web-inf")),
+    **dict.fromkeys((".apk", ".aar"), ("androidmanifest.xml",)),
+    ".aab": ("bundleconfig.pb",),
+    ".xapk": ("manifest.json",),
+    ".apks": ("toc.pb",),
+    ".ipa": ("payload",),
+    **dict.fromkeys((".xpi", ".crx"), ("manifest.json", "install.rdf")),
+    ".whl": ("*.dist-info",),
+}
+_ZIP_DOCUMENT_EXTENSIONS = frozenset(_ZIP_DOCUMENT_MARKERS)
 
 
 def _has_zip_document_extension(file_path: str) -> bool:
     """Return True if the name ends with a zip-based document/package extension."""
     return os.path.splitext(file_path)[1].lower() in _ZIP_DOCUMENT_EXTENSIONS
+
+
+def _is_zip_document(file_path: str, content: List[ArchiveFileInfo]) -> bool:
+    """Return True if a zip named like a document/package has that format's
+    required root entry (e.g. ``[Content_Types].xml`` for .docx)."""
+    markers = _ZIP_DOCUMENT_MARKERS.get(os.path.splitext(file_path)[1].lower())
+    if not markers:
+        return False
+    roots = {
+        entry.get("name", "").replace("\\", "/").lstrip("/").split("/", 1)[0].lower()
+        for entry in content
+    }
+    return any(
+        root.endswith(marker[1:]) if marker.startswith("*") else root == marker
+        for marker in markers
+        for root in roots
+    )
 
 
 def is_valid_archive(
@@ -268,7 +291,8 @@ def is_valid_archive(
     report their embedded container type, e.g. ``7z``).
     Returns False for non-archive/unreadable files and for formats 7-Zip can
     merely open, such as plain executables (``Type = PE``), and for zip-based
-    documents/packages (``Type = zip`` named e.g. ``.docx`` or ``.jar``).
+    documents/packages (``Type = zip`` named e.g. ``.docx`` or ``.jar`` that
+    also contain that format's required entry).
     """
     try:
         archive_type, content = _list_archive_with7z(
@@ -283,7 +307,7 @@ def is_valid_archive(
         if (
             archive_type is not None
             and archive_type.lower() == "zip"
-            and _has_zip_document_extension(file_path)
+            and _is_zip_document(file_path, content)
         ):
             return False
         return bool(content)
