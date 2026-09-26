@@ -155,3 +155,30 @@ def test_password_book_save_drops_removed_password_but_keeps_comments(
     book.save_passwords()
 
     assert path.read_text(encoding="utf-8") == "# note\nkeep\n"
+
+
+def test_password_book_escaped_hash_is_a_password(monkeypatch, tmp_path):
+    """A literal leading # is written as \\# so it is not read as a comment."""
+    (tmp_path / "passwords.txt").write_text(
+        "# comment\n\\#abc\n\\\\#def\n", encoding="utf-8"
+    )
+
+    book = _book_in(monkeypatch, tmp_path)
+
+    assert set(book.get_passwords()) == {"#abc", "\\#def"}
+
+
+def test_password_book_learned_hash_passwords_round_trip(monkeypatch, tmp_path):
+    """Auto-learned passwords starting with # must survive save + reload."""
+    path = tmp_path / "passwords.txt"
+    path.write_text("# my book\nplain\n", encoding="utf-8")
+
+    book = _book_in(monkeypatch, tmp_path)
+    book.add_passwords(["#abc", "\\#def"])
+    book.save_passwords()
+
+    lines = path.read_text(encoding="utf-8").splitlines()
+    assert lines[:2] == ["# my book", "plain"]
+    assert sorted(lines[2:]) == ["\\#abc", "\\\\#def"]
+    reloaded = _book_in(monkeypatch, tmp_path)
+    assert set(reloaded.get_passwords()) == {"plain", "#abc", "\\#def"}

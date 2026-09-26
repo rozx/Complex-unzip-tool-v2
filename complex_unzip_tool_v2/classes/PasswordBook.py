@@ -1,8 +1,13 @@
+import re
 import sys
 from pathlib import Path
 from typing import Optional
 
 _BOM = chr(0xFEFF)
+# A password that really starts with # is written with a leading backslash
+# (\#abc), like .gitignore; one backslash is added on save, removed on load.
+_ESCAPED_HASH_RE = re.compile(r"^\\+#")
+_NEEDS_ESCAPE_RE = re.compile(r"^\\*#")
 
 
 class PasswordBook:
@@ -26,7 +31,16 @@ class PasswordBook:
         token = line.strip().strip(_BOM)  # remove BOM if any and trim
         if not token or token.startswith("#"):
             return None
+        if _ESCAPED_HASH_RE.match(token):
+            return token[1:]
         return token
+
+    @staticmethod
+    def _password_line(password: str) -> str:
+        """Return the file line for a password, escaping a leading #."""
+        if _NEEDS_ESCAPE_RE.match(password):
+            return "\\" + password
+        return password
 
     @staticmethod
     def _read_lines(path: str) -> list[str]:
@@ -99,7 +113,11 @@ class PasswordBook:
                     continue
                 written.add(token)
             lines.append(line.rstrip("\r\n").lstrip(_BOM))
-        lines.extend(entry for entry in self.local_entries if entry not in written)
+        lines.extend(
+            self._password_line(entry)
+            for entry in self.local_entries
+            if entry not in written
+        )
 
         with open(self.password_file, "w", encoding="utf-8") as f:
             for line in lines:

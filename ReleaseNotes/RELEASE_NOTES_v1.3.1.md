@@ -10,7 +10,11 @@ Version 1.3.1 stops executables, documents and app packages inside archives from
 
 Lines starting with `#` are now comments and are not tried as passwords. When newly learned passwords are saved, they are appended to the existing file, so comments, blank lines and the original order are kept.
 
+A password that really starts with `#` is written with a leading backslash: `\#abc` means the password `#abc`. Passwords learned during a run are escaped this way automatically. **When upgrading**, check `passwords.txt` for passwords that start with `#`: they are now read as comments until you add the backslash.
+
 以 `#` 开头的行现在视为注释，不会被当作密码尝试。保存新学到的密码时会追加到原文件末尾，注释、空行和原有顺序均保持不变。
+
+密码本身以 `#` 开头时，请在前面加反斜杠：`\#abc` 表示密码 `#abc`。运行中新学到的密码会自动按此方式转义。**升级时**请检查 `passwords.txt` 中是否有以 `#` 开头的密码：在加上反斜杠之前，它们会被当作注释。
 
 ## Bug Fixes / 错误修复
 

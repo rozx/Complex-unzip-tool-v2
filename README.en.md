@@ -82,7 +82,10 @@ Many netdisk archives are password-protected. Put your passwords in a `passwords
 123456
 www.example.com
 mypassword
+\#password-starting-with-hash
 ```
+
+If a password itself starts with `#`, write it with a leading backslash: `\#abc` means the password `#abc`. Auto-saved passwords are escaped automatically. When upgrading, check your book for passwords that start with `#` and escape them this way.
 
 - 📝 **Auto-learn**: passwords cracked during a run are appended to the tool-directory `passwords.txt` for reuse next time; existing comments and order are kept.
 - The target-directory password book is read only, unless it is also the tool-directory book. If the tool directory is not writable, the program warns and completes extraction cleanup; move it to a writable directory to save new passwords. Builds do not embed personal password books.
