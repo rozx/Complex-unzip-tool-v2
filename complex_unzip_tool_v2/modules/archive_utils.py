@@ -142,22 +142,58 @@ def _raise_for_7z_error(
     )
 
 
+# 7-Zip format names (as printed by `7z i`) that are real containers worth
+# extracting. 7-Zip can also open many non-archives (PE, ELF, MachO, Compound,
+# FLV, Hash, Nsis, …); exploding those destroys the file (issue #21).
+_CONTAINER_ARCHIVE_TYPES = frozenset(
+    {
+        "7z",
+        "rar",
+        "rar5",
+        "zip",
+        "gzip",
+        "bzip2",
+        "xz",
+        "zstd",
+        "lzma",
+        "lzma86",
+        "z",
+        "tar",
+        "cab",
+        "arj",
+        "lzh",
+        "cpio",
+        "wim",
+        "iso",
+        "udf",
+        "split",
+    }
+)
+
+
 def is_valid_archive(
     file_path: str,
     password: Optional[str] = "",
     seven_zip_path: Optional[str] = None,
 ) -> bool:
-    """Check quickly if a file is a valid archive that 7z can open.
+    """Check quickly if a file is a container archive that 7z can extract.
 
-    Returns True for valid (including password-protected) archives.
-    Returns False for non-archive/unreadable files.
+    Returns True for valid (including password-protected) archives whose
+    archive-level 7-Zip type is a real container (self-extracting archives
+    report their embedded container type, e.g. ``7z``).
+    Returns False for non-archive/unreadable files and for formats 7-Zip can
+    merely open, such as plain executables (``Type = PE``).
     """
     try:
-        content = readArchiveContentWith7z(
+        archive_type, content = _list_archive_with7z(
             archive_path=file_path,
             password=password,
             seven_zip_path=seven_zip_path,
         )
+        if archive_type is not None and (
+            archive_type.lower() not in _CONTAINER_ARCHIVE_TYPES
+        ):
+            return False
         return bool(content)
     except ArchivePasswordError:
         return True
@@ -265,6 +301,21 @@ def readArchiveContentWith7z(
         ArchiveUnsupportedError: If archive format is not supported
         ArchiveParsingError: If unable to parse 7z output
     """
+    _archive_type, files_info = _list_archive_with7z(
+        archive_path, password=password, seven_zip_path=seven_zip_path
+    )
+    return files_info
+
+
+def _list_archive_with7z(
+    archive_path: str,
+    password: Optional[str] = "",
+    seven_zip_path: Optional[str] = None,
+) -> Tuple[Optional[str], List[ArchiveFileInfo]]:
+    """Run `7z l -slt` once and return (archive-level type, file entries).
+
+    Raises the same exceptions as :func:`readArchiveContentWith7z`.
+    """
 
     # Resolve paths and validate inputs
     seven_zip_path = _resolve_seven_zip_path(seven_zip_path)
@@ -278,8 +329,7 @@ def readArchiveContentWith7z(
         _raise_for_7z_error(code, stderr, archive_path, stdout=stdout)
 
         try:
-            files_info = _parse7zListOutput(stdout)
-            return files_info
+            return _parse7zArchiveType(stdout), _parse7zListOutput(stdout)
         except Exception as e:
             raise ArchiveParsingError(f"Failed to parse 7z output: {str(e)}") from e
     except FileNotFoundError as exc:
@@ -287,6 +337,24 @@ def readArchiveContentWith7z(
         raise SevenZipNotFoundError(
             f"7z executable not found at: {seven_zip_path}"
         ) from exc
+
+
+def _parse7zArchiveType(output: str) -> Optional[str]:
+    """Return the archive-level ``Type`` from `7z l -slt` output, if any.
+
+    Only the header block before the first ``----------`` line is considered;
+    entry-level ``Type`` lines after it (e.g. a 7z embedded in PE resources)
+    are ignored. When 7-Zip opens nested layers in the header (``Split`` →
+    ``7z``), the innermost type is returned.
+    """
+    archive_type: Optional[str] = None
+    for raw_line in output.split("\n"):
+        line = raw_line.strip()
+        if line.startswith("----------"):
+            break
+        if line.startswith("Type = "):
+            archive_type = line.split(" = ", 1)[1].strip()
+    return archive_type
 
 
 def _parse7zListOutput(output: str) -> List[ArchiveFileInfo]:

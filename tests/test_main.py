@@ -140,6 +140,41 @@ def test_step7_autogroups_contained_zip_spanned_and_step8_processes_it(
     assert "Set.zip" in called
 
 
+def test_nested_cleanup_follows_user_recycle_bin_choice(monkeypatch, tmp_path):
+    """Issue #21: nested-archive cleanup must honor --permanent-delete, i.e.
+    default runs send processed nested archives to the Recycle Bin."""
+    (tmp_path / "outer.zip").write_bytes(b"dummy")
+    (tmp_path / "Set.7z.001").write_bytes(b"p1")
+    (tmp_path / "Set.7z.002").write_bytes(b"p2")
+
+    monkeypatch.setattr(main, "_ask_for_user_input_and_exit", lambda: None)
+    monkeypatch.setattr(main.file_utils, "safe_remove", lambda *a, **k: False)
+    monkeypatch.setattr(main.archive_utils, "is_valid_archive", lambda *a, **k: True)
+
+    seen: dict[str, object] = {}
+
+    def fake_extract_nested_archives(archive_path: str, output_path: str, *a, **k):
+        seen[os.path.basename(archive_path)] = k.get("use_recycle_bin")
+        os.makedirs(output_path, exist_ok=True)
+        return {
+            "success": True,
+            "final_files": [],
+            "extracted_archives": [],
+            "errors": [],
+            "password_failed_archives": [],
+            "user_provided_passwords": [],
+            "password_used": {},
+        }
+
+    monkeypatch.setattr(
+        main.archive_utils, "extract_nested_archives", fake_extract_nested_archives
+    )
+
+    main.extract_files([str(tmp_path)], use_recycle_bin=True)
+
+    assert seen == {"outer.zip": True, "Set.7z.001": True}
+
+
 # ---------------------------------------------------------------------------
 # Rename history integration
 # ---------------------------------------------------------------------------

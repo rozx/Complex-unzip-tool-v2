@@ -392,7 +392,7 @@ def extract_files(paths: List[str], use_recycle_bin: bool = True) -> None:
                     cleanup_archives=True,
                     loading_indicator=loader,
                     active_progress_bars=[extraction_progress],
-                    use_recycle_bin=False,
+                    use_recycle_bin=use_recycle_bin,
                     group_relocator=lambda p: bool(
                         file_utils.add_file_to_groups(p, groups)
                     ),
@@ -631,7 +631,7 @@ def extract_files(paths: List[str], use_recycle_bin: bool = True) -> None:
                             cleanup_archives=True,
                             loading_indicator=retry_loader,
                             active_progress_bars=[extraction_progress],
-                            use_recycle_bin=False,
+                            use_recycle_bin=use_recycle_bin,
                             group_relocator=lambda p: bool(
                                 file_utils.add_file_to_groups(p, groups)
                             ),
@@ -865,7 +865,7 @@ def extract_files(paths: List[str], use_recycle_bin: bool = True) -> None:
                     cleanup_archives=True,
                     loading_indicator=loader,
                     active_progress_bars=[multipart_progress],
-                    use_recycle_bin=False,
+                    use_recycle_bin=use_recycle_bin,
                     group_relocator=lambda p: bool(
                         file_utils.add_file_to_groups(p, groups)
                     ),
@@ -1095,7 +1095,7 @@ def extract_files(paths: List[str], use_recycle_bin: bool = True) -> None:
                             cleanup_archives=True,
                             loading_indicator=retry_loader,
                             active_progress_bars=[multipart_progress],
-                            use_recycle_bin=False,
+                            use_recycle_bin=use_recycle_bin,
                             group_relocator=lambda p: bool(
                                 file_utils.add_file_to_groups(p, groups)
                             ),

@@ -77,11 +77,11 @@ def test_raise_for_7z_error_not_archive_mapping():
 
 
 def test_is_valid_archive_false_on_garbage(monkeypatch):
-    # Simulate readArchiveContentWith7z raising ArchiveUnsupportedError
+    # Simulate the 7z listing raising ArchiveUnsupportedError
     def fake_read(*args, **kwargs):
         raise ArchiveUnsupportedError("not an archive")
 
-    monkeypatch.setattr(au, "readArchiveContentWith7z", fake_read)
+    monkeypatch.setattr(au, "_list_archive_with7z", fake_read)
     assert au.is_valid_archive("not.zip") is False
 
 
@@ -138,11 +138,11 @@ def test_extract_nested_archives_treats_non_archive_as_regular_file(
 
 
 def test_is_valid_archive_true_on_password_protected(monkeypatch):
-    # Simulate readArchiveContentWith7z raising ArchivePasswordError
+    # Simulate the 7z listing raising ArchivePasswordError
     def fake_read(*args, **kwargs):
         raise ArchivePasswordError("needs password")
 
-    monkeypatch.setattr(au, "readArchiveContentWith7z", fake_read)
+    monkeypatch.setattr(au, "_list_archive_with7z", fake_read)
     assert au.is_valid_archive("protected.7z") is True
 
 
@@ -451,3 +451,176 @@ def test_nested_multipart_missing_parts_are_preserved_in_final_files(
     assert isinstance(finals, list)
     assert any(p.endswith("MySet.7z.001") for p in finals)
     assert any(p.endswith("MySet.7z.002") for p in finals)
+
+
+# ---------------------------------------------------------------------------
+# Issue #21: classify archives by 7-Zip's archive-level header Type
+# ---------------------------------------------------------------------------
+
+_SLT_PLAIN_PE = (
+    "7-Zip 26.03 (x64)\n"
+    "Listing archive: UnityPlayer.dll\n"
+    "\n"
+    "--\n"
+    "Path = UnityPlayer.dll\n"
+    "Type = PE\n"
+    "Physical Size = 667648\n"
+    "CPU = x64\n"
+    "\n"
+    "----------\n"
+    "Path = .text\n"
+    "Size = 4096\n"
+    "Packed Size = 4096\n"
+    "\n"
+    "Path = .rsrc\\B7\\UPDATER.PACKED.7Z\n"
+    "Size = 100\n"
+    "Offset = 2048\n"
+    "\n"
+    "--\n"
+    "Path = updater.7z\n"
+    "Type = 7z\n"
+    "Physical Size = 100\n"
+)
+
+_SLT_SFX = (
+    "Listing archive: foobar.exe\n"
+    "\n"
+    "--\n"
+    "Path = foobar.exe\n"
+    "Type = 7z\n"
+    "Offset = 215040\n"
+    "Physical Size = 45933698\n"
+    "\n"
+    "----------\n"
+    "Path = foobar.rar\n"
+    "Size = 45953433\n"
+)
+
+_SLT_SPLIT = (
+    "Listing archive: set.7z.001\n"
+    "\n"
+    "--\n"
+    "Path = set.7z.001\n"
+    "Type = Split\n"
+    "Volumes = 4\n"
+    "----\n"
+    "Path = set.7z\n"
+    "Size = 3200\n"
+    "--\n"
+    "Path = set.7z\n"
+    "Type = 7z\n"
+    "Physical Size = 3200\n"
+    "\n"
+    "----------\n"
+    "Path = big.bin\n"
+    "Size = 3000\n"
+)
+
+_SLT_COMPOUND = (
+    "--\n"
+    "Path = setup.msi\n"
+    "Type = Compound\n"
+    "\n"
+    "----------\n"
+    "Path = [5]SummaryInformation\n"
+    "Size = 400\n"
+)
+
+
+def test_parse_7z_archive_type_uses_header_not_entry_level_type():
+    assert au._parse7zArchiveType(_SLT_PLAIN_PE) == "PE"
+
+
+def test_parse_7z_archive_type_sfx_is_container():
+    assert au._parse7zArchiveType(_SLT_SFX) == "7z"
+
+
+def test_parse_7z_archive_type_split_uses_innermost_header_type():
+    assert au._parse7zArchiveType(_SLT_SPLIT) == "7z"
+
+
+def test_parse_7z_archive_type_none_without_header():
+    sample = "----------\nPath = a.txt\nSize = 1\n"
+    assert au._parse7zArchiveType(sample) is None
+
+
+def _fake_7z_listing(monkeypatch, stdout, stderr="", code=0):
+    monkeypatch.setattr(au, "_resolve_seven_zip_path", lambda *a, **k: "7z.exe")
+    monkeypatch.setattr(au, "_ensure_archive_exists", lambda *a, **k: None)
+    monkeypatch.setattr(au, "_run_7z_cmd", lambda cmd: (stdout, stderr, code))
+
+
+def test_is_valid_archive_false_for_plain_pe(monkeypatch):
+    _fake_7z_listing(monkeypatch, _SLT_PLAIN_PE)
+    assert au.is_valid_archive("UnityPlayer.dll") is False
+
+
+def test_is_valid_archive_true_for_sfx_container(monkeypatch):
+    _fake_7z_listing(monkeypatch, _SLT_SFX)
+    assert au.is_valid_archive("foobar.exe") is True
+
+
+def test_is_valid_archive_true_for_split_volume(monkeypatch):
+    _fake_7z_listing(monkeypatch, _SLT_SPLIT)
+    assert au.is_valid_archive("set.7z.001") is True
+
+
+def test_is_valid_archive_false_for_non_container_formats(monkeypatch):
+    for fmt in ("PE", "ELF", "MachO", "Compound", "FLV", "Hash", "Nsis"):
+        _fake_7z_listing(monkeypatch, _SLT_COMPOUND.replace("Compound", fmt))
+        assert au.is_valid_archive("file.bin") is False, fmt
+
+
+def test_is_valid_archive_false_for_pe_with_unknown_overlay(monkeypatch):
+    _fake_7z_listing(
+        monkeypatch,
+        "ERROR: tool.exe : Cannot open the file as archive\n",
+        code=2,
+    )
+    assert au.is_valid_archive("tool.exe") is False
+
+
+def test_is_valid_archive_legacy_listing_without_header_still_valid(monkeypatch):
+    _fake_7z_listing(monkeypatch, "----------\nPath = a.txt\nSize = 1\n")
+    assert au.is_valid_archive("legacy.7z") is True
+
+
+def test_nested_pe_is_kept_as_regular_file(monkeypatch, tmp_path):
+    """Issue #21: a DLL inside an archive must be kept, not exploded/deleted."""
+    archive_path = str(tmp_path / "outer.7z")
+    (tmp_path / "outer.7z").write_bytes(b"dummy")
+    output_path = str(tmp_path / "out")
+
+    listings = {"outer.7z": _SLT_SFX, "UnityPlayer.dll": _SLT_PLAIN_PE}
+    monkeypatch.setattr(au, "_resolve_seven_zip_path", lambda *a, **k: "7z.exe")
+    monkeypatch.setattr(
+        au,
+        "_run_7z_cmd",
+        lambda cmd: (listings[os.path.basename(cmd[-1])], "", 0),
+    )
+
+    extracted: list[str] = []
+
+    def fake_extract(archive_path: str, output_path: str, *args, **kwargs) -> bool:
+        _ = (args, kwargs)
+        extracted.append(os.path.basename(archive_path))
+        os.makedirs(output_path, exist_ok=True)
+        with open(os.path.join(output_path, "UnityPlayer.dll"), "wb") as f:
+            f.write(b"MZ-pe-bytes")
+        return True
+
+    monkeypatch.setattr(au, "extractArchiveWith7z", fake_extract)
+
+    result = au.extract_nested_archives(
+        archive_path=archive_path,
+        output_path=output_path,
+        interactive=False,
+        use_recycle_bin=False,
+    )
+
+    assert extracted == ["outer.7z"]
+    finals = result.get("final_files")
+    assert isinstance(finals, list)
+    dll = [p for p in finals if p.endswith("UnityPlayer.dll")]
+    assert len(dll) == 1
+    assert os.path.exists(dll[0])
