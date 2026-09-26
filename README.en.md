@@ -9,7 +9,7 @@
 
 **One-click extraction for disguised ("cloaked") archives downloaded from cloud drives — built for 百度网盘 / Baidu Netdisk.**
 
-**v1.3.0** adds macOS / Linux support, bundles 7-Zip 26.03, and fixes password-book locations, single-file multipart cleanup, and redirected Windows output. See the [1.3.0 release notes](ReleaseNotes/RELEASE_NOTES_v1.3.0.md).
+**v1.3.1** stops executables, documents and app packages inside archives from being unpacked and deleted, makes nested-archive cleanup recoverable, adds `#` comments to `passwords.txt`, stops reporting readme files as errors, and accepts options after paths. See the [1.3.1 release notes](ReleaseNotes/RELEASE_NOTES_v1.3.1.md).
 
 ---
 
@@ -32,17 +32,17 @@ This tool automatically **restores the real filenames (uncloaks)**, **regroups**
 On macOS / Linux, extract the matching `.tar.gz` and run the program in a terminal. This example uses an Apple Silicon Mac; substitute the package name for your platform:
 
 ```bash
-tar -xzf complex-unzip-tool-v2-v1.3.0-macos-arm64.tar.gz
+tar -xzf complex-unzip-tool-v2-v1.3.1-macos-arm64.tar.gz
 ./complex-unzip-tool-v2 "$HOME/Downloads/Archives"
 ```
 
-| Platform | v1.3.0 package | Bundled 7-Zip 26.03 |
+| Platform | v1.3.1 package | Bundled 7-Zip 26.03 |
 | --- | --- | --- |
-| Windows x64 | `complex-unzip-tool-v2-v1.3.0-windows-x64.zip` | `7z.exe` + `7z.dll` |
-| macOS Intel | `complex-unzip-tool-v2-v1.3.0-macos-x64.tar.gz` | Universal `7zz` |
-| macOS Apple Silicon | `complex-unzip-tool-v2-v1.3.0-macos-arm64.tar.gz` | Universal `7zz` |
-| Linux x64 | `complex-unzip-tool-v2-v1.3.0-linux-x64.tar.gz` | Static `7zzs` |
-| Linux ARM64 | `complex-unzip-tool-v2-v1.3.0-linux-arm64.tar.gz` | Static `7zzs` |
+| Windows x64 | `complex-unzip-tool-v2-v1.3.1-windows-x64.zip` | `7z.exe` + `7z.dll` |
+| macOS Intel | `complex-unzip-tool-v2-v1.3.1-macos-x64.tar.gz` | Universal `7zz` |
+| macOS Apple Silicon | `complex-unzip-tool-v2-v1.3.1-macos-arm64.tar.gz` | Universal `7zz` |
+| Linux x64 | `complex-unzip-tool-v2-v1.3.1-linux-x64.tar.gz` | Static `7zzs` |
+| Linux ARM64 | `complex-unzip-tool-v2-v1.3.1-linux-arm64.tar.gz` | Static `7zzs` |
 
 Packages include Python and 7-Zip, so no separate installation or runtime engine download is required. Each package includes documentation and licenses; the release also includes `SHA256SUMS`. See [7z/README.md](7z/README.md) for upstream sources, checksums, and licenses.
 
@@ -157,7 +157,7 @@ New commits cancel older CI runs for the same branch or PR event. Release builds
 2. The PR has the `release` label at merge time.
 3. The PR is merged into `main`.
 
-Before merging, check that `pyproject.toml`, package `__version__`, and `.bumpversion.cfg` agree on an unpublished stable `X.Y.Z`. Use `poetry run bump-minor`, `poetry run bump-patch`, or the other bump commands when preparing subsequent versions. The branch name controls eligibility; the project version supplies the tag, such as `v1.3.0`. Include the matching notes in the same PR; the 1.3.0 notes are in [ReleaseNotes/RELEASE_NOTES_v1.3.0.md](ReleaseNotes/RELEASE_NOTES_v1.3.0.md). Missing or empty notes fail before platform builds start.
+Before merging, check that `pyproject.toml`, package `__version__`, and `.bumpversion.cfg` agree on an unpublished stable `X.Y.Z`. Use `poetry run bump-minor`, `poetry run bump-patch`, or the other bump commands when preparing subsequent versions. The branch name controls eligibility; the project version supplies the tag, such as `v1.3.1`. Include the matching notes in the same PR; the 1.3.1 notes are in [ReleaseNotes/RELEASE_NOTES_v1.3.1.md](ReleaseNotes/RELEASE_NOTES_v1.3.1.md). Missing or empty notes fail before platform builds start.
 
 Check the version and notes locally before committing:
 
