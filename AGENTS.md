@@ -148,7 +148,7 @@ This repo uses **OpenSpec**. Active specs live in `openspec/specs/`, proposed ch
   1) Target directory: `passwords.txt` located in the directory you pass to the CLI.
   2) Tool directory: `passwords.txt` beside `sys.executable` in frozen builds; repository root (next to `AGENTS.md`) in source runs. Never use CWD or `_MEIPASS` for the global book.
 
-- File format: one password per line; blank lines are ignored.
+- File format: one password per line; blank lines and lines starting with `#` (after trimming) are ignored.
 
 - Encoding support when reading `passwords.txt`:
   - Tries multiple encodings automatically: `utf-8-sig`, `utf-8`, `gbk`, `gb2312`, `big5`, `utf-16`, `utf-16-le`, `utf-16-be`.
@@ -156,7 +156,7 @@ This repo uses **OpenSpec**. Active specs live in `openspec/specs/`, proposed ch
   - Byte Order Marks (BOM) are handled/stripped.
 
 - Saving behavior:
-  - When new passwords are learned during a run, they are saved to the local `passwords.txt` in UTF-8.
+  - When new passwords are learned during a run, they are saved to the local `passwords.txt` in UTF-8. Existing lines (comments, blanks, order) are kept; removed passwords are dropped and new ones appended.
   - Save only occurs when there are actual changes.
   - Save to the same tool-directory path used for loading; target-directory books are read-only sources unless they are the same file. If saving raises `OSError`, warn without interrupting rename-history finalization or CLI completion. Builds must not embed `passwords.txt`.
 

@@ -75,15 +75,16 @@ Many netdisk archives are password-protected. Put your passwords in a `passwords
 1. **Target directory** — place `passwords.txt` in the folder you pass to the tool (or next to the file you pass). Best for passwords specific to that batch of files.
 2. **Tool directory** — place `passwords.txt` next to the executable (`.exe` on Windows; `complex-unzip-tool-v2` on macOS / Linux). Source runs use the project root. This location is independent of the working directory and drag-and-drop launch behavior.
 
-**File format** (one password per line; blank lines ignored; duplicates removed automatically):
+**File format** (one password per line; blank lines ignored; lines starting with `#` are comments; duplicates removed automatically):
 
 ```text
+# common passwords
 123456
 www.example.com
 mypassword
 ```
 
-- 📝 **Auto-learn**: passwords cracked during a run are written back to the tool-directory `passwords.txt` for reuse next time.
+- 📝 **Auto-learn**: passwords cracked during a run are appended to the tool-directory `passwords.txt` for reuse next time; existing comments and order are kept.
 - The target-directory password book is read only, unless it is also the tool-directory book. If the tool directory is not writable, the program warns and completes extraction cleanup; move it to a writable directory to save new passwords. Builds do not embed personal password books.
 - 🈶 **Encoding-aware**: auto-detects UTF-8 / GBK / GB2312 / Big5 / UTF-16 (with BOM), so Chinese passwords work without mojibake.
 

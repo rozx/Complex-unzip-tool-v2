@@ -101,3 +101,57 @@ def test_password_book_reads_encoded_books_and_strips_bom(
     assert not book.has_unsaved_changes()
     book.save_passwords()
     assert path.read_bytes() == data
+
+
+def _book_in(monkeypatch, tmp_path):
+    module = importlib.import_module("complex_unzip_tool_v2.classes.PasswordBook")
+    monkeypatch.setattr(sys, "frozen", False, raising=False)
+    monkeypatch.setattr(
+        module,
+        "__file__",
+        str(tmp_path / "complex_unzip_tool_v2/classes/PasswordBook.py"),
+    )
+    return PasswordBook()
+
+
+def test_password_book_skips_comment_lines(monkeypatch, tmp_path):
+    """Issue #22: lines starting with # are comments, not passwords."""
+    (tmp_path / "passwords.txt").write_text(
+        "# 常用弱口令\n123456\n  # indented comment\n# 这个包专用\nmypassword\n",
+        encoding="utf-8",
+    )
+    target = tmp_path / "archives"
+    target.mkdir()
+    (target / "passwords.txt").write_text("# only a note\nlocal\n", encoding="utf-8")
+
+    book = _book_in(monkeypatch, tmp_path)
+    book.load_passwords(str(target / "passwords.txt"))
+
+    assert set(book.get_passwords()) == {"123456", "mypassword", "local"}
+
+
+def test_password_book_save_keeps_comments_and_order(monkeypatch, tmp_path):
+    """Issue #22: saving learned passwords must not erase the user's comments."""
+    path = tmp_path / "passwords.txt"
+    original = "# 常用弱口令\n123456\n\n# 这个包专用\nmypassword\n"
+    path.write_text(original, encoding="utf-8")
+
+    book = _book_in(monkeypatch, tmp_path)
+    book.add_passwords(["新密码", "123456"])
+    book.save_passwords()
+
+    assert path.read_text(encoding="utf-8") == original + "新密码\n"
+    assert not book.has_unsaved_changes()
+
+
+def test_password_book_save_drops_removed_password_but_keeps_comments(
+    monkeypatch, tmp_path
+):
+    path = tmp_path / "passwords.txt"
+    path.write_text("# note\nold\nkeep\n", encoding="utf-8")
+
+    book = _book_in(monkeypatch, tmp_path)
+    book.remove_password("old")
+    book.save_passwords()
+
+    assert path.read_text(encoding="utf-8") == "# note\nkeep\n"
