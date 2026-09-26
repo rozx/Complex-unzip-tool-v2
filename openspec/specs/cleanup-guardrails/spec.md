@@ -1,7 +1,7 @@
 # cleanup-guardrails Specification
 
 ## Purpose
-TBD - created by archiving change prevent-multipart-deletion-on-failure. Update Purpose after archive.
+Keep cleanup from destroying user data by limiting deletion and recycling to temporary files and folders the tool itself created during the current run, never source archives or group directories.
 ## Requirements
 ### Requirement: Limit deletion to tool‑created temporary paths
 Cleanup routines MUST only delete or recycle files and directories known to be created by the tool (e.g., staging/work temp dirs for the current run) during the current run. Source directories and original archive volumes (including multipart group directories) MUST be excluded from cleanup scopes.

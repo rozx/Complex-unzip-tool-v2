@@ -1,7 +1,7 @@
 # contained-multipart-preservation Specification
 
 ## Purpose
-TBD - created by archiving change retain-contained-multipart-parts. Update Purpose after archive.
+Ensure multipart parts extracted from inside a container archive survive temporary-folder cleanup, and that skipping a file during nested recursion never implicitly deletes it.
 ## Requirements
 ### Requirement: Preserve multipart parts extracted from containers
 The system SHALL ensure multipart archive parts that are extracted from within a container archive (including continuation parts such as `.7z.002+`, `.r00/.r01+`, `.z01/.z02+`, `.part2+.rar`, `.tar.gz.002+`) are not lost due to temporary directory cleanup.

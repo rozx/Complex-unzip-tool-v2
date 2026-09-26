@@ -1,7 +1,7 @@
 # output-path-normalization Specification
 
 ## Purpose
-TBD - created by archiving change flatten-meaningless-output-folders. Update Purpose after archive.
+Make extracted output easier to browse by flattening meaningless leading folders under the output root, while preserving meaningful folder names and every file on name collisions.
 ## Requirements
 ### Requirement: Flatten meaningless leading folders under the output root
 The system SHALL normalize extracted file output paths by removing meaningless **leading** directory segments under the final output folder.
