@@ -2,7 +2,7 @@ import subprocess
 import os
 import shutil
 import tempfile
-from typing import List, Dict, Optional, Union, Tuple, Callable
+from typing import List, Dict, Optional, Union, Tuple, Callable, cast
 import re
 from complex_unzip_tool_v2.modules.rich_utils import (
     print_nested_extraction_header,
@@ -23,6 +23,9 @@ from complex_unzip_tool_v2.modules.rich_utils import (
     print_password_incorrect,
     print_invalid_yn_choice,
     clear_console,
+)
+from complex_unzip_tool_v2.modules.archive_extension_utils import (
+    detect_archive_extension,
 )
 from complex_unzip_tool_v2.modules.file_utils import safe_remove
 from complex_unzip_tool_v2.modules.utils import sanitize_path, sanitize_filename
@@ -142,22 +145,207 @@ def _raise_for_7z_error(
     )
 
 
+# 7-Zip format names (as printed by `7z i`) that are real containers worth
+# extracting. 7-Zip can also open many non-archives (PE, ELF, MachO, Compound,
+# FLV, Hash, Nsis, …); exploding those destroys the file (issue #21).
+_CONTAINER_ARCHIVE_TYPES = frozenset(
+    {
+        "7z",
+        "rar",
+        "rar5",
+        "zip",
+        "gzip",
+        "bzip2",
+        "xz",
+        "zstd",
+        "lzma",
+        "lzma86",
+        "z",
+        "tar",
+        "cab",
+        "arj",
+        "lzh",
+        "cpio",
+        "wim",
+        "iso",
+        "udf",
+        "split",
+    }
+)
+
+# Document and package formats that are zip files underneath. 7-Zip reports
+# them as ``Type = zip``; extracting them would explode e.g. a .docx into its
+# XML parts, so such a file is kept. The name alone is not trusted: each format
+# must also contain its required root entry, so a plain zip renamed to .docx or
+# .apk (a cloaked archive) is still extracted. Markers are lowercase root
+# names; ``*suffix`` matches a root name ending in that suffix and ``**suffix``
+# matches any entry, at any depth, ending in that suffix.
+# Comic archives (.cbz) are intentionally absent: users want their images.
+_OPC = ("[content_types].xml",)  # Office Open XML, XPS, 3MF, APPX/MSIX, NuGet
+_ODF = ("mimetype",)
+_ZIP_DOCUMENT_MARKERS: Dict[str, Tuple[str, ...]] = {
+    **dict.fromkeys(
+        (
+            ".docx",
+            ".docm",
+            ".dotx",
+            ".dotm",
+            ".xlsx",
+            ".xlsm",
+            ".xlsb",
+            ".xltx",
+            ".xltm",
+            ".xlam",
+            ".pptx",
+            ".pptm",
+            ".potx",
+            ".potm",
+            ".ppsx",
+            ".ppsm",
+            ".ppam",
+            ".sldx",
+            ".sldm",
+            ".vsdx",
+            ".vsdm",
+            ".vssx",
+            ".vssm",
+            ".vstx",
+            ".vstm",
+            ".thmx",
+            ".xps",
+            ".oxps",
+            ".3mf",
+            ".appx",
+            ".appxbundle",
+            ".msix",
+            ".msixbundle",
+            ".vsix",
+            ".nupkg",
+        ),
+        _OPC,
+    ),
+    **dict.fromkeys(
+        (
+            ".odt",
+            ".ods",
+            ".odp",
+            ".odg",
+            ".odf",
+            ".odb",
+            ".odm",
+            ".ott",
+            ".ots",
+            ".otp",
+            ".otg",
+        ),
+        _ODF,
+    ),
+    ".epub": ("mimetype", "meta-inf"),
+    # Apple iWork (Pages, Numbers, Keynote); index.xml is the pre-2013 layout
+    **dict.fromkeys(
+        (".pages", ".numbers", ".key"), ("index", "index.zip", "index.xml")
+    ),
+    ".kmz": ("*.kml",),
+    # `jar --no-manifest` JARs have no META-INF, only compiled classes
+    **dict.fromkeys((".jar", ".war", ".ear"), ("meta-inf", "web-inf", "**.class")),
+    **dict.fromkeys((".apk", ".aar"), ("androidmanifest.xml",)),
+    ".aab": ("bundleconfig.pb",),
+    ".xapk": ("manifest.json",),
+    ".apks": ("toc.pb",),
+    ".ipa": ("payload",),
+    **dict.fromkeys((".xpi", ".crx"), ("manifest.json", "install.rdf")),
+    ".oxt": ("meta-inf",),  # LibreOffice extension
+    ".whl": ("*.dist-info",),
+}
+_ZIP_DOCUMENT_EXTENSIONS = frozenset(_ZIP_DOCUMENT_MARKERS)
+
+
+def _has_zip_document_extension(file_path: str) -> bool:
+    """Return True if the name ends with a zip-based document/package extension."""
+    return os.path.splitext(file_path)[1].lower() in _ZIP_DOCUMENT_EXTENSIONS
+
+
+def _is_zip_document(file_path: str, content: List[ArchiveFileInfo]) -> bool:
+    """Return True if a zip named like a document/package has that format's
+    required root entry (e.g. ``[Content_Types].xml`` for .docx)."""
+    markers = _ZIP_DOCUMENT_MARKERS.get(os.path.splitext(file_path)[1].lower())
+    if not markers:
+        return False
+    names = [
+        entry.get("name", "").replace("\\", "/").lstrip("/").lower()
+        for entry in content
+    ]
+    roots = {name.split("/", 1)[0] for name in names}
+    for marker in markers:
+        if marker.startswith("**"):
+            if any(name.endswith(marker[2:]) for name in names):
+                return True
+        elif marker.startswith("*"):
+            if any(root.endswith(marker[1:]) for root in roots):
+                return True
+        elif marker in roots:
+            return True
+    return False
+
+
+def _is_intact_zip_document(
+    file_path: str,
+    password: Optional[str] = "",
+    seven_zip_path: Optional[str] = None,
+) -> bool:
+    """Return True only if 7-Zip lists the file as a zip carrying its format's
+    required entry; a damaged or disguised file named like a document is not."""
+    try:
+        archive_type, content, _volumes = _list_archive_with7z(
+            archive_path=file_path,
+            password=password,
+            seven_zip_path=seven_zip_path,
+        )
+    except Exception:
+        return False
+    return (
+        archive_type is not None
+        and archive_type.lower() == "zip"
+        and _is_zip_document(file_path, content)
+    )
+
+
 def is_valid_archive(
     file_path: str,
     password: Optional[str] = "",
     seven_zip_path: Optional[str] = None,
 ) -> bool:
-    """Check quickly if a file is a valid archive that 7z can open.
+    """Check quickly if a file is a container archive that 7z can extract.
 
-    Returns True for valid (including password-protected) archives.
-    Returns False for non-archive/unreadable files.
+    Returns True for valid (including password-protected) archives whose
+    archive-level 7-Zip type is a real container (self-extracting archives
+    report their embedded container type, e.g. ``7z``).
+    Returns False for non-archive/unreadable files and for formats 7-Zip can
+    merely open, such as plain executables (``Type = PE``), and for zip-based
+    documents/packages (``Type = zip`` named e.g. ``.docx`` or ``.jar`` that
+    also contain that format's required entry).
     """
     try:
-        content = readArchiveContentWith7z(
+        archive_type, content, split_volumes = _list_archive_with7z(
             archive_path=file_path,
             password=password,
             seven_zip_path=seven_zip_path,
         )
+        if archive_type is not None and (
+            archive_type.lower() not in _CONTAINER_ARCHIVE_TYPES
+        ):
+            return False
+        # A bare Split with one volume is a lone numbered file (report.001)
+        # with nothing to join; real splits of raw files have 2+ volumes.
+        if archive_type is not None and archive_type.lower() == "split":
+            if split_volumes is not None and split_volumes < 2:
+                return False
+        if (
+            archive_type is not None
+            and archive_type.lower() == "zip"
+            and _is_zip_document(file_path, content)
+        ):
+            return False
         return bool(content)
     except ArchivePasswordError:
         return True
@@ -265,6 +453,22 @@ def readArchiveContentWith7z(
         ArchiveUnsupportedError: If archive format is not supported
         ArchiveParsingError: If unable to parse 7z output
     """
+    _archive_type, files_info, _volumes = _list_archive_with7z(
+        archive_path, password=password, seven_zip_path=seven_zip_path
+    )
+    return files_info
+
+
+def _list_archive_with7z(
+    archive_path: str,
+    password: Optional[str] = "",
+    seven_zip_path: Optional[str] = None,
+) -> Tuple[Optional[str], List[ArchiveFileInfo], Optional[int]]:
+    """Run `7z l -slt` once and return (archive-level type, file entries,
+    split volume count from the header, if any).
+
+    Raises the same exceptions as :func:`readArchiveContentWith7z`.
+    """
 
     # Resolve paths and validate inputs
     seven_zip_path = _resolve_seven_zip_path(seven_zip_path)
@@ -278,8 +482,11 @@ def readArchiveContentWith7z(
         _raise_for_7z_error(code, stderr, archive_path, stdout=stdout)
 
         try:
-            files_info = _parse7zListOutput(stdout)
-            return files_info
+            return (
+                _parse7zArchiveType(stdout),
+                _parse7zListOutput(stdout),
+                _parse7zSplitVolumes(stdout),
+            )
         except Exception as e:
             raise ArchiveParsingError(f"Failed to parse 7z output: {str(e)}") from e
     except FileNotFoundError as exc:
@@ -287,6 +494,38 @@ def readArchiveContentWith7z(
         raise SevenZipNotFoundError(
             f"7z executable not found at: {seven_zip_path}"
         ) from exc
+
+
+def _parse7zArchiveType(output: str) -> Optional[str]:
+    """Return the archive-level ``Type`` from `7z l -slt` output, if any.
+
+    Only the header block before the first ``----------`` line is considered;
+    entry-level ``Type`` lines after it (e.g. a 7z embedded in PE resources)
+    are ignored. When 7-Zip opens nested layers in the header (``Split`` →
+    ``7z``), the innermost type is returned.
+    """
+    archive_type: Optional[str] = None
+    for raw_line in output.split("\n"):
+        line = raw_line.strip()
+        if line.startswith("----------"):
+            break
+        if line.startswith("Type = "):
+            archive_type = line.split(" = ", 1)[1].strip()
+    return archive_type
+
+
+def _parse7zSplitVolumes(output: str) -> Optional[int]:
+    """Return ``Volumes = N`` from the `7z l -slt` header (Split archives)."""
+    for raw_line in output.split("\n"):
+        line = raw_line.strip()
+        if line.startswith("----------"):
+            break
+        if line.startswith("Volumes = "):
+            try:
+                return int(line.split(" = ", 1)[1].strip())
+            except ValueError:
+                return None
+    return None
 
 
 def _parse7zListOutput(output: str) -> List[ArchiveFileInfo]:
@@ -751,6 +990,9 @@ def extract_nested_archives(
         # on whether extraction of the multipart primary ultimately succeeds.
         "candidate_multipart_parts": [],
         "errors": [],
+        # True when the top-level input is kept as a regular file (readme, image,
+        # document): success stays False so it is not deleted, but it is no error.
+        "skipped_non_archive": False,
         "password_used": {},
         "user_provided_passwords": [],
         "password_failed_archives": [],
@@ -1271,11 +1513,34 @@ def extract_nested_archives(
                 # For nested levels, do not treat non-archives as errors; they can appear
                 # due to concurrent processing/cleanup or false positives from signature scans.
                 if depth == 0:
-                    error_msg = (
-                        f"File is not a valid archive 文件不是有效档案: {current_archive}"
-                    )
-                    result["errors"].append(error_msg)
-                    print_warning(error_msg, 1)
+                    if _has_zip_document_extension(
+                        current_archive
+                    ) and _is_intact_zip_document(
+                        current_archive,
+                        password=password,
+                        seven_zip_path=seven_zip_path,
+                    ):
+                        result["skipped_non_archive"] = True
+                        print_warning(
+                            "Kept document/package, not extracted "
+                            f"保留文档/程序包，未解压: {current_archive}",
+                            1,
+                        )
+                    elif detect_archive_extension(current_archive) is None:
+                        # Neither the name nor the magic bytes look like an archive
+                        # (readme .txt, .url, images): keep it quietly, not an error.
+                        result["skipped_non_archive"] = True
+                        print_info(
+                            "Skipping non-archive file (kept) 跳过非档案文件（已保留）: "
+                            f"{os.path.basename(current_archive)}",
+                            1,
+                        )
+                    else:
+                        error_msg = (
+                            f"File is not a valid archive 文件不是有效档案: {current_archive}"
+                        )
+                        result["errors"].append(error_msg)
+                        print_warning(error_msg, 1)
                 else:
                     print_info(
                         f"Skipping non-archive at depth {depth} 跳过非档案: {os.path.basename(current_archive)}",
@@ -1470,6 +1735,12 @@ def extract_nested_archives(
                         print_info(f"📦 Found nested archive 发现嵌套档案: {file_name}", 3)
                         nested_archives.append(file_path)
                     else:
+                        if _has_zip_document_extension(file_name):
+                            print_info(
+                                "Keeping document/package as file "
+                                f"保留文档/程序包文件: {file_name}",
+                                3,
+                            )
                         regular_files.append(file_path)
 
                 # Add regular files to final files list
@@ -1489,7 +1760,18 @@ def extract_nested_archives(
                             use_recycle_bin=use_recycle_bin,
                             error_callback=print_error,
                         )
-                        if success:
+                        if not success and use_recycle_bin:
+                            # Recycling failed: keep the archive as an output file,
+                            # or the temp-folder cleanup would delete it for good.
+                            cast(List[str], result["final_files"]).append(
+                                current_archive
+                            )
+                            print_warning(
+                                "Kept nested archive, recycle bin unavailable "
+                                f"回收站不可用，已保留嵌套档案: {os.path.basename(current_archive)}",
+                                2,
+                            )
+                        elif success:
                             if use_recycle_bin:
                                 print_success(
                                     f"Moved nested archive to recycle bin 已将嵌套档案移至回收站: {os.path.basename(current_archive)}",
@@ -1647,17 +1929,18 @@ def extract_nested_archives(
             result["success"] and len(result["errors"]) == 0 and had_outputs
         )
 
-        # Show final summary
-        status = "SUCCESS" if result["success"] else "PARTIAL/FAILED"
-        print_extraction_summary(
-            status,
-            len(result["extracted_archives"]),
-            len(result["final_files"]),
-            len(result["errors"]),
-        )
+        # Show final summary (a kept non-archive already said so; no FAILED noise)
+        if not result["skipped_non_archive"]:
+            status = "SUCCESS" if result["success"] else "PARTIAL/FAILED"
+            print_extraction_summary(
+                status,
+                len(result["extracted_archives"]),
+                len(result["final_files"]),
+                len(result["errors"]),
+            )
 
-        if result["errors"]:
-            print_error_summary(result["errors"])
+            if result["errors"]:
+                print_error_summary(result["errors"])
 
     except Exception as e:
         error_msg = f"Fatal error during extraction 提取期间发生致命错误: {e}"

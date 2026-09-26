@@ -1,5 +1,13 @@
+import re
 import sys
 from pathlib import Path
+from typing import Optional
+
+_BOM = chr(0xFEFF)
+# A password that really starts with # is written with a leading backslash
+# (\#abc), like .gitignore; one backslash is added on save, removed on load.
+_ESCAPED_HASH_RE = re.compile(r"^\\+#")
+_NEEDS_ESCAPE_RE = re.compile(r"^\\*#")
 
 
 class PasswordBook:
@@ -17,8 +25,26 @@ class PasswordBook:
         self.password_file = tool_root / "passwords.txt"
         self.load_passwords(str(self.password_file), True)
 
-    def load_passwords(self, path: str, is_local: bool = False) -> None:
-        """Load passwords from a file 从文件加载密码"""
+    @staticmethod
+    def _password_token(line: str) -> Optional[str]:
+        """Return the password on a line, or None for blank/# comment lines."""
+        token = line.strip().strip(_BOM)  # remove BOM if any and trim
+        if not token or token.startswith("#"):
+            return None
+        if _ESCAPED_HASH_RE.match(token):
+            return token[1:]
+        return token
+
+    @staticmethod
+    def _password_line(password: str) -> str:
+        """Return the file line for a password, escaping a leading #."""
+        if _NEEDS_ESCAPE_RE.match(password):
+            return "\\" + password
+        return password
+
+    @staticmethod
+    def _read_lines(path: str) -> list[str]:
+        """Read a password book's lines, detecting its text encoding."""
         # Try multiple encodings to handle files containing Chinese characters or BOM
         encodings = [
             "utf-8-sig",  # handles BOM if present
@@ -50,19 +76,21 @@ class PasswordBook:
                 # File not found or unreadable; nothing to load
                 content_lines = []
 
-        if content_lines:
-            cleaned: list[str] = []
-            for line in content_lines:
-                token = line.strip().strip("\ufeff")  # remove BOM if any and trim
-                if not token:
-                    continue  # skip empty lines
+        return content_lines
+
+    def load_passwords(self, path: str, is_local: bool = False) -> None:
+        """Load passwords from a file 从文件加载密码"""
+        cleaned: list[str] = []
+        for line in self._read_lines(path):
+            token = self._password_token(line)  # skips empty and # comment lines
+            if token is not None:
                 cleaned.append(token)
 
-            if cleaned:
-                if is_local:
-                    self.local_entries.extend(cleaned)
-                else:
-                    self.dest_entries.extend(cleaned)
+        if cleaned:
+            if is_local:
+                self.local_entries.extend(cleaned)
+            else:
+                self.dest_entries.extend(cleaned)
 
         # make sure passwords are unique
         self.local_entries = list(set(self.local_entries))
@@ -73,9 +101,27 @@ class PasswordBook:
         if not self._has_changes and not force:
             return  # No changes to save
 
+        # Update the existing book in place so the user's comments, blank lines
+        # and ordering survive; removed passwords are dropped, new ones appended.
+        current = set(self.local_entries)
+        lines: list[str] = []
+        written: set[str] = set()
+        for line in self._read_lines(str(self.password_file)):
+            token = self._password_token(line)
+            if token is not None:
+                if token not in current:
+                    continue
+                written.add(token)
+            lines.append(line.rstrip("\r\n").lstrip(_BOM))
+        lines.extend(
+            self._password_line(entry)
+            for entry in self.local_entries
+            if entry not in written
+        )
+
         with open(self.password_file, "w", encoding="utf-8") as f:
-            for entry in self.local_entries:
-                f.write(f"{entry}\n")
+            for line in lines:
+                f.write(f"{line}\n")
 
         self._has_changes = False  # Reset change tracking after save
 

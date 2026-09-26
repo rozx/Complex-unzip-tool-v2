@@ -77,8 +77,7 @@ def _reconcile_rename_history(
         count, sample = history.revert_group(group_name)
         if count > 0:
             print_warning(
-                f"Reverted {count} rename(s) for {group_name} "
-                f"已回滚 {count} 个改名:",
+                f"Reverted {count} rename(s) for {group_name} " f"已回滚 {count} 个改名:",
                 2,
             )
             for renamed_basename, original_basename in sample:
@@ -113,17 +112,19 @@ def _maybe_recover_pending_renames(input_root: str) -> None:
         ren_basename = os.path.basename(entry["renamed"])
         orig_basename = os.path.basename(entry["original"])
         group_label = entry.get("group") or "unbound"
-        print_file_path(
-            f"{ren_basename} → {orig_basename}  ({group_label})", 1
-        )
+        print_file_path(f"{ren_basename} → {orig_basename}  ({group_label})", 1)
     if len(pending.entries) > 10:
         print_info(f"... and {len(pending.entries) - 10} more", 1)
 
     try:
-        choice = input(
-            "Revert these renames before starting? "
-            "在开始前回滚这些改名? (y/N) [default: N]: "
-        ).strip().lower()
+        choice = (
+            input(
+                "Revert these renames before starting? "
+                "在开始前回滚这些改名? (y/N) [default: N]: "
+            )
+            .strip()
+            .lower()
+        )
     except (KeyboardInterrupt, EOFError):
         choice = "n"
 
@@ -165,7 +166,25 @@ def _ask_for_user_input_and_exit(exit_code: int = 0) -> None:
     sys.exit(exit_code)
 
 
-@app.callback(invoke_without_command=True)
+def _sanitize_cli_paths(paths: List[str]) -> List[str]:
+    """Drop dash-prefixed tokens that are not existing paths.
+
+    Such tokens are mistyped/misplaced options, never real input paths.
+    """
+    kept: List[str] = []
+    for token in paths:
+        if token.startswith("-") and not os.path.exists(token):
+            print_warning(f"Ignoring unknown option 忽略未知选项: {token}")
+            continue
+        kept.append(token)
+    return kept
+
+
+# Options must be accepted after paths too (drag-and-drop puts paths first).
+@app.callback(
+    invoke_without_command=True,
+    context_settings={"allow_interspersed_args": True},
+)
 def main_callback(
     ctx: typer.Context,
     paths: Annotated[
@@ -184,12 +203,17 @@ def main_callback(
 ) -> None:
     """Complex Unzip Tool v2 - Advanced Archive Extraction Utility 复杂解压工具v2 - 高级档案提取实用程序"""
     if version:
-
         print_version(__version__)
         _ask_for_user_input_and_exit()
 
     # If no command is provided, run the default extract command
     if ctx.invoked_subcommand is None:
+        # The variadic `paths` argument swallows subcommand names, so dispatch
+        # `version` here unless it names a real file/folder.
+        if paths == ["version"] and not os.path.exists("version"):
+            version_command()
+            return
+        paths = _sanitize_cli_paths(paths or [])
         if paths:
             try:
                 archive_utils.resolve_seven_zip_path()
@@ -204,8 +228,8 @@ def main_callback(
             _ask_for_user_input_and_exit()
 
 
-@app.command()
-def version() -> None:
+@app.command("version")
+def version_command() -> None:
     """Show version information 显示版本信息"""
 
     print_version(__version__)
@@ -235,14 +259,10 @@ def extract_files(paths: List[str], use_recycle_bin: bool = True) -> None:
     init_statistics()
 
     # Header with fancy border
-    print_header(
-        f"🚀 Starting Complex Unzip Tool v2 启动复杂解压工具v2 v{__version__} By Rozx"
-    )
+    print_header(f"🚀 Starting Complex Unzip Tool v2 启动复杂解压工具v2 v{__version__} By Rozx")
 
     # Derive input root for the rename-history persistence file
-    input_root = (
-        paths[0] if os.path.isdir(paths[0]) else os.path.dirname(paths[0])
-    )
+    input_root = paths[0] if os.path.isdir(paths[0]) else os.path.dirname(paths[0])
 
     # Recovery: prompt to revert any leftover renames from a crashed run
     _maybe_recover_pending_renames(input_root)
@@ -331,9 +351,7 @@ def extract_files(paths: List[str], use_recycle_bin: bool = True) -> None:
     # Step 7: Processing single archives first 首先处理单一档案
     print_step(7, "🔧 Processing single archives first 首先处理单一档案")
 
-    print_info(
-        "📝 Processing single archive to extract containers 处理单一档案以提取容器..."
-    )
+    print_info("📝 Processing single archive to extract containers 处理单一档案以提取容器...")
 
     # Get single archives for progress tracking
     single_archives = [group for group in groups if not group.isMultiPart]
@@ -379,9 +397,7 @@ def extract_files(paths: List[str], use_recycle_bin: bool = True) -> None:
 
             try:
                 # Start loading indicator for extraction
-                loader = create_spinner(
-                    f"Extracting {group.name} 正在提取 {group.name}..."
-                )
+                loader = create_spinner(f"Extracting {group.name} 正在提取 {group.name}...")
                 loader.start()
 
                 result = archive_utils.extract_nested_archives(
@@ -392,7 +408,7 @@ def extract_files(paths: List[str], use_recycle_bin: bool = True) -> None:
                     cleanup_archives=True,
                     loading_indicator=loader,
                     active_progress_bars=[extraction_progress],
-                    use_recycle_bin=False,
+                    use_recycle_bin=use_recycle_bin,
                     group_relocator=lambda p: bool(
                         file_utils.add_file_to_groups(p, groups)
                     ),
@@ -416,9 +432,7 @@ def extract_files(paths: List[str], use_recycle_bin: bool = True) -> None:
                             final_files_raw.copy()
                         )  # Make a copy to safely modify
 
-                        print_success(
-                            f"Successfully extracted 成功提取: {group.name}", 2
-                        )
+                        print_success(f"Successfully extracted 成功提取: {group.name}", 2)
 
                         # Move files to output folder (relocation to groups happens after this step)
                         if final_files:
@@ -517,9 +531,7 @@ def extract_files(paths: List[str], use_recycle_bin: bool = True) -> None:
                         try:
                             if os.path.exists(extraction_temp_path):
                                 shutil.rmtree(extraction_temp_path)
-                                print_success(
-                                    "Cleaned up temporary folder 已清理临时文件夹", 2
-                                )
+                                print_success("Cleaned up temporary folder 已清理临时文件夹", 2)
                         except Exception as e:
                             print_warning(
                                 f"Could not remove temp folder 无法删除临时文件夹: {e}",
@@ -584,12 +596,14 @@ def extract_files(paths: List[str], use_recycle_bin: bool = True) -> None:
                         extraction_progress.complete_group(success=False)
 
                 else:
-                    print_error(f"Failed to extract 提取失败: {group.name}", 2)
+                    skipped = bool(result and result.get("skipped_non_archive"))
+                    if not skipped:
+                        print_error(f"Failed to extract 提取失败: {group.name}", 2)
                     if os.path.exists(extraction_temp_path):
                         shutil.rmtree(extraction_temp_path)
                     _reconcile_rename_history(rename_history, group.name, None)
                     groups.remove(group)
-                    extraction_progress.complete_group(success=False)
+                    extraction_progress.complete_group(success=False, skipped=skipped)
                     print_minor_section_break()
 
             except Exception as e:
@@ -631,7 +645,7 @@ def extract_files(paths: List[str], use_recycle_bin: bool = True) -> None:
                             cleanup_archives=True,
                             loading_indicator=retry_loader,
                             active_progress_bars=[extraction_progress],
-                            use_recycle_bin=False,
+                            use_recycle_bin=use_recycle_bin,
                             group_relocator=lambda p: bool(
                                 file_utils.add_file_to_groups(p, groups)
                             ),
@@ -865,7 +879,7 @@ def extract_files(paths: List[str], use_recycle_bin: bool = True) -> None:
                     cleanup_archives=True,
                     loading_indicator=loader,
                     active_progress_bars=[multipart_progress],
-                    use_recycle_bin=False,
+                    use_recycle_bin=use_recycle_bin,
                     group_relocator=lambda p: bool(
                         file_utils.add_file_to_groups(p, groups)
                     ),
@@ -884,9 +898,7 @@ def extract_files(paths: List[str], use_recycle_bin: bool = True) -> None:
 
                     # Type guard to ensure we have a list
                     if isinstance(final_files_raw, list):
-                        print_success(
-                            f"Successfully extracted 成功提取: {group.name}", 2
-                        )
+                        print_success(f"Successfully extracted 成功提取: {group.name}", 2)
                         print_processing_separator()
 
                         final_files = (
@@ -1044,7 +1056,9 @@ def extract_files(paths: List[str], use_recycle_bin: bool = True) -> None:
                         multipart_progress.complete_group(success=False)
                         print_minor_section_break()
                 else:
-                    print_error(f"Failed to extract 提取失败: {group.name}", 2)
+                    skipped = bool(result and result.get("skipped_non_archive"))
+                    if not skipped:
+                        print_error(f"Failed to extract 提取失败: {group.name}", 2)
                     if os.path.exists(extraction_temp_path):
                         shutil.rmtree(extraction_temp_path)
                         print_info(
@@ -1053,7 +1067,7 @@ def extract_files(paths: List[str], use_recycle_bin: bool = True) -> None:
                         )
                     _reconcile_rename_history(rename_history, group.name, None)
                     groups.remove(group)
-                    multipart_progress.complete_group(success=False)
+                    multipart_progress.complete_group(success=False, skipped=skipped)
                     print_minor_section_break()
 
             except Exception as e:
@@ -1095,7 +1109,7 @@ def extract_files(paths: List[str], use_recycle_bin: bool = True) -> None:
                             cleanup_archives=True,
                             loading_indicator=retry_loader,
                             active_progress_bars=[multipart_progress],
-                            use_recycle_bin=False,
+                            use_recycle_bin=use_recycle_bin,
                             group_relocator=lambda p: bool(
                                 file_utils.add_file_to_groups(p, groups)
                             ),

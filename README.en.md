@@ -9,7 +9,7 @@
 
 **One-click extraction for disguised ("cloaked") archives downloaded from cloud drives — built for 百度网盘 / Baidu Netdisk.**
 
-**v1.3.0** adds macOS / Linux support, bundles 7-Zip 26.03, and fixes password-book locations, single-file multipart cleanup, and redirected Windows output. See the [1.3.0 release notes](ReleaseNotes/RELEASE_NOTES_v1.3.0.md).
+**v1.3.1** stops executables, documents and app packages inside archives from being unpacked and deleted, makes nested-archive cleanup recoverable, adds `#` comments to `passwords.txt`, stops reporting readme files as errors, and accepts options after paths. See the [1.3.1 release notes](ReleaseNotes/RELEASE_NOTES_v1.3.1.md).
 
 ---
 
@@ -32,17 +32,17 @@ This tool automatically **restores the real filenames (uncloaks)**, **regroups**
 On macOS / Linux, extract the matching `.tar.gz` and run the program in a terminal. This example uses an Apple Silicon Mac; substitute the package name for your platform:
 
 ```bash
-tar -xzf complex-unzip-tool-v2-v1.3.0-macos-arm64.tar.gz
+tar -xzf complex-unzip-tool-v2-v1.3.1-macos-arm64.tar.gz
 ./complex-unzip-tool-v2 "$HOME/Downloads/Archives"
 ```
 
-| Platform | v1.3.0 package | Bundled 7-Zip 26.03 |
+| Platform | v1.3.1 package | Bundled 7-Zip 26.03 |
 | --- | --- | --- |
-| Windows x64 | `complex-unzip-tool-v2-v1.3.0-windows-x64.zip` | `7z.exe` + `7z.dll` |
-| macOS Intel | `complex-unzip-tool-v2-v1.3.0-macos-x64.tar.gz` | Universal `7zz` |
-| macOS Apple Silicon | `complex-unzip-tool-v2-v1.3.0-macos-arm64.tar.gz` | Universal `7zz` |
-| Linux x64 | `complex-unzip-tool-v2-v1.3.0-linux-x64.tar.gz` | Static `7zzs` |
-| Linux ARM64 | `complex-unzip-tool-v2-v1.3.0-linux-arm64.tar.gz` | Static `7zzs` |
+| Windows x64 | `complex-unzip-tool-v2-v1.3.1-windows-x64.zip` | `7z.exe` + `7z.dll` |
+| macOS Intel | `complex-unzip-tool-v2-v1.3.1-macos-x64.tar.gz` | Universal `7zz` |
+| macOS Apple Silicon | `complex-unzip-tool-v2-v1.3.1-macos-arm64.tar.gz` | Universal `7zz` |
+| Linux x64 | `complex-unzip-tool-v2-v1.3.1-linux-x64.tar.gz` | Static `7zzs` |
+| Linux ARM64 | `complex-unzip-tool-v2-v1.3.1-linux-arm64.tar.gz` | Static `7zzs` |
 
 Packages include Python and 7-Zip, so no separate installation or runtime engine download is required. Each package includes documentation and licenses; the release also includes `SHA256SUMS`. See [7z/README.md](7z/README.md) for upstream sources, checksums, and licenses.
 
@@ -75,15 +75,19 @@ Many netdisk archives are password-protected. Put your passwords in a `passwords
 1. **Target directory** — place `passwords.txt` in the folder you pass to the tool (or next to the file you pass). Best for passwords specific to that batch of files.
 2. **Tool directory** — place `passwords.txt` next to the executable (`.exe` on Windows; `complex-unzip-tool-v2` on macOS / Linux). Source runs use the project root. This location is independent of the working directory and drag-and-drop launch behavior.
 
-**File format** (one password per line; blank lines ignored; duplicates removed automatically):
+**File format** (one password per line; blank lines ignored; lines starting with `#` are comments; write a password that starts with `#` as `\#`; duplicates removed automatically):
 
 ```text
+# common passwords
 123456
 www.example.com
 mypassword
+\#password-starting-with-hash
 ```
 
-- 📝 **Auto-learn**: passwords cracked during a run are written back to the tool-directory `passwords.txt` for reuse next time.
+If a password itself starts with `#`, write it with a leading backslash: `\#abc` means the password `#abc`. Auto-saved passwords are escaped automatically. When upgrading, check your book for passwords that start with `#` and escape them this way.
+
+- 📝 **Auto-learn**: passwords cracked during a run are appended to the tool-directory `passwords.txt` for reuse next time; existing comments and order are kept, and passwords starting with `#` are saved as `\#`.
 - The target-directory password book is read only, unless it is also the tool-directory book. If the tool directory is not writable, the program warns and completes extraction cleanup; move it to a writable directory to save new passwords. Builds do not embed personal password books.
 - 🈶 **Encoding-aware**: auto-detects UTF-8 / GBK / GB2312 / Big5 / UTF-16 (with BOM), so Chinese passwords work without mojibake.
 
@@ -153,7 +157,7 @@ New commits cancel older CI runs for the same branch or PR event. Release builds
 2. The PR has the `release` label at merge time.
 3. The PR is merged into `main`.
 
-Before merging, check that `pyproject.toml`, package `__version__`, and `.bumpversion.cfg` agree on an unpublished stable `X.Y.Z`. Use `poetry run bump-minor`, `poetry run bump-patch`, or the other bump commands when preparing subsequent versions. The branch name controls eligibility; the project version supplies the tag, such as `v1.3.0`. Include the matching notes in the same PR; the 1.3.0 notes are in [ReleaseNotes/RELEASE_NOTES_v1.3.0.md](ReleaseNotes/RELEASE_NOTES_v1.3.0.md). Missing or empty notes fail before platform builds start.
+Before merging, check that `pyproject.toml`, package `__version__`, and `.bumpversion.cfg` agree on an unpublished stable `X.Y.Z`. Use `poetry run bump-minor`, `poetry run bump-patch`, or the other bump commands when preparing subsequent versions. The branch name controls eligibility; the project version supplies the tag, such as `v1.3.1`. Include the matching notes in the same PR; the 1.3.1 notes are in [ReleaseNotes/RELEASE_NOTES_v1.3.1.md](ReleaseNotes/RELEASE_NOTES_v1.3.1.md). Missing or empty notes fail before platform builds start.
 
 Check the version and notes locally before committing:
 

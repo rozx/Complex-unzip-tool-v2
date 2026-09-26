@@ -1,7 +1,7 @@
 # multipart-format-detection Specification
 
 ## Purpose
-TBD - created by archiving change expand-multipart-format-detection. Update Purpose after archive.
+Recognize every supported multi-volume naming scheme, grouping each set by format family and entering it only through its primary volume, without misgrouping or deleting ordinary numbered files.
 ## Requirements
 ### Requirement: Recognize 7-Zip generic numbered volume splits for any base extension
 

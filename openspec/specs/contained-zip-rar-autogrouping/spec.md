@@ -1,7 +1,7 @@
 # contained-zip-rar-autogrouping Specification
 
 ## Purpose
-TBD - created by archiving change auto-group-contained-zip-rar-volumes. Update Purpose after archive.
+Register multi-volume sets (spanned ZIP, RAR, ZIPX, ARJ, ACE and generic numbered splits) that appear after extracting a container as multipart groups, so they are extracted in the same run.
 ## Requirements
 ### Requirement: Auto-group spanned ZIP sets discovered from containers
 

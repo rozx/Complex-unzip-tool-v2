@@ -9,7 +9,7 @@
 
 **一键解压从网盘下载的"伪装"压缩包 —— 专为百度网盘等网盘场景打造。**
 
-**v1.3.0**：新增 macOS / Linux 支持，内置 7-Zip 26.03，修复密码本位置、单文件分卷清理和 Windows 重定向输出。详见 [1.3.0 发布说明](ReleaseNotes/RELEASE_NOTES_v1.3.0.md)。
+**v1.3.1**：档案内的可执行文件、文档和程序包不再被误解压并删除，嵌套档案清理改为可恢复；`passwords.txt` 支持 `#` 注释；说明文件等非档案不再报错；选项可写在路径之后。详见 [1.3.1 发布说明](ReleaseNotes/RELEASE_NOTES_v1.3.1.md)。
 
 ---
 
@@ -32,17 +32,17 @@
 macOS / Linux 下载对应的 `.tar.gz`，解开后在终端运行。以下以 Apple Silicon Mac 为例，其他平台请替换包名：
 
 ```bash
-tar -xzf complex-unzip-tool-v2-v1.3.0-macos-arm64.tar.gz
+tar -xzf complex-unzip-tool-v2-v1.3.1-macos-arm64.tar.gz
 ./complex-unzip-tool-v2 "$HOME/Downloads/Archives"
 ```
 
-| 平台 | v1.3.0 发布包 | 内置 7-Zip 26.03 |
+| 平台 | v1.3.1 发布包 | 内置 7-Zip 26.03 |
 | --- | --- | --- |
-| Windows x64 | `complex-unzip-tool-v2-v1.3.0-windows-x64.zip` | `7z.exe` + `7z.dll` |
-| macOS Intel | `complex-unzip-tool-v2-v1.3.0-macos-x64.tar.gz` | 通用二进制 `7zz` |
-| macOS Apple Silicon | `complex-unzip-tool-v2-v1.3.0-macos-arm64.tar.gz` | 通用二进制 `7zz` |
-| Linux x64 | `complex-unzip-tool-v2-v1.3.0-linux-x64.tar.gz` | 静态二进制 `7zzs` |
-| Linux ARM64 | `complex-unzip-tool-v2-v1.3.0-linux-arm64.tar.gz` | 静态二进制 `7zzs` |
+| Windows x64 | `complex-unzip-tool-v2-v1.3.1-windows-x64.zip` | `7z.exe` + `7z.dll` |
+| macOS Intel | `complex-unzip-tool-v2-v1.3.1-macos-x64.tar.gz` | 通用二进制 `7zz` |
+| macOS Apple Silicon | `complex-unzip-tool-v2-v1.3.1-macos-arm64.tar.gz` | 通用二进制 `7zz` |
+| Linux x64 | `complex-unzip-tool-v2-v1.3.1-linux-x64.tar.gz` | 静态二进制 `7zzs` |
+| Linux ARM64 | `complex-unzip-tool-v2-v1.3.1-linux-arm64.tar.gz` | 静态二进制 `7zzs` |
 
 发布包已包含 Python 和 7-Zip，无需另行安装，运行时不联网下载引擎。每个包附带说明和许可证，Release 另附 `SHA256SUMS`。二进制来源、校验值和许可证见 [7z/README.md](7z/README.md)。
 
@@ -75,15 +75,19 @@ complex-unzip-tool-v2.exe "D:\file.zip" "D:\movie.7z.001"
 1. **目标目录（待解压文件夹）** —— 把 `passwords.txt` 放在你传给工具的文件夹里，或与待解压文件同级目录。适合「这批文件专用」的密码。
 2. **工具目录** —— 把 `passwords.txt` 放在可执行文件旁（Windows 为 `.exe`；macOS / Linux 为 `complex-unzip-tool-v2`）。源码运行时使用项目根目录。该位置不受当前工作目录或拖放启动方式影响。
 
-**文件格式**（每行一个密码，空行忽略，自动去重）：
+**文件格式**（每行一个密码，空行忽略，以 `#` 开头的行为注释，以 `#` 开头的密码写成 `\#`，自动去重）：
 
 ```text
+# 常用弱口令
 123456
 www.example.com
 mypassword
+\#以井号开头的密码
 ```
 
-- 📝 **自动记忆**：运行中新破解出的密码会自动写回工具目录的 `passwords.txt`，下次直接复用。
+密码本身以 `#` 开头时，请在前面加反斜杠写成 `\#`（如 `\#abc` 表示密码 `#abc`）；自动保存的密码会自动转义。从旧版本升级时，请检查密码本中是否有以 `#` 开头的密码，并按此方式修改。
+
+- 📝 **自动记忆**：运行中新破解出的密码会自动追加到工具目录的 `passwords.txt`，下次直接复用；已有的注释和顺序保持不变，以 `#` 开头的密码会自动保存为 `\#`。
 - 目标目录的密码本仅作为读取来源（与工具目录相同时除外）。工具目录不可写时会提示保存失败，仍会完成解压收尾；请将程序放到可写目录以保存新密码。构建不会将个人密码本内嵌到程序中。
 - 🈶 **编码自适应**：自动识别 UTF-8 / GBK / GB2312 / Big5 / UTF-16（含 BOM），中文密码无需担心乱码。
 
@@ -153,7 +157,7 @@ poetry run build
 2. PR 在合并时带有 `release` 标签。
 3. PR 被合并到 `main`。
 
-合并前，确认 `pyproject.toml`、包内 `__version__` 和 `.bumpversion.cfg` 使用一致且尚未发布的 `X.Y.Z`。准备后续版本时，可通过 `poetry run bump-minor`、`poetry run bump-patch` 等命令升版。分支名只控制触发，发布标签取自项目版本，例如 `v1.3.0`。同一 PR 必须包含对应的发布说明；1.3.0 的说明位于 [ReleaseNotes/RELEASE_NOTES_v1.3.0.md](ReleaseNotes/RELEASE_NOTES_v1.3.0.md)。文件缺失或为空时，会在平台构建前报错。
+合并前，确认 `pyproject.toml`、包内 `__version__` 和 `.bumpversion.cfg` 使用一致且尚未发布的 `X.Y.Z`。准备后续版本时，可通过 `poetry run bump-minor`、`poetry run bump-patch` 等命令升版。分支名只控制触发，发布标签取自项目版本，例如 `v1.3.1`。同一 PR 必须包含对应的发布说明；1.3.1 的说明位于 [ReleaseNotes/RELEASE_NOTES_v1.3.1.md](ReleaseNotes/RELEASE_NOTES_v1.3.1.md)。文件缺失或为空时，会在平台构建前报错。
 
 提交前可本地检查版本和发布说明：
 

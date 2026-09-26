@@ -1,7 +1,7 @@
 # multipart-retention Specification
 
 ## Purpose
-TBD - created by archiving change prevent-multipart-deletion-on-failure. Update Purpose after archive.
+Keep all source volumes of a multipart archive when its extraction fails, so the user can add missing parts or passwords and retry.
 ## Requirements
 ### Requirement: Preserve multipart source volumes on extraction failure
 When extracting multipart archives, if extraction fails for any reason (missing volumes, bad password, I/O error), the tool MUST NOT delete, recycle, or move away the source multipart files. Only temporary files created by the tool during the current run MAY be cleaned.
