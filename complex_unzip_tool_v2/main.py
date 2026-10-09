@@ -5,7 +5,7 @@ import shutil
 import sys
 import platform
 import typer
-from typing import List, Optional, Annotated
+from typing import List, Optional, Annotated, cast
 from . import __version__
 
 from .modules import (
@@ -289,7 +289,6 @@ def extract_files(paths: List[str], use_recycle_bin: bool = True) -> None:
     loader = create_spinner("Loading passwords 正在加载密码...")
     loader.start()
     passwordBook = password_util.load_all_passwords(paths)
-    user_provided_passwords = []
     loader.stop()
 
     print_success(
@@ -418,9 +417,9 @@ def extract_files(paths: List[str], use_recycle_bin: bool = True) -> None:
 
                 # Check if extraction was successful and result contains expected data
                 if result and result.get("success", False):
-                    # add user provided passwords
-                    user_provided_passwords.extend(
-                        result.get("user_provided_passwords", [])
+                    # Make entered passwords available to the next archive group.
+                    passwordBook.add_passwords(
+                        cast(List[str], result.get("user_provided_passwords", []))
                     )
 
                     # Successfully extracted nested archives
@@ -655,9 +654,12 @@ def extract_files(paths: List[str], use_recycle_bin: bool = True) -> None:
 
                         # Check if retry extraction was successful
                         if retry_result and retry_result.get("success", False):
-                            # add user provided passwords from retry
-                            user_provided_passwords.extend(
-                                retry_result.get("user_provided_passwords", [])
+                            # Reuse retry-entered passwords in later archive groups.
+                            passwordBook.add_passwords(
+                                cast(
+                                    List[str],
+                                    retry_result.get("user_provided_passwords", []),
+                                )
                             )
 
                             # Process files from retry result
@@ -817,10 +819,6 @@ def extract_files(paths: List[str], use_recycle_bin: bool = True) -> None:
         print_info("No multipart parts to relocate 无需移动的分卷")
     print_minor_section_break()
 
-    # add user provided passwords to password book
-    if user_provided_passwords:
-        passwordBook.add_passwords(user_provided_passwords)
-
     # Step 8: Then handle multipart archives 然后处理多部分档案
     print_step(8, "🔗 Processing multipart archives 处理多部分档案")
 
@@ -888,9 +886,9 @@ def extract_files(paths: List[str], use_recycle_bin: bool = True) -> None:
                 loader.stop()
 
                 if result and result.get("success", False):
-                    # add user provided passwords
-                    user_provided_passwords.extend(
-                        result.get("user_provided_passwords", [])
+                    # Make entered passwords available to the next archive group.
+                    passwordBook.add_passwords(
+                        cast(List[str], result.get("user_provided_passwords", []))
                     )
 
                     # Successfully extracted nested archives
@@ -1119,9 +1117,12 @@ def extract_files(paths: List[str], use_recycle_bin: bool = True) -> None:
 
                         # Check if retry extraction was successful
                         if retry_result and retry_result.get("success", False):
-                            # add user provided passwords from retry
-                            user_provided_passwords.extend(
-                                retry_result.get("user_provided_passwords", [])
+                            # Reuse retry-entered passwords in later archive groups.
+                            passwordBook.add_passwords(
+                                cast(
+                                    List[str],
+                                    retry_result.get("user_provided_passwords", []),
+                                )
                             )
 
                             # Process files from retry result
@@ -1278,10 +1279,6 @@ def extract_files(paths: List[str], use_recycle_bin: bool = True) -> None:
     else:
         print_info("No multipart archives found 未找到多部分档案")
         print_minor_section_break()
-
-    # add user provided password to password book
-    if user_provided_passwords:
-        passwordBook.add_passwords(user_provided_passwords)
 
     # Step 9: Final summary 最终摘要
     print_step(9, "📊 Final summary 最终摘要")

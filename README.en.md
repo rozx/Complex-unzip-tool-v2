@@ -87,7 +87,7 @@ mypassword
 
 If a password itself starts with `#`, write it with a leading backslash: `\#abc` means the password `#abc`. Auto-saved passwords are escaped automatically. When upgrading, check your book for passwords that start with `#` and escape them this way.
 
-- 📝 **Auto-learn**: passwords cracked during a run are appended to the tool-directory `passwords.txt` for reuse next time; existing comments and order are kept, and passwords starting with `#` are saved as `\#`.
+- 📝 **Auto-learn**: manually entered passwords that successfully extract an archive are immediately reused for later single, multipart, and nested archives in the same run. New passwords are appended to the tool-directory `passwords.txt` when the run finishes; existing comments and order are kept, and passwords starting with `#` are saved as `\#`.
 - The target-directory password book is read only, unless it is also the tool-directory book. If the tool directory is not writable, the program warns and completes extraction cleanup; move it to a writable directory to save new passwords. Builds do not embed personal password books.
 - 🈶 **Encoding-aware**: auto-detects UTF-8 / GBK / GB2312 / Big5 / UTF-16 (with BOM), so Chinese passwords work without mojibake.
 
